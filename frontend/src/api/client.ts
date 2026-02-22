@@ -22,8 +22,11 @@ export const api = {
     fetch(`/api/brands/${brandId}/upload`, { method: 'POST', body: formData }).then(r => r.json()),
 
   listPlans: (brandId: string) => request(`/api/brands/${brandId}/plans`),
-  createPlan: (brandId: string, numDays = 7) =>
-    request(`/api/brands/${brandId}/plans`, { method: 'POST', body: JSON.stringify({ num_days: numDays }) }),
+  createPlan: (brandId: string, numDays = 7, businessEvents?: string) =>
+    request(`/api/brands/${brandId}/plans`, {
+      method: 'POST',
+      body: JSON.stringify({ num_days: numDays, business_events: businessEvents || null }),
+    }),
   getPlan: (brandId: string, planId: string) => request(`/api/brands/${brandId}/plans/${planId}`),
   updateDay: (brandId: string, planId: string, dayIndex: number, data: object) =>
     request(`/api/brands/${brandId}/plans/${planId}/days/${dayIndex}`, { method: 'PUT', body: JSON.stringify(data) }),

@@ -26,6 +26,7 @@ export interface DayBrief {
   image_prompt: string
   hashtags: string[]
   derivative_type?: string
+  event_anchor?: string | null
 }
 
 interface Props {
@@ -125,6 +126,18 @@ function DayCard({ day, dayName, onGenerate }: DayCardProps) {
         >
           {day.pillar?.replace(/_/g, ' ')}
         </div>
+
+        {/* Event anchor badge */}
+        {day.event_anchor && (
+          <div style={{
+            fontSize: 10, color: A.amber, background: A.amber + '15',
+            padding: '2px 6px', borderRadius: 8, marginTop: 4,
+            border: `1px solid ${A.amber}30`,
+            display: 'inline-block', marginBottom: 8,
+          }}>
+            📅 {day.event_anchor}
+          </div>
+        )}
 
         {/* Theme */}
         <p

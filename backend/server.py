@@ -326,6 +326,7 @@ from pydantic import BaseModel as _PydanticBaseModel
 
 class CreatePlanBody(_PydanticBaseModel):
     num_days: int = 7
+    business_events: str | None = None
 
 
 @app.get("/api/brands/{brand_id}/plans")
@@ -345,7 +346,7 @@ async def create_plan(brand_id: str, body: CreatePlanBody = Body(CreatePlanBody(
     num_days = max(1, min(body.num_days, 30))
 
     try:
-        days = await run_strategy(brand_id, brand, num_days)
+        days = await run_strategy(brand_id, brand, num_days, business_events=body.business_events)
     except Exception as e:
         logger.error(f"Strategy agent error for brand {brand_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -355,6 +356,7 @@ async def create_plan(brand_id: str, body: CreatePlanBody = Body(CreatePlanBody(
         "num_days": num_days,
         "status": "complete",
         "days": days,
+        "business_events": body.business_events,
     }
 
     try:
