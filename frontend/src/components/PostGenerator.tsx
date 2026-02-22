@@ -24,6 +24,15 @@ const PLATFORM_ICONS: Record<string, string> = {
 
 const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
 
+const PLATFORM_LIMITS: Record<string, { captionMax: number; foldAt?: number; hashtagMax?: number }> = {
+  instagram: { captionMax: 2200, hashtagMax: 30 },
+  linkedin: { captionMax: 3000, foldAt: 140 },
+  x: { captionMax: 280 },
+  twitter: { captionMax: 280 },
+  tiktok: { captionMax: 2200 },
+  facebook: { captionMax: 63206 },
+}
+
 export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -150,6 +159,15 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
               </button>
             )}
           </div>
+
+          {/* Platform character count + fold/truncation indicators */}
+          {status === 'complete' && caption && dayBrief?.platform && (
+            <PlatformCharMeta
+              platform={dayBrief.platform.toLowerCase()}
+              caption={caption}
+              hashtagCount={hashtags.length}
+            />
+          )}
 
           {/* Hashtags */}
           {hashtags.length > 0 && (
@@ -307,6 +325,81 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
         </div>
 
       </div>
+    </div>
+  )
+}
+
+function PlatformCharMeta({ platform, caption, hashtagCount }: {
+  platform: string
+  caption: string
+  hashtagCount: number
+}) {
+  const limits = PLATFORM_LIMITS[platform]
+  if (!limits) return null
+
+  const len = caption.length
+  const max = limits.captionMax
+  const overLimit = len > max
+  const pct = Math.min((len / max) * 100, 100)
+
+  // Bar color: green < 80%, amber 80–100%, red > 100%
+  const barColor = overLimit ? '#ef4444' : pct >= 80 ? A.amber : A.emerald
+
+  return (
+    <div style={{
+      padding: '8px 10px', borderRadius: 8,
+      background: A.surface, border: `1px solid ${A.border}`,
+      display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      {/* Progress bar */}
+      <div style={{ height: 4, borderRadius: 2, background: A.border }}>
+        <div style={{
+          height: 4, borderRadius: 2,
+          width: `${pct}%`,
+          background: barColor,
+          transition: 'width 0.3s ease, background 0.3s ease',
+        }} />
+      </div>
+
+      {/* Count row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: overLimit ? '#ef4444' : A.textMuted, fontVariantNumeric: 'tabular-nums' }}>
+          {len.toLocaleString()} / {max.toLocaleString()} chars
+          {overLimit && ' ⚠️ Over limit'}
+        </span>
+
+        {/* Instagram hashtag count */}
+        {platform === 'instagram' && limits.hashtagMax && (
+          <span style={{
+            fontSize: 11,
+            color: hashtagCount > limits.hashtagMax ? '#ef4444' : A.textMuted,
+          }}>
+            {hashtagCount} / {limits.hashtagMax} hashtags
+          </span>
+        )}
+      </div>
+
+      {/* LinkedIn fold indicator */}
+      {platform === 'linkedin' && limits.foldAt && len > limits.foldAt && (
+        <div style={{
+          fontSize: 11, color: A.amber,
+          padding: '4px 8px', borderRadius: 4,
+          background: `${A.amber}18`, border: `1px solid ${A.amber}30`,
+        }}>
+          ⚠️ First {limits.foldAt} chars show above "see more" fold — hook must be here
+        </div>
+      )}
+
+      {/* X truncation warning */}
+      {(platform === 'x' || platform === 'twitter') && overLimit && (
+        <div style={{
+          fontSize: 11, color: '#ef4444',
+          padding: '4px 8px', borderRadius: 4,
+          background: '#fef2f2', border: '1px solid #fecaca',
+        }}>
+          Caption will be truncated at 280 characters on X
+        </div>
+      )}
     </div>
   )
 }
