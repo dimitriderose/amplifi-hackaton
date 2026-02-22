@@ -25,7 +25,7 @@ const FEATURES = [
   {
     icon: '🎬',
     title: 'Video Generation',
-    desc: '8-second Reels and TikTok clips via Veo 3.1, using your hero image as the first frame.',
+    desc: '8-second Reels and TikTok clips via Veo 3, using your hero image as the first frame — coming soon.',
   },
   {
     icon: '✓',
@@ -237,7 +237,7 @@ export default function LandingPage() {
         }}>
           From zero to a week of brand-consistent content in under 3 minutes.
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
           {STEPS.map(({ n, title, desc }) => (
             <div key={n} style={{
               padding: 28,
@@ -286,7 +286,7 @@ export default function LandingPage() {
             </span>
           </div>
           {/* Mini calendar cards */}
-          <div style={{ padding: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          <div style={{ padding: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
             {PREVIEW_DAYS.map((d, i) => (
               <div key={i} style={{
                 borderRadius: 10,
@@ -365,7 +365,7 @@ export default function LandingPage() {
         }}>
           Six capabilities working together to make every post feel hand-crafted.
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
           {FEATURES.map(({ icon, title, desc }) => (
             <div key={title} style={{
               padding: 24,
@@ -416,7 +416,7 @@ export default function LandingPage() {
           Get Started Free →
         </button>
         <p style={{ fontSize: 12, color: A.textMuted, marginTop: 16 }}>
-          Powered by Gemini 2.5 Flash · Veo 3.1 · Google Cloud
+          Powered by Gemini 2.5 Flash · Google Cloud
         </p>
       </section>
 
