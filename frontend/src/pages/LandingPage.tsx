@@ -25,7 +25,7 @@ const FEATURES = [
   {
     icon: '🎬',
     title: 'Video Generation',
-    desc: '8-second Reels and TikTok clips via Veo 3, using your hero image as the first frame — coming soon.',
+    desc: '8-second Reels and TikTok clips via Veo 3, using your hero image as the first frame.',
   },
   {
     icon: '✓',

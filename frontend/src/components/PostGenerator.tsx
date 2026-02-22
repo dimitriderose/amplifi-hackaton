@@ -1,5 +1,6 @@
 import { A } from '../theme'
 import { GenerationState } from '../hooks/usePostGeneration'
+import { useVideoGeneration } from '../hooks/useVideoGeneration'
 
 interface Props {
   state: GenerationState
@@ -8,6 +9,7 @@ interface Props {
     pillar: string
     content_theme: string
   }
+  brandId?: string
   onApprove?: (postId: string) => void
   onRegenerate?: () => void
 }
@@ -19,7 +21,9 @@ const PLATFORM_ICONS: Record<string, string> = {
   facebook: '👥',
 }
 
-export default function PostGenerator({ state, dayBrief, onApprove, onRegenerate }: Props) {
+const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
+
+export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
   const { status, statusMessage, captionChunks, caption, hashtags, imageUrl, postId, error } = state
 
   const displayCaption = status === 'generating' && captionChunks.length > 0
@@ -27,6 +31,12 @@ export default function PostGenerator({ state, dayBrief, onApprove, onRegenerate
     : caption
 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
+
+  const showVideoButton = status === 'complete' && postId && brandId &&
+    VIDEO_PLATFORMS.has(dayBrief?.platform?.toLowerCase() ?? '')
+
+  const { status: videoStatus, videoUrl, progress, error: videoError, startGeneration } =
+    useVideoGeneration(postId ?? '', brandId ?? '')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -146,6 +156,77 @@ export default function PostGenerator({ state, dayBrief, onApprove, onRegenerate
                 >
                   ↺ Regenerate
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* Video generation — only for video-eligible platforms */}
+          {showVideoButton && (
+            <div style={{
+              marginTop: 4, padding: '12px 14px', borderRadius: 10,
+              border: `1px solid ${A.border}`, background: A.surfaceAlt,
+            }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: '0 0 8px' }}>
+                🎬 Video Clip (Veo 3)
+              </p>
+
+              {videoStatus === 'idle' && (
+                <button
+                  onClick={() => startGeneration('fast')}
+                  style={{
+                    width: '100%', padding: '8px', borderRadius: 7, border: 'none',
+                    background: `linear-gradient(135deg, ${A.violet}, ${A.indigo})`,
+                    color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Generate 8-sec Clip →
+                </button>
+              )}
+
+              {videoStatus === 'generating' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: A.textMuted }}>Generating… (~2.5 min)</span>
+                    <span style={{ fontSize: 11, color: A.textMuted }}>{Math.round(progress)}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: A.border }}>
+                    <div style={{
+                      height: 6, borderRadius: 3,
+                      background: `linear-gradient(90deg, ${A.violet}, ${A.indigo})`,
+                      width: `${progress}%`,
+                      transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              {videoStatus === 'complete' && videoUrl && (
+                <video
+                  src={videoUrl}
+                  controls
+                  autoPlay
+                  muted
+                  loop
+                  style={{ width: '100%', borderRadius: 8, marginTop: 4 }}
+                />
+              )}
+
+              {videoStatus === 'error' && (
+                <div>
+                  <p style={{ fontSize: 11, color: A.coral, margin: '0 0 6px' }}>
+                    {videoError || 'Video generation failed'}
+                  </p>
+                  <button
+                    onClick={() => startGeneration('fast')}
+                    style={{
+                      fontSize: 11, color: A.coral, background: 'transparent',
+                      border: `1px solid ${A.coral}40`, borderRadius: 6,
+                      padding: '4px 10px', cursor: 'pointer',
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
               )}
             </div>
           )}
