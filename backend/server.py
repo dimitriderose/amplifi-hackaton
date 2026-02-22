@@ -17,6 +17,7 @@ from backend.services.storage_client import (
     upload_brand_asset,
     get_signed_url,
     download_from_gcs,
+    upload_byop_photo,
 )
 from backend.agents.brand_analyst import run_brand_analysis
 from backend.agents.strategy_agent import run_strategy
@@ -409,6 +410,77 @@ async def update_plan_day(
     return {"plan_profile": updated_plan}
 
 
+# ── BYOP — Bring Your Own Photos ─────────────────────────────
+
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+@app.post("/api/brands/{brand_id}/plans/{plan_id}/days/{day_index}/photo")
+async def upload_day_photo(
+    brand_id: str,
+    plan_id: str,
+    day_index: int,
+    file: UploadFile = File(...),
+):
+    """Upload a custom photo for a specific calendar day (BYOP).
+
+    Stores the image in GCS and records the signed URL + GCS URI on the
+    day's plan document so that content generation later uses the photo
+    instead of generating one via Imagen.
+    """
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    days = plan.get("days", [])
+    if day_index < 0 or day_index >= len(days):
+        raise HTTPException(status_code=400, detail=f"day_index {day_index} out of range")
+
+    mime = file.content_type or "image/jpeg"
+    if mime not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WebP images are accepted")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 20 * 1024 * 1024:  # 20 MB cap
+        raise HTTPException(status_code=400, detail="Image must be smaller than 20 MB")
+
+    try:
+        signed_url, gcs_uri = await upload_byop_photo(
+            brand_id, plan_id, day_index, file_bytes, mime
+        )
+    except Exception as e:
+        logger.error("BYOP upload failed for brand %s plan %s day %s: %s", brand_id, plan_id, day_index, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    await firestore_client.update_plan_day(brand_id, plan_id, day_index, {
+        "custom_photo_url": signed_url,
+        "custom_photo_gcs_uri": gcs_uri,
+        "custom_photo_mime": mime,
+    })
+
+    return {"custom_photo_url": signed_url, "day_index": day_index}
+
+
+@app.delete("/api/brands/{brand_id}/plans/{plan_id}/days/{day_index}/photo")
+async def delete_day_photo(brand_id: str, plan_id: str, day_index: int):
+    """Remove a custom photo from a calendar day, reverting to AI image generation."""
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    days = plan.get("days", [])
+    if day_index < 0 or day_index >= len(days):
+        raise HTTPException(status_code=400, detail=f"day_index {day_index} out of range")
+
+    await firestore_client.update_plan_day(brand_id, plan_id, day_index, {
+        "custom_photo_url": None,
+        "custom_photo_gcs_uri": None,
+        "custom_photo_mime": None,
+    })
+
+    return {"status": "removed", "day_index": day_index}
+
+
 # ── Interleaved Generation (SSE) ──────────────────────────────
 from sse_starlette.sse import EventSourceResponse
 
@@ -438,6 +510,22 @@ async def stream_generate(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
+    # BYOP: if the day has a custom photo, download it for vision-based generation.
+    # We use the gs:// URI (not the stored signed URL) to generate a fresh short-lived
+    # signed URL at request time. This avoids both SSRF (no user-controlled URL is
+    # fetched) and staleness (the GCS URI never expires).
+    custom_photo_bytes: bytes | None = None
+    custom_photo_mime = "image/jpeg"
+    custom_photo_gcs_uri = day_brief.get("custom_photo_gcs_uri")
+    if custom_photo_gcs_uri:
+        try:
+            fresh_url = await get_signed_url(custom_photo_gcs_uri)
+            custom_photo_bytes = await download_from_gcs(fresh_url)
+            custom_photo_mime = day_brief.get("custom_photo_mime", "image/jpeg")
+        except Exception as e:
+            logger.warning("Could not download custom photo for day %s: %s", day_index, e)
+            custom_photo_bytes = None  # fall back to normal generation
+
     # Create a pending post record in Firestore.
     # save_post(brand_id, plan_id, data) generates and returns its own post_id.
     post_id = await firestore_client.save_post(brand_id, plan_id, {
@@ -447,14 +535,20 @@ async def stream_generate(
         "caption": "",
         "hashtags": [],
         "image_url": None,
+        "byop": custom_photo_bytes is not None,
     })
 
     async def event_stream():
         final_caption = ""
         final_hashtags = []
         final_image_url = None
+        final_image_gcs_uri = None
 
-        async for event in generate_post(plan_id, day_brief, brand, post_id):
+        async for event in generate_post(
+            plan_id, day_brief, brand, post_id,
+            custom_photo_bytes=custom_photo_bytes,
+            custom_photo_mime=custom_photo_mime,
+        ):
             event_name = event["event"]
             event_data = event["data"]
 
@@ -464,18 +558,23 @@ async def stream_generate(
                 final_hashtags = event_data.get("hashtags", [])
             elif event_name == "image":
                 final_image_url = event_data.get("url")
+                final_image_gcs_uri = event_data.get("gcs_uri")
             elif event_name == "complete":
                 final_caption = event_data.get("caption", final_caption)
                 final_hashtags = event_data.get("hashtags", final_hashtags)
                 final_image_url = event_data.get("image_url", final_image_url)
+                final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
 
                 # Persist complete post to Firestore
-                await firestore_client.update_post(brand_id, post_id, {
+                update_data: dict = {
                     "status": "complete",
                     "caption": final_caption,
                     "hashtags": final_hashtags,
                     "image_url": final_image_url,
-                })
+                }
+                if final_image_gcs_uri:
+                    update_data["image_gcs_uri"] = final_image_gcs_uri
+                await firestore_client.update_post(brand_id, post_id, update_data)
             elif event_name == "error":
                 # Mark post as failed so it doesn't stay stuck in "generating"
                 await firestore_client.update_post(brand_id, post_id, {

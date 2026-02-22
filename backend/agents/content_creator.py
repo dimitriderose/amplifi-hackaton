@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import json
 import logging
 from typing import AsyncIterator
 
@@ -20,9 +19,18 @@ async def generate_post(
     day_brief: dict,
     brand_profile: dict,
     post_id: str,
+    custom_photo_bytes: bytes | None = None,
+    custom_photo_mime: str = "image/jpeg",
 ) -> AsyncIterator[dict]:
     """
-    Generate a social media post using Gemini 2.5 Flash interleaved TEXT+IMAGE.
+    Generate a social media post using Gemini 2.5 Flash.
+
+    If custom_photo_bytes is provided (BYOP mode): Gemini vision analyzes the
+    photo and writes a caption; the photo is used as the hero image (no image
+    generation budget consumed).
+
+    Otherwise: interleaved TEXT+IMAGE generation (normal mode).
+
     Yields SSE-compatible event dicts: {"event": str, "data": dict}
 
     Events emitted (in order):
@@ -33,11 +41,6 @@ async def generate_post(
       {"event": "complete","data": {"post_id": "...", "caption": "...", "hashtags": [...], "image_url": "..."}}
       {"event": "error",   "data": {"message": "..."}}  # on failure
     """
-
-    # Check budget
-    if not bt.budget_tracker.can_generate_image():
-        yield {"event": "error", "data": {"message": "Image budget exhausted"}}
-        return
 
     platform = day_brief.get("platform", "instagram")
     pillar = day_brief.get("pillar", "education")
@@ -54,9 +57,112 @@ async def generate_post(
     caption_style_directive = brand_profile.get("caption_style_directive", "")
     colors = brand_profile.get("colors", [])
 
+    # ── BYOP mode ─────────────────────────────────────────────────────────────
+    if custom_photo_bytes:
+        yield {"event": "status", "data": {"message": "Analyzing your photo..."}}
+
+        byop_prompt = f"""You are a world-class social media content creator for {business_name}.
+
+Brand tone: {tone}
+Visual style: {visual_style}
+{caption_style_directive}
+
+Analyze this photo and write a {platform} post caption that:
+- Complements and describes what's in the photo
+- Fits the "{content_theme}" theme for the "{pillar}" content pillar
+- Starts with this hook: "{caption_hook}"
+- Carries this key message: {key_message}
+- Ends with a call to action
+- Is 2-4 sentences, engaging and on-brand
+
+After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
+"""
+
+        try:
+            image_part = types.Part(
+                inline_data=types.Blob(data=custom_photo_bytes, mime_type=custom_photo_mime)
+            )
+            text_part = types.Part(text=byop_prompt)
+
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model="gemini-2.5-flash",
+                contents=[image_part, text_part],
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT"],
+                    temperature=0.9,
+                ),
+            )
+
+            full_text = "".join(
+                part.text for part in response.candidates[0].content.parts if part.text
+            )
+
+            if "HASHTAGS:" in full_text:
+                caption_part, hashtag_part = full_text.split("HASHTAGS:", 1)
+                full_caption = caption_part.strip()
+                raw_tags = hashtag_part.strip().replace("\n", " ")
+                parsed_hashtags = [t.strip().lstrip("#") for t in raw_tags.split() if t.strip()]
+            else:
+                full_caption = full_text.strip()
+                parsed_hashtags = hashtags_hint
+
+            yield {
+                "event": "caption",
+                "data": {"text": full_caption, "chunk": False, "hashtags": parsed_hashtags},
+            }
+
+            # Save the user's photo under the post's GCS path
+            yield {"event": "status", "data": {"message": "Saving your photo..."}}
+            image_url = None
+            image_gcs_uri = None
+            try:
+                image_url, image_gcs_uri = await upload_image_to_gcs(
+                    custom_photo_bytes, custom_photo_mime, post_id
+                )
+                yield {
+                    "event": "image",
+                    "data": {"url": image_url, "mime_type": custom_photo_mime, "gcs_uri": image_gcs_uri},
+                }
+            except Exception as upload_err:
+                logger.error("BYOP photo upload failed: %s", upload_err)
+                b64 = base64.b64encode(custom_photo_bytes).decode()
+                image_url = f"data:{custom_photo_mime};base64,{b64}"
+                yield {
+                    "event": "image",
+                    "data": {
+                        "url": image_url,
+                        "mime_type": custom_photo_mime,
+                        "fallback": True,
+                    },
+                }
+
+            yield {
+                "event": "complete",
+                "data": {
+                    "post_id": post_id,
+                    "caption": full_caption,
+                    "hashtags": parsed_hashtags,
+                    "image_url": image_url,
+                    "image_gcs_uri": image_gcs_uri,
+                },
+            }
+
+        except Exception as e:
+            logger.error("BYOP generation error for post %s: %s", post_id, e)
+            yield {"event": "error", "data": {"message": str(e)}}
+
+        return  # Do not fall through to normal generation
+
+    # ── Normal mode (interleaved TEXT + IMAGE) ────────────────────────────────
+
+    # Check budget
+    if not bt.budget_tracker.can_generate_image():
+        yield {"event": "error", "data": {"message": "Image budget exhausted"}}
+        return
+
     yield {"event": "status", "data": {"message": f"Crafting {platform} post..."}}
 
-    # Build the prompt
     color_hint = f"Brand colors: {', '.join(colors[:3])}." if colors else ""
     prompt = f"""You are a world-class social media content creator for {business_name}.
 
@@ -79,15 +185,14 @@ Image visual: {image_prompt}
 After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
 """
 
-    # Call Gemini with interleaved TEXT + IMAGE
     full_caption = ""
     image_bytes = None
     image_mime = "image/png"
     image_url = None
-    parsed_hashtags = None  # Set when we find the HASHTAGS: split
+    image_gcs_uri = None
+    parsed_hashtags = None
 
     try:
-        # Run in thread since the SDK is synchronous
         response = await asyncio.to_thread(
             client.models.generate_content,
             model="gemini-2.5-flash",
@@ -98,15 +203,12 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
             ),
         )
 
-        # Process response parts
         for part in response.candidates[0].content.parts:
             if part.text:
                 text = part.text
-                # Separate caption from hashtags
                 if "HASHTAGS:" in text:
                     caption_part, hashtag_part = text.split("HASHTAGS:", 1)
                     full_caption += caption_part.strip()
-                    # Parse hashtags
                     raw_tags = hashtag_part.strip().replace("\n", " ")
                     parsed_hashtags = [
                         t.strip().lstrip("#")
@@ -134,17 +236,15 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
 
                 yield {"event": "status", "data": {"message": "Uploading image..."}}
 
-                # Upload to GCS
                 try:
-                    image_url = await upload_image_to_gcs(image_bytes, image_mime, post_id)
+                    image_url, image_gcs_uri = await upload_image_to_gcs(image_bytes, image_mime, post_id)
                     bt.budget_tracker.record_image()
                     yield {
                         "event": "image",
-                        "data": {"url": image_url, "mime_type": image_mime}
+                        "data": {"url": image_url, "mime_type": image_mime, "gcs_uri": image_gcs_uri}
                     }
                 except Exception as upload_err:
-                    logger.error(f"Image upload failed: {upload_err}")
-                    # Emit as base64 fallback
+                    logger.error("Image upload failed: %s", upload_err)
                     b64 = base64.b64encode(image_bytes).decode()
                     yield {
                         "event": "image",
@@ -155,7 +255,6 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                         }
                     }
 
-        # Final complete event — use parsed_hashtags if non-empty, else fall back to hint
         final_hashtags = parsed_hashtags if parsed_hashtags else hashtags_hint
         yield {
             "event": "complete",
@@ -164,9 +263,10 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                 "caption": full_caption.strip(),
                 "hashtags": final_hashtags,
                 "image_url": image_url,
+                "image_gcs_uri": image_gcs_uri,
             }
         }
 
     except Exception as e:
-        logger.error(f"Content generation error for post {post_id}: {e}")
+        logger.error("Content generation error for post %s: %s", post_id, e)
         yield {"event": "error", "data": {"message": str(e)}}

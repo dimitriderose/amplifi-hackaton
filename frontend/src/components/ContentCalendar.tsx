@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useRef, useState } from 'react'
 import { A } from '../theme'
+import { api } from '../api/client'
 
 const PILLAR_COLORS: Record<string, string> = {
   education: A.indigo,
@@ -27,14 +28,17 @@ export interface DayBrief {
   hashtags: string[]
   derivative_type?: string
   event_anchor?: string | null
+  custom_photo_url?: string | null
 }
 
 interface Props {
   plan: { plan_id: string; days: DayBrief[] }
+  brandId?: string
   onGeneratePost?: (planId: string, dayIndex: number) => void
+  onPhotoUploaded?: (dayIndex: number, photoUrl: string | null) => void
 }
 
-export default function ContentCalendar({ plan, onGeneratePost }: Props) {
+export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhotoUploaded }: Props) {
   const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   return (
@@ -62,7 +66,10 @@ export default function ContentCalendar({ plan, onGeneratePost }: Props) {
             key={day.day_index ?? i}
             day={day}
             dayName={DAY_NAMES[i % 7]}
+            brandId={brandId}
+            planId={plan.plan_id}
             onGenerate={() => onGeneratePost?.(plan.plan_id, day.day_index ?? i)}
+            onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day.day_index ?? i, photoUrl)}
           />
         ))}
       </div>
@@ -73,12 +80,55 @@ export default function ContentCalendar({ plan, onGeneratePost }: Props) {
 interface DayCardProps {
   day: DayBrief
   dayName: string
+  brandId?: string
+  planId?: string
   onGenerate: () => void
+  onPhotoUploaded: (photoUrl: string | null) => void
 }
 
-function DayCard({ day, dayName, onGenerate }: DayCardProps) {
+function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }: DayCardProps) {
   const pillarColor = PILLAR_COLORS[day.pillar] || A.indigo
   const platformIcon = PLATFORM_ICONS[day.platform] || '📱'
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [photoError, setPhotoError] = useState('')
+
+  const dayIndex = day.day_index
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !brandId || !planId || dayIndex === undefined) return
+
+    setUploading(true)
+    setPhotoError('')
+    const fd = new FormData()
+    fd.append('file', file)
+
+    try {
+      const res = await api.uploadDayPhoto(brandId, planId, dayIndex, fd) as any
+      onPhotoUploaded(res.custom_photo_url)
+    } catch (err: any) {
+      setPhotoError(err.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemovePhoto = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!brandId || !planId || dayIndex === undefined) return
+    setUploading(true)
+    setPhotoError('')
+    try {
+      await api.deleteDayPhoto(brandId, planId, dayIndex)
+      onPhotoUploaded(null)
+    } catch (err: any) {
+      setPhotoError(err.message || 'Remove failed')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div
@@ -101,6 +151,37 @@ function DayCard({ day, dayName, onGenerate }: DayCardProps) {
     >
       {/* Pillar color bar */}
       <div style={{ height: 3, background: pillarColor }} />
+
+      {/* Custom photo thumbnail */}
+      {day.custom_photo_url && (
+        <div style={{ position: 'relative' }}>
+          <img
+            src={day.custom_photo_url}
+            alt="Custom photo"
+            style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block' }}
+          />
+          <button
+            onClick={handleRemovePhoto}
+            title="Remove photo"
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 20, height: 20, borderRadius: '50%',
+              background: 'rgba(0,0,0,0.55)', border: 'none',
+              color: 'white', fontSize: 13, lineHeight: 1,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            ×
+          </button>
+          <div style={{
+            position: 'absolute', bottom: 4, left: 4,
+            fontSize: 9, color: 'white', fontWeight: 600,
+            background: 'rgba(0,0,0,0.5)', padding: '1px 5px', borderRadius: 4,
+          }}>
+            📷 Your photo
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: '10px 10px 12px' }}>
         {/* Day + platform */}
@@ -156,21 +237,28 @@ function DayCard({ day, dayName, onGenerate }: DayCardProps) {
           {day.content_theme}
         </p>
 
-        {/* Hook preview */}
-        <p
-          style={{
-            fontSize: 10,
-            color: A.textMuted,
-            lineHeight: 1.4,
-            marginBottom: 10,
-            overflow: 'hidden',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-          } as React.CSSProperties}
-        >
-          "{day.caption_hook}"
-        </p>
+        {/* Hook preview — hidden when photo thumbnail already fills the card */}
+        {!day.custom_photo_url && (
+          <p
+            style={{
+              fontSize: 10,
+              color: A.textMuted,
+              lineHeight: 1.4,
+              marginBottom: 10,
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+            } as React.CSSProperties}
+          >
+            "{day.caption_hook}"
+          </p>
+        )}
+
+        {/* Upload error */}
+        {photoError && (
+          <p style={{ fontSize: 10, color: A.coral, margin: '0 0 6px' }}>{photoError}</p>
+        )}
 
         {/* Generate button */}
         <button
@@ -188,10 +276,43 @@ function DayCard({ day, dayName, onGenerate }: DayCardProps) {
             fontSize: 11,
             fontWeight: 600,
             cursor: 'pointer',
+            marginBottom: brandId ? 6 : 0,
           }}
         >
-          Generate ✨
+          {day.custom_photo_url ? 'Generate with my photo ✨' : 'Generate ✨'}
         </button>
+
+        {/* BYOP: add / change photo */}
+        {brandId && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+            />
+            <button
+              onClick={e => {
+                e.stopPropagation()
+                fileInputRef.current?.click()
+              }}
+              disabled={uploading}
+              style={{
+                width: '100%',
+                padding: '5px 0',
+                borderRadius: 6,
+                border: `1px solid ${A.border}`,
+                background: 'transparent',
+                color: uploading ? A.textMuted : A.textSoft,
+                fontSize: 10,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {uploading ? 'Uploading…' : day.custom_photo_url ? '📷 Change photo' : '📷 Add photo'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

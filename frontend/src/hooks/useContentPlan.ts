@@ -49,5 +49,16 @@ export function useContentPlan(brandId: string) {
     }
   }
 
-  return { plan, loading, generating, error, generatePlan, updateDay, clearPlan: () => setPlan(null) }
+  const setDayCustomPhoto = (planId: string, dayIndex: number, photoUrl: string | null) => {
+    setPlan((prev: any) => {
+      if (!prev || prev.plan_id !== planId) return prev
+      const days = [...(prev.days || [])]
+      if (days[dayIndex]) {
+        days[dayIndex] = { ...days[dayIndex], custom_photo_url: photoUrl }
+      }
+      return { ...prev, days }
+    })
+  }
+
+  return { plan, loading, generating, error, generatePlan, updateDay, setDayCustomPhoto, clearPlan: () => setPlan(null) }
 }

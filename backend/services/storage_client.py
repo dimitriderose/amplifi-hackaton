@@ -17,8 +17,12 @@ def get_bucket() -> storage.Bucket:
     return get_storage_client().bucket(GCS_BUCKET_NAME)
 
 async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
-                               post_id: Optional[str] = None) -> str:
-    """Upload generated image bytes to GCS, return 7-day signed URL."""
+                               post_id: Optional[str] = None) -> tuple[str, str]:
+    """Upload generated image bytes to GCS.
+
+    Returns:
+        (signed_url, gcs_uri) — 7-day signed URL and the gs:// URI.
+    """
     if not post_id:
         post_id = str(uuid.uuid4())
 
@@ -37,7 +41,8 @@ async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
         None,
         lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET")
     )
-    return signed_url
+    gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+    return signed_url, gcs_uri
 
 async def upload_brand_asset(brand_id: str, file_bytes: bytes,
                               filename: str, mime_type: str) -> str:
@@ -71,6 +76,38 @@ async def download_from_gcs(url: str) -> bytes:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
         return response.content
+
+async def upload_byop_photo(
+    brand_id: str,
+    plan_id: str,
+    day_index: int,
+    file_bytes: bytes,
+    mime_type: str,
+) -> tuple[str, str]:
+    """Upload a user-provided photo (BYOP) for a calendar day.
+
+    Returns:
+        (signed_url, gcs_uri) — 7-day signed URL and the gs:// URI.
+    """
+    ext = "png" if "png" in mime_type else ("webp" if "webp" in mime_type else "jpg")
+    blob_path = f"byop/{brand_id}/{plan_id}/day_{day_index}_{uuid.uuid4().hex[:8]}.{ext}"
+    bucket = get_bucket()
+    blob = bucket.blob(blob_path)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: blob.upload_from_string(file_bytes, content_type=mime_type),
+    )
+
+    signed_url = await loop.run_in_executor(
+        None,
+        lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET"),
+    )
+
+    gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+    return signed_url, gcs_uri
+
 
 async def upload_video_to_gcs(video_bytes: bytes, post_id: str) -> tuple[str, str]:
     """Upload generated MP4 video bytes to GCS.
