@@ -389,7 +389,6 @@ async def update_plan_day(
 
 
 # ── Interleaved Generation (SSE) ──────────────────────────────
-import uuid as _uuid_mod
 from sse_starlette.sse import EventSourceResponse
 
 from backend.agents.content_creator import generate_post
@@ -455,7 +454,11 @@ async def stream_generate(
                     "caption": final_caption,
                     "hashtags": final_hashtags,
                     "image_url": final_image_url,
-                    "image_gcs_uri": None,  # already handled in upload
+                })
+            elif event_name == "error":
+                # Mark post as failed so it doesn't stay stuck in "generating"
+                await firestore_client.update_post(brand_id, post_id, {
+                    "status": "failed",
                 })
 
             yield {

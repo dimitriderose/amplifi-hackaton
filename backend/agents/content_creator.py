@@ -155,8 +155,8 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                         }
                     }
 
-        # Final complete event — use parsed_hashtags if available, else fall back to hint
-        final_hashtags = parsed_hashtags if parsed_hashtags is not None else hashtags_hint
+        # Final complete event — use parsed_hashtags if non-empty, else fall back to hint
+        final_hashtags = parsed_hashtags if parsed_hashtags else hashtags_hint
         yield {
             "event": "complete",
             "data": {
