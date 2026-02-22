@@ -73,7 +73,7 @@ export default function DashboardPage() {
             <ContentCalendar
               plan={{ plan_id: plan.plan_id, days: plan.days }}
               onGeneratePost={(planId, dayIndex) =>
-                navigate(`/generate/${planId}/${dayIndex}`)
+                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
               }
             />
           ) : (
