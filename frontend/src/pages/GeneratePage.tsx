@@ -75,6 +75,7 @@ export default function GeneratePage() {
           state={state}
           onApprove={handleApprove}
           onRegenerate={handleRegenerate}
+          brandId={brandId}
         />
       </div>
 

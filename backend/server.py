@@ -534,6 +534,122 @@ async def approve_post_endpoint(brand_id: str, post_id: str):
     return {"status": "approved", "post_id": post_id}
 
 
+
+# ── Video Generation ──────────────────────────────────────────
+
+from backend.agents.video_creator import generate_video_clip
+import backend.services.budget_tracker as bt
+
+
+async def _run_video_generation(
+    job_id: str,
+    post_id: str,
+    brand_id: str,
+    hero_image_bytes: bytes,
+    post: dict,
+    brand: dict,
+    tier: str,
+):
+    """Background task that runs Veo generation and updates Firestore."""
+    try:
+        await firestore_client.update_video_job(job_id, "generating")
+        result = await generate_video_clip(
+            hero_image_bytes=hero_image_bytes,
+            caption=post.get("caption", ""),
+            brand_profile=brand,
+            platform=post.get("platform", "instagram"),
+            post_id=post_id,
+            tier=tier,
+        )
+        bt.budget_tracker.record_video(tier)
+        await firestore_client.update_video_job(job_id, "complete", result)
+        # Also update the post with video metadata
+        await firestore_client.update_post(brand_id, post_id, {
+            "video": {
+                "url": result["video_url"],
+                "video_gcs_uri": result.get("video_gcs_uri"),
+                "duration_seconds": 8,
+                "model": result["model"],
+                "job_id": job_id,
+            }
+        })
+    except Exception as e:
+        logger.error(f"Video generation failed for job {job_id}: {e}")
+        await firestore_client.update_video_job(job_id, "failed", {"error": str(e)})
+
+
+@app.post("/api/posts/{post_id}/generate-video")
+async def start_video_generation(
+    post_id: str,
+    brand_id: str = Query(...),
+    tier: str = Query("fast"),
+):
+    """Queue async Veo video generation for a post that has a hero image.
+
+    Returns: {job_id, status: "processing", estimated_seconds: 150}
+    """
+    # Check budget
+    if not bt.budget_tracker.can_generate_video():
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "Video generation budget exhausted",
+                "budget_status": bt.budget_tracker.get_status(),
+            },
+        )
+
+    # Load post
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Load brand
+    brand = await firestore_client.get_brand(post.get("brand_id", brand_id))
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    # Download hero image from GCS
+    image_gcs_uri = post.get("image_gcs_uri")
+    if not image_gcs_uri:
+        raise HTTPException(
+            status_code=400,
+            detail="Post has no hero image. Generate the post fully before requesting a video.",
+        )
+
+    try:
+        signed_url = await get_signed_url(image_gcs_uri)
+        hero_image_bytes = await download_from_gcs(signed_url)
+    except Exception as e:
+        logger.error("Failed to download hero image for post %s: %s", post_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch hero image: {e}")
+
+    # Create job record in Firestore
+    job_id = await firestore_client.create_video_job(post_id, tier)
+
+    # Fire background task (non-blocking)
+    asyncio.create_task(
+        _run_video_generation(job_id, post_id, brand_id, hero_image_bytes, post, brand, tier)
+    )
+
+    return {
+        "job_id": job_id,
+        "status": "processing",
+        "estimated_seconds": 150,
+    }
+
+
+@app.get("/api/video-jobs/{job_id}")
+async def get_video_job_status(job_id: str):
+    """Poll video generation job status.
+
+    Returns the job dict including result.video_url when complete.
+    """
+    job = await firestore_client.get_video_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Video job not found")
+    return job
+
+
 # ── Static frontend (production) ──────────────────────────────
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):

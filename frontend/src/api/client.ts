@@ -54,7 +54,7 @@ export const api = {
         URL.revokeObjectURL(url)
       }),
 
-  generateVideo: (postId: string, tier = 'fast') =>
-    request(`/api/posts/${postId}/generate-video?tier=${tier}`, { method: 'POST' }),
+  generateVideo: (postId: string, tier = 'fast', brandId = '') =>
+    request(`/api/posts/${postId}/generate-video?tier=${tier}&brand_id=${brandId}`, { method: 'POST' }),
   getVideoJob: (jobId: string) => request(`/api/video-jobs/${jobId}`),
 }

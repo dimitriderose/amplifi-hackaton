@@ -71,3 +71,27 @@ async def download_from_gcs(url: str) -> bytes:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
         return response.content
+
+async def upload_video_to_gcs(video_bytes: bytes, post_id: str) -> tuple[str, str]:
+    """Upload generated MP4 video bytes to GCS.
+
+    Returns:
+        (signed_url, gcs_uri) — 7-day signed URL and the gs:// URI.
+    """
+    blob_path = f"generated/{post_id}/video_{uuid.uuid4().hex[:8]}.mp4"
+    bucket = get_bucket()
+    blob = bucket.blob(blob_path)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: blob.upload_from_string(video_bytes, content_type="video/mp4"),
+    )
+
+    signed_url = await loop.run_in_executor(
+        None,
+        lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET"),
+    )
+
+    gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+    return signed_url, gcs_uri
