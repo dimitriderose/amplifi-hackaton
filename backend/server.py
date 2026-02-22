@@ -212,6 +212,8 @@ async def export_plan_zip(
 
     # ── List all posts belonging to this plan ─────────────────
     posts: list[dict] = await firestore_client.list_posts(brand_id, plan_id)
+    if not posts:
+        raise HTTPException(status_code=404, detail="No posts found for this plan")
 
     # ── Resolve signed URLs for every post that has an image ──
     async def _resolve_image_url(post: dict) -> str | None:
@@ -265,9 +267,10 @@ async def export_plan_zip(
             hashtags: list[str] = post.get("hashtags", [])
             base_name = f"{platform}_{index}"
 
-            # Image file
+            # Image file — detect PNG vs JPEG by magic bytes
             if img_bytes:
-                zf.writestr(f"{archive_root}/{base_name}.jpg", img_bytes)
+                ext = "png" if img_bytes[:4] == b"\x89PNG" else "jpg"
+                zf.writestr(f"{archive_root}/{base_name}.{ext}", img_bytes)
 
             # Caption + hashtags text file
             hashtag_block = "\n".join(f"#{tag.lstrip('#')}" for tag in hashtags)
