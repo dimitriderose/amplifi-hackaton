@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
-  const { plan, generating, error: planError, generatePlan, clearPlan } = useContentPlan(brandId ?? '')
+  const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
 
   const approvedParam = searchParams.get('approved')
   const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -130,8 +130,12 @@ export default function DashboardPage() {
               </div>
               <ContentCalendar
                 plan={{ plan_id: plan.plan_id, days: plan.days }}
+                brandId={brandId}
                 onGeneratePost={(planId, dayIndex) =>
                   navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
+                }
+                onPhotoUploaded={(dayIndex, photoUrl) =>
+                  setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
                 }
               />
             </>

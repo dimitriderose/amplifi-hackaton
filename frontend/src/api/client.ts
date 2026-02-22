@@ -54,6 +54,21 @@ export const api = {
         URL.revokeObjectURL(url)
       }),
 
+  uploadDayPhoto: (brandId: string, planId: string, dayIndex: number, formData: FormData) =>
+    fetch(`/api/brands/${brandId}/plans/${planId}/days/${dayIndex}/photo`, {
+      method: 'POST',
+      body: formData,
+    }).then(async r => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: r.statusText }))
+        throw new Error(err.detail || `HTTP ${r.status}`)
+      }
+      return r.json()
+    }),
+
+  deleteDayPhoto: (brandId: string, planId: string, dayIndex: number) =>
+    request(`/api/brands/${brandId}/plans/${planId}/days/${dayIndex}/photo`, { method: 'DELETE' }),
+
   generateVideo: (postId: string, tier = 'fast', brandId = '') =>
     request(`/api/posts/${postId}/generate-video?tier=${tier}&brand_id=${brandId}`, { method: 'POST' }),
   getVideoJob: (jobId: string) => request(`/api/video-jobs/${jobId}`),
