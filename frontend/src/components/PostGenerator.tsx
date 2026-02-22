@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { A } from '../theme'
 import { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
@@ -29,6 +30,16 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
   const displayCaption = status === 'generating' && captionChunks.length > 0
     ? captionChunks.join('')
     : caption
+
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    const tags = hashtags.map(h => `#${h.replace(/^#/, '')}`).join(' ')
+    const fullText = tags ? `${caption}\n\n${tags}` : caption
+    navigator.clipboard.writeText(fullText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    })
+  }
 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
 
@@ -112,6 +123,23 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
               }} />
             )}
             <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
+            {/* Copy button — visible when caption is ready */}
+            {status === 'complete' && caption && (
+              <button
+                onClick={handleCopy}
+                title="Copy caption + hashtags"
+                style={{
+                  position: 'absolute', top: 8, right: 8,
+                  padding: '3px 8px', borderRadius: 6,
+                  background: copied ? A.emeraldLight : 'rgba(255,255,255,0.8)',
+                  border: `1px solid ${copied ? A.emerald : A.border}`,
+                  color: copied ? A.emerald : A.textMuted,
+                  fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+                }}
+              >
+                {copied ? '✓ Copied' : '⎘ Copy'}
+              </button>
+            )}
           </div>
 
           {/* Hashtags */}

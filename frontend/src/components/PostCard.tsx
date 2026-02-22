@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 import type { Post } from '../hooks/usePostLibrary'
@@ -28,6 +28,16 @@ interface Props {
 export default function PostCard({ post, brandId, onApproved }: Props) {
   const color = STATUS_COLORS[post.status] || A.textMuted
   const label = STATUS_LABELS[post.status] || post.status
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    const tags = (post.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
+    const text = tags ? `${post.caption}\n\n${tags}` : post.caption
+    navigator.clipboard.writeText(text || '').then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    })
+  }
 
   const handleExport = async () => {
     try {
@@ -120,7 +130,23 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
         )}
 
         {/* Action buttons */}
-        <div style={{ marginTop: 'auto', display: 'flex', gap: 6, paddingTop: 4 }}>
+        <div style={{ marginTop: 'auto', display: 'flex', gap: 6, paddingTop: 4, flexWrap: 'wrap' }}>
+          {/* Copy caption button — always shown when caption exists */}
+          {post.caption && (
+            <button
+              onClick={handleCopy}
+              title="Copy caption + hashtags"
+              style={{
+                flex: 1, padding: '6px', borderRadius: 6, cursor: 'pointer',
+                border: `1px solid ${copied ? A.emerald : A.border}`,
+                background: copied ? A.emeraldLight : 'transparent',
+                color: copied ? A.emerald : A.textSoft,
+                fontSize: 11, fontWeight: 500, transition: 'all 0.2s',
+              }}
+            >
+              {copied ? '✓ Copied' : '⎘ Copy'}
+            </button>
+          )}
           {(post.status === 'complete' || post.status === 'approved') && (
             <button
               onClick={handleExport}
