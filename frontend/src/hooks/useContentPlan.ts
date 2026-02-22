@@ -49,5 +49,5 @@ export function useContentPlan(brandId: string) {
     }
   }
 
-  return { plan, loading, generating, error, generatePlan, updateDay }
+  return { plan, loading, generating, error, generatePlan, updateDay, clearPlan: () => setPlan(null) }
 }
