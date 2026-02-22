@@ -29,8 +29,10 @@ export const api = {
 
   listPosts: (brandId: string, planId?: string) =>
     request(`/api/posts?brand_id=${brandId}${planId ? `&plan_id=${planId}` : ''}`),
-  approvePost: (postId: string) =>
-    request(`/api/posts/${postId}/approve`, { method: 'PUT' }),
+  reviewPost: (brandId: string, postId: string) =>
+    request(`/api/brands/${brandId}/posts/${postId}/review`, { method: 'POST' }),
+  approvePost: (brandId: string, postId: string) =>
+    request(`/api/brands/${brandId}/posts/${postId}/approve`, { method: 'POST' }),
   exportPost: (postId: string) => request(`/api/posts/${postId}/export`),
   exportPlan: (planId: string) =>
     request(`/api/export/${planId}`, { method: 'POST' }),

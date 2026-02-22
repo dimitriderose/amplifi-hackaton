@@ -3,6 +3,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { usePostGeneration } from '../hooks/usePostGeneration'
 import PostGenerator from '../components/PostGenerator'
+import ReviewPanel from '../components/ReviewPanel'
 
 export default function GeneratePage() {
   const { planId, dayIndex } = useParams<{ planId: string; dayIndex: string }>()
@@ -76,6 +77,23 @@ export default function GeneratePage() {
           onRegenerate={handleRegenerate}
         />
       </div>
+
+      {/* AI Brand Review — shown once generation is complete */}
+      {state.status === 'complete' && state.postId && brandId && (
+        <div style={{
+          marginTop: 16, padding: 24, borderRadius: 12,
+          background: A.surface, border: `1px solid ${A.border}`,
+        }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, marginBottom: 14 }}>
+            AI Brand Review
+          </h3>
+          <ReviewPanel
+            brandId={brandId}
+            postId={state.postId}
+            onApproved={() => navigate(`/dashboard/${brandId}`)}
+          />
+        </div>
+      )}
     </div>
   )
 }
