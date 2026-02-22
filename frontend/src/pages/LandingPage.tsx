@@ -72,7 +72,7 @@ const PREVIEW_DAYS = [
     pillar: 'Inspiration',
     theme: 'Why we source locally',
     anchor: null,
-    color: '#1DA1F2',
+    color: '#1A1A2E',
   },
 ]
 
@@ -200,7 +200,7 @@ export default function LandingPage() {
           {[
             { label: 'Instagram', color: '#E1306C' },
             { label: 'LinkedIn', color: '#0A66C2' },
-            { label: 'Twitter / X', color: '#1DA1F2' },
+            { label: 'Twitter / X', color: '#1A1A2E' },
             { label: 'Facebook', color: '#1877F2' },
           ].map(p => (
             <span key={p.label} style={{
