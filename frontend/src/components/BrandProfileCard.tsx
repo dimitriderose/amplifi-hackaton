@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { A } from '../theme'
 
+// Competitors are always extracted but hidden by default — show on demand
+// so the brand profile feels clean without burying the key fields.
+
 interface BrandProfile {
   brand_id: string
   business_name: string
@@ -25,6 +28,7 @@ interface Props {
 export default function BrandProfileCard({ brand, onUpdate }: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(brand)
+  const [showCompetitors, setShowCompetitors] = useState(false)
 
   const handleSave = () => {
     onUpdate(draft)
@@ -124,6 +128,39 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
             ))}
           </div>
         </div>
+
+        {/* Competitors — collapsible */}
+        {(brand.competitors || []).length > 0 && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showCompetitors ? 8 : 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Competitors
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowCompetitors(s => !s)}
+                style={{
+                  padding: '2px 8px', borderRadius: 4, border: `1px solid ${A.border}`,
+                  background: 'transparent', cursor: 'pointer',
+                  fontSize: 11, color: A.textMuted,
+                }}
+              >
+                {showCompetitors ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {showCompetitors && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {(brand.competitors || []).map((c, i) => (
+                  <span key={i} style={{
+                    fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                    background: A.surfaceAlt, color: A.textSoft,
+                    border: `1px solid ${A.border}`,
+                  }}>{c}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Image Style Directive */}
         <div style={{ gridColumn: '1 / -1' }}>
