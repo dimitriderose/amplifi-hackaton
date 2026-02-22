@@ -3,7 +3,7 @@ import json
 import logging
 from google import genai
 from google.genai import types
-from backend.config import GOOGLE_API_KEY
+from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GOOGLE_API_KEY)
@@ -49,7 +49,7 @@ Evaluate and respond with JSON only:
     try:
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",

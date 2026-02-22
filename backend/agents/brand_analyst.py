@@ -4,6 +4,7 @@ from google import genai
 from google.genai import types
 from backend.tools.web_scraper import fetch_website
 from backend.tools.brand_tools import analyze_brand_colors, extract_brand_voice
+from backend.config import GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ Return ONLY a valid JSON object with these exact keys:
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.4,

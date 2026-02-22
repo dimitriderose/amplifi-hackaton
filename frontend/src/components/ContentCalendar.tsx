@@ -175,18 +175,20 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
         borderRadius: 10,
         background: A.surface,
         border: `1px solid ${A.border}`,
-        borderLeft: seriesColor ? `3px solid ${seriesColor}` : `1px solid ${A.border}`,
+        boxShadow: seriesColor ? `inset 3px 0 0 0 ${seriesColor}` : undefined,
         overflow: 'hidden',
         cursor: 'pointer',
         transition: 'transform 0.15s, box-shadow 0.15s',
       }}
       onMouseEnter={e => {
         e.currentTarget.style.transform = 'translateY(-2px)'
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'
+        e.currentTarget.style.boxShadow = seriesColor
+          ? `0 4px 16px rgba(0,0,0,0.08), inset 3px 0 0 0 ${seriesColor}`
+          : '0 4px 16px rgba(0,0,0,0.08)'
       }}
       onMouseLeave={e => {
         e.currentTarget.style.transform = 'translateY(0)'
-        e.currentTarget.style.boxShadow = 'none'
+        e.currentTarget.style.boxShadow = seriesColor ? `inset 3px 0 0 0 ${seriesColor}` : 'none'
       }}
     >
       {/* Pillar color bar */}

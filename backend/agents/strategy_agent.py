@@ -3,7 +3,7 @@ import json
 import logging
 from google import genai
 from google.genai import types
-from backend.config import GOOGLE_API_KEY
+from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
     try:
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -112,6 +112,10 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
         # Pad if AI returned fewer days than requested
         while len(validated) < num_days:
             validated.append(_fallback_day(len(validated), brand_profile))
+
+        # Cap group sizes: if LLM reuses the same pillar_id on too many days,
+        # break extras out as standalones so the UI grouping stays meaningful
+        validated = _enforce_group_size(validated)
 
         return validated
 
@@ -202,6 +206,28 @@ def _fallback_day(index: int, brand_profile: dict) -> dict:
         "derivative_type": "original",
         "event_anchor": None,
     }
+
+
+def _enforce_group_size(days: list[dict], max_group_size: int = 3) -> list[dict]:
+    """Break out excess days from oversized pillar_id groups.
+
+    Prevents the LLM from assigning the same pillar_id to all days, which would
+    color every card with the same series accent and make grouping meaningless.
+    Any day beyond the first max_group_size in a group gets a unique standalone ID.
+    """
+    group_seen: dict[str, int] = {}
+    standalone_idx = 9000  # start high to avoid collisions with "series_N" IDs
+    result = []
+    for day in days:
+        pid = day["pillar_id"]
+        count = group_seen.get(pid, 0)
+        if count >= max_group_size:
+            day = {**day, "pillar_id": f"series_{standalone_idx}", "derivative_type": "original"}
+            standalone_idx += 1
+        else:
+            group_seen[pid] = count + 1
+        result.append(day)
+    return result
 
 
 def _fallback_plan(num_days: int, brand_profile: dict) -> list[dict]:

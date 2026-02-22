@@ -6,7 +6,7 @@ from typing import AsyncIterator
 from google import genai
 from google.genai import types
 
-from backend.config import GOOGLE_API_KEY
+from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
 from backend.services import budget_tracker as bt
 from backend.services.storage_client import upload_image_to_gcs
 
@@ -122,7 +122,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
 
             response = await asyncio.to_thread(
                 client.models.generate_content,
-                model="gemini-2.5-flash",
+                model=GEMINI_MODEL,
                 contents=[image_part, text_part],
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT"],
@@ -231,7 +231,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
     try:
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
