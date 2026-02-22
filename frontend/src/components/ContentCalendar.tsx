@@ -17,10 +17,21 @@ const PLATFORM_ICONS: Record<string, string> = {
   facebook: '👥',
 }
 
+const DERIVATIVE_LABELS: Record<string, string> = {
+  carousel: 'Carousel',
+  thread_hook: 'Thread',
+  blog_snippet: 'Blog',
+  story: 'Story',
+}
+
+// Colors for series groups (distinct from pillar colors)
+const SERIES_PALETTE = ['#f97316', '#06b6d4', '#ec4899', '#a78bfa']
+
 export interface DayBrief {
   day_index: number
   platform: string
   pillar: string
+  pillar_id?: string
   content_theme: string
   caption_hook: string
   key_message: string
@@ -41,12 +52,27 @@ interface Props {
 export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhotoUploaded }: Props) {
   const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+  // Compute which pillar_ids form repurposing series (appear on more than one day)
+  const pillarIdCounts: Record<string, number> = {}
+  for (const day of plan.days) {
+    if (day.pillar_id) {
+      pillarIdCounts[day.pillar_id] = (pillarIdCounts[day.pillar_id] || 0) + 1
+    }
+  }
+  const seriesIds = Object.keys(pillarIdCounts).filter(id => pillarIdCounts[id] > 1)
+  const seriesColorMap: Record<string, string> = {}
+  seriesIds.forEach((id, i) => {
+    seriesColorMap[id] = SERIES_PALETTE[i % SERIES_PALETTE.length]
+  })
+
+  const hasAnySeries = seriesIds.length > 0
+
   return (
     <div>
       {/* Calendar header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>7-Day Content Calendar</h3>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {Object.entries(PILLAR_COLORS).map(([pillar, color]) => (
             <span
               key={pillar}
@@ -56,22 +82,32 @@ export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhoto
               {pillar.replace(/_/g, ' ')}
             </span>
           ))}
+          {hasAnySeries && (
+            <span style={{ fontSize: 11, color: A.textSoft, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 10 }}>♻</span>
+              repurposed
+            </span>
+          )}
         </div>
       </div>
 
       {/* 7-day grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
-        {plan.days.map((day, i) => (
-          <DayCard
-            key={day.day_index ?? i}
-            day={day}
-            dayName={DAY_NAMES[i % 7]}
-            brandId={brandId}
-            planId={plan.plan_id}
-            onGenerate={() => onGeneratePost?.(plan.plan_id, day.day_index ?? i)}
-            onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day.day_index ?? i, photoUrl)}
-          />
-        ))}
+        {plan.days.map((day, i) => {
+          const seriesColor = day.pillar_id ? seriesColorMap[day.pillar_id] : undefined
+          return (
+            <DayCard
+              key={day.day_index ?? i}
+              day={day}
+              dayName={DAY_NAMES[i % 7]}
+              brandId={brandId}
+              planId={plan.plan_id}
+              seriesColor={seriesColor}
+              onGenerate={() => onGeneratePost?.(plan.plan_id, day.day_index ?? i)}
+              onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day.day_index ?? i, photoUrl)}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -82,11 +118,12 @@ interface DayCardProps {
   dayName: string
   brandId?: string
   planId?: string
+  seriesColor?: string
   onGenerate: () => void
   onPhotoUploaded: (photoUrl: string | null) => void
 }
 
-function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }: DayCardProps) {
+function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPhotoUploaded }: DayCardProps) {
   const pillarColor = PILLAR_COLORS[day.pillar] || A.indigo
   const platformIcon = PLATFORM_ICONS[day.platform] || '📱'
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -94,6 +131,8 @@ function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }:
   const [photoError, setPhotoError] = useState('')
 
   const dayIndex = day.day_index
+  const isDerivative = day.derivative_type && day.derivative_type !== 'original'
+  const derivativeLabel = day.derivative_type ? DERIVATIVE_LABELS[day.derivative_type] : null
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -136,6 +175,7 @@ function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }:
         borderRadius: 10,
         background: A.surface,
         border: `1px solid ${A.border}`,
+        borderLeft: seriesColor ? `3px solid ${seriesColor}` : `1px solid ${A.border}`,
         overflow: 'hidden',
         cursor: 'pointer',
         transition: 'transform 0.15s, box-shadow 0.15s',
@@ -200,7 +240,7 @@ function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }:
             background: pillarColor + '15',
             color: pillarColor,
             display: 'inline-block',
-            marginBottom: 8,
+            marginBottom: 6,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
           }}
@@ -208,13 +248,35 @@ function DayCard({ day, dayName, brandId, planId, onGenerate, onPhotoUploaded }:
           {day.pillar?.replace(/_/g, ' ')}
         </div>
 
+        {/* Repurpose badge — only shown when the series grouping is confirmed by seriesColor */}
+        {isDerivative && derivativeLabel && seriesColor && (
+          <div style={{
+            fontSize: 9,
+            fontWeight: 600,
+            padding: '2px 6px',
+            borderRadius: 4,
+            background: (seriesColor || A.textMuted) + '18',
+            color: seriesColor || A.textMuted,
+            border: `1px solid ${(seriesColor || A.textMuted)}30`,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            marginBottom: 6,
+            marginLeft: 4,
+            textTransform: 'uppercase',
+            letterSpacing: 0.4,
+          }}>
+            ♻ {derivativeLabel}
+          </div>
+        )}
+
         {/* Event anchor badge */}
         {day.event_anchor && (
           <div style={{
             fontSize: 10, color: A.amber, background: A.amber + '15',
-            padding: '2px 6px', borderRadius: 8, marginTop: 4,
+            padding: '2px 6px', borderRadius: 8, marginTop: 2,
             border: `1px solid ${A.amber}30`,
-            display: 'inline-block', marginBottom: 8,
+            display: 'inline-block', marginBottom: 6,
           }}>
             📅 {day.event_anchor}
           </div>

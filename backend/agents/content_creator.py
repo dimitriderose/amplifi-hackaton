@@ -49,6 +49,7 @@ async def generate_post(
     key_message = day_brief.get("key_message", "")
     image_prompt = day_brief.get("image_prompt", "")
     hashtags_hint = day_brief.get("hashtags", [])
+    derivative_type = day_brief.get("derivative_type", "original")
 
     business_name = brand_profile.get("business_name", "Brand")
     tone = brand_profile.get("tone", "professional")
@@ -56,6 +57,42 @@ async def generate_post(
     image_style_directive = brand_profile.get("image_style_directive", "")
     caption_style_directive = brand_profile.get("caption_style_directive", "")
     colors = brand_profile.get("colors", [])
+
+    # Format-specific instructions for derivative post types
+    _DERIVATIVE_INSTRUCTIONS: dict[str, str] = {
+        "carousel": (
+            "FORMAT: Instagram/LinkedIn CAROUSEL\n"
+            "Structure the caption as slide-by-slide copy:\n"
+            "  Slide 1: Hook (compelling, ≤10 words — this becomes the cover)\n"
+            "  Slide 2–5: One punchy insight per slide with a bold heading + 1-line body\n"
+            "  Final slide: Key takeaway + call to action\n"
+            "Label each slide clearly: 'Slide 1:', 'Slide 2:', etc."
+        ),
+        "thread_hook": (
+            "FORMAT: Twitter/X THREAD\n"
+            "Write 5 tweets, numbered:\n"
+            "  1/ Hook that stops the scroll (≤280 chars, must create curiosity)\n"
+            "  2/ – 4/ One key insight per tweet, concise and punchy (≤280 chars each)\n"
+            "  5/ Takeaway + call to action (≤280 chars)\n"
+            "Separate each tweet with a blank line. Each must stand alone."
+        ),
+        "blog_snippet": (
+            "FORMAT: LinkedIn THOUGHT LEADERSHIP excerpt\n"
+            "Write 150–200 words total:\n"
+            "  - Bold opening statement (opinion-forward, 1 sentence)\n"
+            "  - 2–3 short paragraphs expanding the idea with a real insight or example\n"
+            "  - Closing question to spark discussion in the comments\n"
+            "Professional but conversational tone."
+        ),
+        "story": (
+            "FORMAT: Instagram/Facebook STORY\n"
+            "Write ≤50 words total — short, punchy, immediate:\n"
+            "  - First line: big emotion, bold question, or surprising statement\n"
+            "  - One clear call to action (swipe up / reply / DM us)\n"
+            "No hashtags in the body — add them in the HASHTAGS section only."
+        ),
+    }
+    derivative_instruction = _DERIVATIVE_INSTRUCTIONS.get(derivative_type, "")
 
     # ── BYOP mode ─────────────────────────────────────────────────────────────
     if custom_photo_bytes:
@@ -66,14 +103,13 @@ async def generate_post(
 Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
-
+{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}
 Analyze this photo and write a {platform} post caption that:
 - Complements and describes what's in the photo
 - Fits the "{content_theme}" theme for the "{pillar}" content pillar
 - Starts with this hook: "{caption_hook}"
 - Carries this key message: {key_message}
 - Ends with a call to action
-- Is 2-4 sentences, engaging and on-brand
 
 After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
 """
@@ -170,13 +206,13 @@ Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
 {image_style_directive}
-
+{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}
 Create a {platform} post for the "{pillar}" content pillar on the theme: "{content_theme}".
 
 Start with this hook: "{caption_hook}"
 Key message: {key_message}
 
-Write the caption first (2-4 sentences, engaging, on-brand, ends with a call to action).
+Write the caption first (following the format above if specified), engaging and on-brand, ending with a call to action.
 Then generate a stunning {platform}-optimized image.
 
 {color_hint}
