@@ -1,0 +1,17 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "amplifi-hackathon")
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", f"{GCP_PROJECT_ID}-amplifi-assets")
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
+
+# Budget constants
+IMAGE_COST_PER_UNIT = 0.039   # ~$0.039 per generated image
+VIDEO_COST_FAST = 1.20         # $1.20 per 8-sec Veo Fast clip
+VIDEO_COST_STD = 3.20          # $3.20 per 8-sec Veo Standard clip
+TOTAL_BUDGET = 100.0
+IMAGE_BUDGET = 70.0
+VIDEO_BUDGET = 30.0
