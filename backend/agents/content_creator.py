@@ -115,16 +115,23 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
             # Save the user's photo under the post's GCS path
             yield {"event": "status", "data": {"message": "Saving your photo..."}}
             image_url = None
+            image_gcs_uri = None
             try:
-                image_url = await upload_image_to_gcs(custom_photo_bytes, custom_photo_mime, post_id)
-                yield {"event": "image", "data": {"url": image_url, "mime_type": custom_photo_mime}}
+                image_url, image_gcs_uri = await upload_image_to_gcs(
+                    custom_photo_bytes, custom_photo_mime, post_id
+                )
+                yield {
+                    "event": "image",
+                    "data": {"url": image_url, "mime_type": custom_photo_mime, "gcs_uri": image_gcs_uri},
+                }
             except Exception as upload_err:
                 logger.error("BYOP photo upload failed: %s", upload_err)
                 b64 = base64.b64encode(custom_photo_bytes).decode()
+                image_url = f"data:{custom_photo_mime};base64,{b64}"
                 yield {
                     "event": "image",
                     "data": {
-                        "url": f"data:{custom_photo_mime};base64,{b64}",
+                        "url": image_url,
                         "mime_type": custom_photo_mime,
                         "fallback": True,
                     },
@@ -137,6 +144,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                     "caption": full_caption,
                     "hashtags": parsed_hashtags,
                     "image_url": image_url,
+                    "image_gcs_uri": image_gcs_uri,
                 },
             }
 
@@ -181,6 +189,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
     image_bytes = None
     image_mime = "image/png"
     image_url = None
+    image_gcs_uri = None
     parsed_hashtags = None
 
     try:
@@ -228,11 +237,11 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                 yield {"event": "status", "data": {"message": "Uploading image..."}}
 
                 try:
-                    image_url = await upload_image_to_gcs(image_bytes, image_mime, post_id)
+                    image_url, image_gcs_uri = await upload_image_to_gcs(image_bytes, image_mime, post_id)
                     bt.budget_tracker.record_image()
                     yield {
                         "event": "image",
-                        "data": {"url": image_url, "mime_type": image_mime}
+                        "data": {"url": image_url, "mime_type": image_mime, "gcs_uri": image_gcs_uri}
                     }
                 except Exception as upload_err:
                     logger.error("Image upload failed: %s", upload_err)
@@ -254,6 +263,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                 "caption": full_caption.strip(),
                 "hashtags": final_hashtags,
                 "image_url": image_url,
+                "image_gcs_uri": image_gcs_uri,
             }
         }
 

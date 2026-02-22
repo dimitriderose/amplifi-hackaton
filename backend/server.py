@@ -542,6 +542,7 @@ async def stream_generate(
         final_caption = ""
         final_hashtags = []
         final_image_url = None
+        final_image_gcs_uri = None
 
         async for event in generate_post(
             plan_id, day_brief, brand, post_id,
@@ -557,18 +558,23 @@ async def stream_generate(
                 final_hashtags = event_data.get("hashtags", [])
             elif event_name == "image":
                 final_image_url = event_data.get("url")
+                final_image_gcs_uri = event_data.get("gcs_uri")
             elif event_name == "complete":
                 final_caption = event_data.get("caption", final_caption)
                 final_hashtags = event_data.get("hashtags", final_hashtags)
                 final_image_url = event_data.get("image_url", final_image_url)
+                final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
 
                 # Persist complete post to Firestore
-                await firestore_client.update_post(brand_id, post_id, {
+                update_data: dict = {
                     "status": "complete",
                     "caption": final_caption,
                     "hashtags": final_hashtags,
                     "image_url": final_image_url,
-                })
+                }
+                if final_image_gcs_uri:
+                    update_data["image_gcs_uri"] = final_image_gcs_uri
+                await firestore_client.update_post(brand_id, post_id, update_data)
             elif event_name == "error":
                 # Mark post as failed so it doesn't stay stuck in "generating"
                 await firestore_client.update_post(brand_id, post_id, {
