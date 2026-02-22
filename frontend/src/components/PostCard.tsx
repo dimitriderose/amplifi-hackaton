@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState, useRef } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 import type { Post } from '../hooks/usePostLibrary'
@@ -29,14 +29,21 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
   const color = STATUS_COLORS[post.status] || A.textMuted
   const label = STATUS_LABELS[post.status] || post.status
   const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isFinal = post.status === 'complete' || post.status === 'approved'
 
   const handleCopy = () => {
+    if (!navigator.clipboard) return
     const tags = (post.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
-    const text = tags ? `${post.caption}\n\n${tags}` : post.caption
-    navigator.clipboard.writeText(text || '').then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    })
+    const fullText = [post.caption, tags].filter(Boolean).join('\n\n')
+    navigator.clipboard.writeText(fullText)
+      .then(() => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+        setCopied(true)
+        copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
   }
 
   const handleExport = async () => {
@@ -131,10 +138,12 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
 
         {/* Action buttons */}
         <div style={{ marginTop: 'auto', display: 'flex', gap: 6, paddingTop: 4, flexWrap: 'wrap' }}>
-          {/* Copy caption button — always shown when caption exists */}
-          {post.caption && (
+          {/* Copy caption — only when post is complete/approved with a caption */}
+          {isFinal && post.caption && (
             <button
+              type="button"
               onClick={handleCopy}
+              aria-label={copied ? 'Copied to clipboard' : 'Copy caption to clipboard'}
               title="Copy caption + hashtags"
               style={{
                 flex: 1, padding: '6px', borderRadius: 6, cursor: 'pointer',
