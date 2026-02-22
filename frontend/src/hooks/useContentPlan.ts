@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 
+interface Plan {
+  plan_id: string
+  days: any[]
+}
+
+function normalizePlan(raw: any): Plan {
+  return { plan_id: raw.plan_id, days: raw.days ?? [] }
+}
+
 export function useContentPlan(brandId: string) {
-  const [plan, setPlan] = useState<any>(null)
+  const [plan, setPlan] = useState<Plan | null>(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
@@ -14,7 +23,7 @@ export function useContentPlan(brandId: string) {
     api.listPlans(brandId)
       .then((res: any) => {
         const plans: any[] = res.plans || []
-        if (plans.length > 0) setPlan(plans[0])
+        if (plans.length > 0) setPlan(normalizePlan(plans[0]))
       })
       .catch(() => { /* silently ignore — user can generate a new plan */ })
       .finally(() => setLoading(false))
@@ -25,7 +34,7 @@ export function useContentPlan(brandId: string) {
     setError('')
     try {
       const result = await api.createPlan(brandId, numDays, businessEvents) as any
-      setPlan(result)
+      setPlan(normalizePlan(result))
     } catch (err: any) {
       setError(err.message || 'Failed to generate plan')
     } finally {
@@ -40,7 +49,7 @@ export function useContentPlan(brandId: string) {
       // Refresh plan after updating a day
       const updated = await api.getPlan(brandId, planId) as any
       if (updated?.plan_profile) {
-        setPlan({ plan_id: planId, ...updated.plan_profile })
+        setPlan(normalizePlan({ plan_id: planId, ...updated.plan_profile }))
       }
     } catch (err: any) {
       setError(err.message || 'Failed to update day')
@@ -50,7 +59,7 @@ export function useContentPlan(brandId: string) {
   }
 
   const setDayCustomPhoto = (planId: string, dayIndex: number, photoUrl: string | null) => {
-    setPlan((prev: any) => {
+    setPlan((prev) => {
       if (!prev || prev.plan_id !== planId) return prev
       const days = [...(prev.days || [])]
       if (days[dayIndex]) {
