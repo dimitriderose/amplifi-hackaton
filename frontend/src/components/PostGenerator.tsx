@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react'
 import { A } from '../theme'
 import { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
@@ -24,11 +25,27 @@ const PLATFORM_ICONS: Record<string, string> = {
 const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
 
 export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const { status, statusMessage, captionChunks, caption, hashtags, imageUrl, postId, error } = state
 
   const displayCaption = status === 'generating' && captionChunks.length > 0
     ? captionChunks.join('')
     : caption
+
+  const handleCopy = () => {
+    if (!navigator.clipboard) return
+    const tags = hashtags.map(h => `#${h.replace(/^#/, '')}`).join(' ')
+    const fullText = [caption, tags].filter(Boolean).join('\n\n')
+    navigator.clipboard.writeText(fullText)
+      .then(() => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+        setCopied(true)
+        copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
+  }
 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
 
@@ -93,10 +110,11 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
 
           {/* Caption text box */}
           <div style={{
-            minHeight: 120, padding: '12px 14px', borderRadius: 10,
+            minHeight: 120, padding: '12px 14px 12px', borderRadius: 10,
             background: A.surfaceAlt, border: `1px solid ${A.border}`,
             fontSize: 14, color: A.text, lineHeight: 1.6,
             position: 'relative',
+            paddingRight: status === 'complete' && caption ? 72 : 14,
           }}>
             {displayCaption || (
               <span style={{ color: A.textMuted, fontStyle: 'italic' }}>
@@ -112,6 +130,25 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
               }} />
             )}
             <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
+            {/* Copy button — visible when caption is ready */}
+            {status === 'complete' && caption && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label={copied ? 'Copied to clipboard' : 'Copy caption to clipboard'}
+                title="Copy caption + hashtags"
+                style={{
+                  position: 'absolute', top: 8, right: 8,
+                  padding: '3px 8px', borderRadius: 6,
+                  background: copied ? A.emeraldLight : 'rgba(255,255,255,0.8)',
+                  border: `1px solid ${copied ? A.emerald : A.border}`,
+                  color: copied ? A.emerald : A.textMuted,
+                  fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+                }}
+              >
+                {copied ? '✓ Copied' : '⎘ Copy'}
+              </button>
+            )}
           </div>
 
           {/* Hashtags */}
