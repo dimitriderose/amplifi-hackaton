@@ -388,6 +388,87 @@ async def update_plan_day(
     return {"plan_profile": updated_plan}
 
 
+# ── Interleaved Generation (SSE) ──────────────────────────────
+from sse_starlette.sse import EventSourceResponse
+
+from backend.agents.content_creator import generate_post
+
+
+@app.get("/api/generate/{plan_id}/{day_index}")
+async def stream_generate(
+    plan_id: str,
+    day_index: int,
+    brand_id: str = Query(...),
+):
+    """SSE endpoint: streams interleaved caption + image generation events."""
+
+    # Fetch plan and brand
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    days = plan.get("days", [])
+    if day_index < 0 or day_index >= len(days):
+        raise HTTPException(status_code=400, detail="day_index out of range")
+
+    day_brief = days[day_index]
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    # Create a pending post record in Firestore.
+    # save_post(brand_id, plan_id, data) generates and returns its own post_id.
+    post_id = await firestore_client.save_post(brand_id, plan_id, {
+        "day_index": day_index,
+        "platform": day_brief.get("platform", "instagram"),
+        "status": "generating",
+        "caption": "",
+        "hashtags": [],
+        "image_url": None,
+    })
+
+    async def event_stream():
+        final_caption = ""
+        final_hashtags = []
+        final_image_url = None
+
+        async for event in generate_post(plan_id, day_brief, brand, post_id):
+            event_name = event["event"]
+            event_data = event["data"]
+
+            # Track final values
+            if event_name == "caption" and not event_data.get("chunk"):
+                final_caption = event_data.get("text", "")
+                final_hashtags = event_data.get("hashtags", [])
+            elif event_name == "image":
+                final_image_url = event_data.get("url")
+            elif event_name == "complete":
+                final_caption = event_data.get("caption", final_caption)
+                final_hashtags = event_data.get("hashtags", final_hashtags)
+                final_image_url = event_data.get("image_url", final_image_url)
+
+                # Persist complete post to Firestore
+                await firestore_client.update_post(brand_id, post_id, {
+                    "status": "complete",
+                    "caption": final_caption,
+                    "hashtags": final_hashtags,
+                    "image_url": final_image_url,
+                })
+            elif event_name == "error":
+                # Mark post as failed so it doesn't stay stuck in "generating"
+                await firestore_client.update_post(brand_id, post_id, {
+                    "status": "failed",
+                })
+
+            yield {
+                "event": event_name,
+                "data": json.dumps(event_data),
+            }
+
+    return EventSourceResponse(event_stream())
+
+
 # ── Static frontend (production) ──────────────────────────────
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):
