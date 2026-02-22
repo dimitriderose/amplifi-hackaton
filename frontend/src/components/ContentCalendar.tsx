@@ -1,3 +1,4 @@
+import React from 'react'
 import { A } from '../theme'
 
 const PILLAR_COLORS: Record<string, string> = {
@@ -29,7 +30,6 @@ export interface DayBrief {
 
 interface Props {
   plan: { plan_id: string; days: DayBrief[] }
-  brandId: string
   onGeneratePost?: (planId: string, dayIndex: number) => void
 }
 
