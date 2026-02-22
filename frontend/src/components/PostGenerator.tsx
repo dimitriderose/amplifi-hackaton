@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { A } from '../theme'
 import { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
+import PlatformPreview from './PlatformPreview'
 
 interface Props {
   state: GenerationState
@@ -150,6 +151,16 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
               </button>
             )}
           </div>
+
+          {/* Platform preview — character count, fold/truncation, image crop simulation */}
+          {status === 'complete' && caption && dayBrief?.platform && (
+            <PlatformPreview
+              platform={dayBrief.platform}
+              caption={caption}
+              imageUrl={imageUrl ?? undefined}
+              hashtagCount={hashtags.length}
+            />
+          )}
 
           {/* Hashtags */}
           {hashtags.length > 0 && (
@@ -310,3 +321,4 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
     </div>
   )
 }
+
