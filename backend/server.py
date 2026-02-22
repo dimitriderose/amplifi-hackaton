@@ -469,6 +469,50 @@ async def stream_generate(
     return EventSourceResponse(event_stream())
 
 
+# ── Post Review ───────────────────────────────────────────────
+from backend.agents.review_agent import review_post as _run_review
+
+
+@app.post("/api/brands/{brand_id}/posts/{post_id}/review")
+async def review_post_endpoint(brand_id: str, post_id: str):
+    """AI-review a generated post against brand guidelines."""
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    result = await _run_review(post, brand)
+
+    # Save review to Firestore
+    await firestore_client.save_review(brand_id, post_id, result)
+
+    # If approved, update post status
+    if result.get("approved"):
+        await firestore_client.update_post(brand_id, post_id, {"status": "approved"})
+
+    # If revised caption provided, update post
+    if result.get("revised_caption"):
+        await firestore_client.update_post(brand_id, post_id, {
+            "caption": result["revised_caption"],
+            "review_revised": True,
+        })
+
+    return {"review": result, "post_id": post_id}
+
+
+@app.post("/api/brands/{brand_id}/posts/{post_id}/approve")
+async def approve_post_endpoint(brand_id: str, post_id: str):
+    """Manually approve a post (user override)."""
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    await firestore_client.update_post(brand_id, post_id, {"status": "approved"})
+    return {"status": "approved", "post_id": post_id}
+
+
 # ── Static frontend (production) ──────────────────────────────
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):
