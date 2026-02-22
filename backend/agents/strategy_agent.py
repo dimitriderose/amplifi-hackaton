@@ -53,7 +53,7 @@ For each hero idea:
       - story: Quick, punchy Instagram/Facebook story-format post
   - All days in the same repurposing group MUST share the same pillar_id string (e.g., "series_0").
   - Adapt content_theme, caption_hook, and image_prompt to suit the derivative platform/format.
-The remaining {num_days - 4 if num_days >= 6 else num_days - 2} standalone days each get a unique pillar_id (e.g., "series_2", "series_3", …).
+Remaining days (not part of any repurposing series) each get their own unique pillar_id (e.g., "series_2", "series_3", …) and derivative_type "original".
 
 Each day brief MUST have these exact fields:
 - day_index: integer (0-based, so first day is 0, last day is {num_days - 1})

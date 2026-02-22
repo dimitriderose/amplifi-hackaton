@@ -248,8 +248,8 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
           {day.pillar?.replace(/_/g, ' ')}
         </div>
 
-        {/* Repurpose badge */}
-        {isDerivative && derivativeLabel && (
+        {/* Repurpose badge — only shown when the series grouping is confirmed by seriesColor */}
+        {isDerivative && derivativeLabel && seriesColor && (
           <div style={{
             fontSize: 9,
             fontWeight: 600,
