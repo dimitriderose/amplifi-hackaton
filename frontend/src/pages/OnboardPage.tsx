@@ -7,6 +7,7 @@ interface UploadedFile {
   name: string
   type: string
   size: number
+  file: File
 }
 
 type AnalysisStep = { label: string; icon: string }
@@ -48,7 +49,7 @@ export default function OnboardPage() {
     const valid = files.filter(f =>
       f.type.startsWith('image/') || f.type === 'application/pdf'
     ).slice(0, 3 - uploads.length)
-    setUploads(prev => [...prev, ...valid.map(f => ({ name: f.name, type: f.type, size: f.size }))])
+    setUploads(prev => [...prev, ...valid.map(f => ({ name: f.name, type: f.type, size: f.size, file: f }))])
   }
 
   const handleSubmit = async () => {
@@ -72,6 +73,15 @@ export default function OnboardPage() {
         website_url: noWebsite ? null : url,
         description: desc,
       }) as { brand_id: string }
+
+      // Upload brand assets if any were selected
+      if (uploads.length > 0) {
+        const formData = new FormData()
+        uploads.forEach(u => formData.append('files', u.file, u.name))
+        api.uploadBrandAsset(brand_id, formData).catch(err =>
+          console.error('Asset upload error:', err)
+        )
+      }
 
       // Wait for animation to mostly finish before navigating
       await new Promise(r => setTimeout(r, steps.length * 800 + 400))

@@ -93,6 +93,12 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
             onChange={v => setDraft(d => ({ ...d, target_audience: v }))} draft={draft.target_audience} />
         </div>
 
+        {/* Visual Style */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Visual Style" value={brand.visual_style} editing={editing}
+            onChange={v => setDraft(d => ({ ...d, visual_style: v }))} draft={draft.visual_style} />
+        </div>
+
         {/* Colors */}
         <div>
           <p style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Brand Colors</p>

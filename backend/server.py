@@ -1,7 +1,7 @@
 import logging
 import os
 import uuid
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -89,7 +89,7 @@ async def get_brand(brand_id: str):
 
 
 @app.put("/api/brands/{brand_id}")
-async def update_brand(brand_id: str, data: dict):
+async def update_brand(brand_id: str, data: dict = Body(...)):
     """Update brand profile fields (user corrections)."""
     brand = await firestore_client.get_brand(brand_id)
     if not brand:
