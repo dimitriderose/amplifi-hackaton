@@ -1,15 +1,23 @@
+import asyncio
+import io
+import json
 import logging
 import os
 import uuid
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Body
+import zipfile
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.config import CORS_ORIGINS
 from backend.models.brand import BrandProfileCreate, BrandProfile
 from backend.services import firestore_client
-from backend.services.storage_client import upload_brand_asset
+from backend.services.storage_client import (
+    upload_brand_asset,
+    get_signed_url,
+    download_from_gcs,
+)
 from backend.agents.brand_analyst import run_brand_analysis
 
 logging.basicConfig(level=logging.INFO)
@@ -129,6 +137,173 @@ async def upload_brand_asset_endpoint(
     await firestore_client.update_brand(brand_id, {"uploaded_assets": existing + uploaded})
 
     return {"uploaded": uploaded}
+
+
+# ── Export / Download ─────────────────────────────────────────
+
+@app.get("/api/posts/{post_id}/export")
+async def export_post(
+    post_id: str,
+    brand_id: str = Query(..., description="Brand ID that owns the post"),
+):
+    """Return post metadata plus a download URL.
+
+    If the post has an ``image_gcs_uri`` (a ``gs://`` URI stored at upload
+    time), it is converted to a short-lived signed URL and returned as
+    ``download_url``.  The raw ``image_gcs_uri`` is never exposed to callers.
+    """
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    image_gcs_uri: str | None = post.get("image_gcs_uri")
+    download_url: str | None = None
+    image_url: str | None = None
+
+    if image_gcs_uri:
+        try:
+            signed = await get_signed_url(image_gcs_uri)
+            download_url = signed
+            image_url = signed
+        except Exception as exc:
+            logger.warning("Could not sign GCS URI %s: %s", image_gcs_uri, exc)
+    else:
+        # Fall back to the first element of image_urls if present
+        urls: list = post.get("image_urls", [])
+        if urls:
+            image_url = urls[0]
+            download_url = image_url
+
+    return {
+        "post_id": post_id,
+        "platform": post.get("platform"),
+        "caption": post.get("caption", ""),
+        "hashtags": post.get("hashtags", []),
+        "image_url": image_url,
+        "download_url": download_url,
+    }
+
+
+@app.post("/api/export/{plan_id}")
+async def export_plan_zip(
+    plan_id: str,
+    brand_id: str = Query(..., description="Brand ID that owns the plan"),
+):
+    """Build and stream a ZIP archive containing all posts for a content plan.
+
+    Archive layout::
+
+        amplifi_export_<plan_id>/
+            instagram_0.jpg
+            instagram_0_caption.txt
+            linkedin_1.jpg
+            linkedin_1_caption.txt
+            …
+            content_plan.json
+
+    Each ``*_caption.txt`` file contains the post caption followed by the
+    hashtags (one per line, prefixed with ``#``).
+    ``content_plan.json`` contains full metadata for every post.
+    """
+    # ── Fetch plan to confirm it exists ───────────────────────
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # ── List all posts belonging to this plan ─────────────────
+    posts: list[dict] = await firestore_client.list_posts(brand_id, plan_id)
+    if not posts:
+        raise HTTPException(status_code=404, detail="No posts found for this plan")
+
+    # ── Resolve signed URLs for every post that has an image ──
+    async def _resolve_image_url(post: dict) -> str | None:
+        gcs_uri: str | None = post.get("image_gcs_uri")
+        if gcs_uri:
+            try:
+                return await get_signed_url(gcs_uri)
+            except Exception as exc:
+                logger.warning(
+                    "Could not sign GCS URI %s for post %s: %s",
+                    gcs_uri,
+                    post.get("post_id"),
+                    exc,
+                )
+                return None
+        # Fall back to the first element of image_urls
+        urls: list = post.get("image_urls", [])
+        return urls[0] if urls else None
+
+    signed_urls: list[str | None] = await asyncio.gather(
+        *[_resolve_image_url(p) for p in posts]
+    )
+
+    # ── Download image bytes in parallel (skip posts without images) ──
+    async def _download_image(url: str | None) -> bytes | None:
+        if not url:
+            return None
+        try:
+            return await download_from_gcs(url)
+        except Exception as exc:
+            logger.warning("Could not download image from %s: %s", url, exc)
+            return None
+
+    image_bytes_list: list[bytes | None] = await asyncio.gather(
+        *[_download_image(u) for u in signed_urls]
+    )
+
+    # ── Build ZIP in memory ───────────────────────────────────
+    zip_buffer = io.BytesIO()
+    archive_root = f"amplifi_export_{plan_id}"
+
+    # Collect clean metadata for content_plan.json (strip internal GCS URIs)
+    plan_metadata: list[dict] = []
+
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for index, (post, img_bytes, img_url) in enumerate(
+            zip(posts, image_bytes_list, signed_urls)
+        ):
+            platform: str = post.get("platform", "post")
+            caption: str = post.get("caption", "")
+            hashtags: list[str] = post.get("hashtags", [])
+            base_name = f"{platform}_{index}"
+
+            # Image file — detect PNG vs JPEG by magic bytes
+            if img_bytes:
+                ext = "png" if img_bytes[:4] == b"\x89PNG" else "jpg"
+                zf.writestr(f"{archive_root}/{base_name}.{ext}", img_bytes)
+
+            # Caption + hashtags text file
+            hashtag_block = "\n".join(f"#{tag.lstrip('#')}" for tag in hashtags)
+            caption_text = caption
+            if hashtag_block:
+                caption_text = f"{caption}\n\n{hashtag_block}"
+            zf.writestr(
+                f"{archive_root}/{base_name}_caption.txt",
+                caption_text.encode("utf-8"),
+            )
+
+            # Collect metadata (safe copy — omit internal GCS URI)
+            post_meta = {
+                k: v for k, v in post.items() if k != "image_gcs_uri"
+            }
+            post_meta["image_url"] = img_url
+            plan_metadata.append(post_meta)
+
+        # content_plan.json
+        zf.writestr(
+            f"{archive_root}/content_plan.json",
+            json.dumps(plan_metadata, indent=2, default=str).encode("utf-8"),
+        )
+
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename=amplifi_export_{plan_id}.zip"
+        },
+    )
 
 
 # ── Static frontend (production) ──────────────────────────────
