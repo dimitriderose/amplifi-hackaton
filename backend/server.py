@@ -795,7 +795,11 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
             await websocket.send_json({"type": "connected"})
 
             async def recv_from_frontend():
-                """Forward mic audio from browser → Gemini Live."""
+                """Forward mic audio from browser → Gemini Live.
+
+                Re-raises on non-disconnect errors so asyncio.wait propagates them.
+                Normal return (WebSocketDisconnect) signals the session to end.
+                """
                 try:
                     while True:
                         msg = await websocket.receive()
@@ -811,17 +815,30 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
                                     ]
                                 )
                             )
-                except (WebSocketDisconnect, Exception):
-                    pass
+                except WebSocketDisconnect:
+                    pass  # normal client close — let the task return
+                except Exception:
+                    logger.exception("recv_from_frontend error for brand %s", brand_id)
+                    raise
 
             async def recv_from_gemini():
                 """Forward Gemini audio responses → browser."""
-                async for response in session.receive():
-                    sc = getattr(response, "server_content", None)
-                    if not sc:
-                        continue
-                    model_turn = getattr(sc, "model_turn", None)
-                    if model_turn:
+                try:
+                    async for response in session.receive():
+                        sc = getattr(response, "server_content", None)
+                        if not sc:
+                            continue
+
+                        # Signal end-of-turn to frontend (so it knows AI finished speaking)
+                        if getattr(sc, "turn_complete", False):
+                            try:
+                                await websocket.send_json({"type": "turn_complete"})
+                            except Exception:
+                                return
+
+                        model_turn = getattr(sc, "model_turn", None)
+                        if not model_turn:
+                            continue
                         for part in model_turn.parts:
                             inline = getattr(part, "inline_data", None)
                             if inline and inline.data:
@@ -837,8 +854,35 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
                                     )
                                 except Exception:
                                     return
+                except asyncio.CancelledError:
+                    raise  # let the task framework handle cancellation
+                except Exception:
+                    logger.exception("recv_from_gemini error for brand %s", brand_id)
+                    try:
+                        await websocket.send_json(
+                            {"type": "error", "message": "Voice session interrupted"}
+                        )
+                    except Exception:
+                        pass
 
-            await asyncio.gather(recv_from_frontend(), recv_from_gemini())
+            # BUG-1 fix: use asyncio.wait(FIRST_COMPLETED) so that when either task
+            # finishes (frontend disconnect or Gemini session end), the other is
+            # explicitly cancelled — preventing zombie Gemini sessions.
+            fe_task = asyncio.create_task(recv_from_frontend())
+            gm_task = asyncio.create_task(recv_from_gemini())
+            try:
+                done, pending = await asyncio.wait(
+                    [fe_task, gm_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for task in (fe_task, gm_task):
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
 
     except WebSocketDisconnect:
         pass

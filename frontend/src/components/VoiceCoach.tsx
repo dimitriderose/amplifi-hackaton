@@ -1,3 +1,4 @@
+import React from 'react'
 import { A } from '../theme'
 import { useVoiceCoach, VoiceCoachStatus } from '../hooks/useVoiceCoach'
 
@@ -7,7 +8,7 @@ interface Props {
 }
 
 export default function VoiceCoach({ brandId, brandName }: Props) {
-  const { status, isAISpeaking, error, startSession, stopSession } = useVoiceCoach()
+  const { status, isAISpeaking, transcript, error, startSession, stopSession } = useVoiceCoach()
 
   const isOpen = status !== 'idle'
 
@@ -63,7 +64,7 @@ export default function VoiceCoach({ brandId, brandName }: Props) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{ fontSize: 14 }}>🎤</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-                {brandName ? `${brandName}` : 'Brand Coach'}
+                {brandName || 'Brand Coach'}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -162,9 +163,20 @@ export default function VoiceCoach({ brandId, brandName }: Props) {
                 <p style={{ fontSize: 12, color: A.textSoft, margin: 0, fontWeight: 500 }}>
                   {isAISpeaking ? 'Speaking...' : 'Listening...'}
                 </p>
-                <p style={{ fontSize: 11, color: A.textMuted, margin: 0, textAlign: 'center', lineHeight: 1.4 }}>
-                  Ask anything about your brand strategy or content plan.
-                </p>
+                {/* Transcript — last thing AI said */}
+                {transcript ? (
+                  <p style={{
+                    fontSize: 11, color: A.text, margin: 0, textAlign: 'center',
+                    lineHeight: 1.5, fontStyle: 'italic', maxHeight: 60, overflow: 'hidden',
+                    display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+                  } as React.CSSProperties}>
+                    "{transcript}"
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 11, color: A.textMuted, margin: 0, textAlign: 'center', lineHeight: 1.4 }}>
+                    Ask anything about your brand strategy or content plan.
+                  </p>
+                )}
               </>
             )}
 
