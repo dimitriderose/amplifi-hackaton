@@ -15,7 +15,7 @@ export default function App() {
         <Route path="/onboard" element={<OnboardPage />} />
         <Route path="/dashboard/:brandId" element={<DashboardPage />} />
         <Route path="/generate/:planId/:dayIndex" element={<GeneratePage />} />
-        <Route path="/export/:planId" element={<ExportPage />} />
+        <Route path="/export/:brandId" element={<ExportPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

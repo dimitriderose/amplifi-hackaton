@@ -140,6 +140,18 @@ async def upload_brand_asset_endpoint(
     return {"uploaded": uploaded}
 
 
+# ── Posts ─────────────────────────────────────────────────────
+
+@app.get("/api/posts")
+async def list_posts_endpoint(
+    brand_id: str = Query(...),
+    plan_id: str | None = Query(None),
+):
+    """List all posts for a brand, optionally filtered by plan."""
+    posts = await firestore_client.list_posts(brand_id, plan_id)
+    return {"posts": posts}
+
+
 # ── Export / Download ─────────────────────────────────────────
 
 @app.get("/api/posts/{post_id}/export")
