@@ -41,18 +41,19 @@ User Browser (React) ←REST + SSE→ Cloud Run (FastAPI)
                                     │   ├── Strategy Agent
                                     │   ├── Content Creator Agent (interleaved output)
                                     │   └── Review Agent
-                                    ├── Gemini 2.5 Flash (text + image)
-                                    ├── Veo 3.1 (video generation, P1)
-                                    └── Cloud Firestore + Cloud Storage
+                                    ├── Gemini API (generateContent)
+                                    │   └── responseModalities: ["TEXT", "IMAGE"]
+                                    ├── Cloud Firestore (brand profiles, plans)
+                                    └── Cloud Storage (images, assets)
 ```
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 10 P1, 12 P2, 2 P3 features |
+| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 9 P1, 12 P2, 2 P3 features |
 | [Technical Design (TDD)](docs/TDD.md) | Implementation spec — 2,290 lines covering all P0/P1 |
-| [UI Mockup](docs/ui-mockup.jsx) | Interactive React prototype — 6 screens (Landing, Onboard, Brand, Calendar, Content, Dashboard) |
+| [UI Mockup](docs/amplifi-ui.jsx) | Interactive React prototype — 6 screens (Landing, Onboard, Brand, Calendar, Content, Dashboard) |
 
 ## Hackathon
 
