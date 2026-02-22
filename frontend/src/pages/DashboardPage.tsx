@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
-  const { plan, generating, error: planError, generatePlan } = useContentPlan(brandId ?? '')
+  const { plan, generating, error: planError, generatePlan, clearPlan } = useContentPlan(brandId ?? '')
 
   const approvedParam = searchParams.get('approved')
   const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -116,12 +116,25 @@ export default function DashboardPage() {
         <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
           {plan ? (
             /* Calendar view */
-            <ContentCalendar
-              plan={{ plan_id: plan.plan_id, days: plan.days }}
-              onGeneratePost={(planId, dayIndex) =>
-                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
-              }
-            />
+            <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <button
+                  onClick={clearPlan}
+                  style={{
+                    padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
+                    background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+                  }}
+                >
+                  ↺ New Plan
+                </button>
+              </div>
+              <ContentCalendar
+                plan={{ plan_id: plan.plan_id, days: plan.days }}
+                onGeneratePost={(planId, dayIndex) =>
+                  navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
+                }
+              />
+            </>
           ) : (
             /* No plan yet — show events input + generate CTA */
             <>
