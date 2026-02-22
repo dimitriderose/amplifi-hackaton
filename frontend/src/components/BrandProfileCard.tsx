@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { A } from '../theme'
 
 interface BrandProfile {
@@ -7,14 +7,15 @@ interface BrandProfile {
   business_type: string
   industry: string
   tone: string
-  colors: string[]
+  colors?: string[]
   target_audience: string
   visual_style: string
   image_style_directive: string
   caption_style_directive: string
-  content_themes: string[]
-  competitors: string[]
+  content_themes?: string[]
+  competitors?: string[]
   analysis_status: string
+  ui_preferences?: { show_competitors?: boolean }
 }
 
 interface Props {
@@ -25,9 +26,31 @@ interface Props {
 export default function BrandProfileCard({ brand, onUpdate }: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(brand)
+  const [showCompetitors, setShowCompetitors] = useState(
+    brand.ui_preferences?.show_competitors ?? true
+  )
+
+  // Sync draft and toggle state when brand prop changes (e.g. after analysis or brand switch)
+  useEffect(() => {
+    setDraft(brand)
+    setShowCompetitors(brand.ui_preferences?.show_competitors ?? true)
+  }, [brand.brand_id])
+
+  const handleToggleCompetitors = () => {
+    const next = !showCompetitors
+    setShowCompetitors(next)
+    onUpdate({ ui_preferences: { show_competitors: next } })
+  }
 
   const handleSave = () => {
-    onUpdate(draft)
+    onUpdate({
+      industry: draft.industry,
+      tone: draft.tone,
+      target_audience: draft.target_audience,
+      visual_style: draft.visual_style,
+      image_style_directive: draft.image_style_directive,
+      caption_style_directive: draft.caption_style_directive,
+    })
     setEditing(false)
   }
 
@@ -68,7 +91,7 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
           </span>
         </div>
         <button
-          onClick={() => setEditing(!editing)}
+          onClick={() => { setDraft(brand); setEditing(!editing) }}
           style={{
             padding: '6px 14px', borderRadius: 6, border: `1px solid ${A.border}`,
             background: 'transparent', cursor: 'pointer', fontSize: 13, color: A.textSoft,
@@ -124,6 +147,52 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
             ))}
           </div>
         </div>
+
+        {/* Competitor Landscape — collapsible with persisted preference */}
+        {(brand.competitors || []).length > 0 && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <p style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Competitor Landscape
+              </p>
+              {/* Toggle switch */}
+              <div
+                role="switch"
+                aria-checked={showCompetitors}
+                aria-label={showCompetitors ? 'Hide competitors' : 'Show competitors'}
+                onClick={handleToggleCompetitors}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              >
+                <div style={{
+                  width: 32, height: 18, borderRadius: 9,
+                  background: showCompetitors ? A.indigo : A.border,
+                  position: 'relative', transition: 'background 0.2s',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 2,
+                    left: showCompetitors ? 16 : 2,
+                    width: 14, height: 14, borderRadius: '50%',
+                    background: 'white', transition: 'left 0.2s',
+                  }} />
+                </div>
+                <span style={{ fontSize: 11, color: A.textMuted }}>
+                  {showCompetitors ? 'Showing' : 'Hidden'}
+                </span>
+              </div>
+            </div>
+            {showCompetitors && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {(brand.competitors || []).map(c => (
+                  <span key={c} style={{
+                    fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                    background: A.surfaceAlt, color: A.textSoft,
+                    border: `1px solid ${A.border}`,
+                  }}>{c}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Image Style Directive */}
         <div style={{ gridColumn: '1 / -1' }}>
