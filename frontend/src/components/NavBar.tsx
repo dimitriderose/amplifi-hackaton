@@ -1,14 +1,20 @@
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { A } from '../theme'
 
 export default function NavBar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
 
-  // Extract brandId from dashboard or export routes so we can link to /export/:brandId
+  // Extract brandId from dashboard/export path segments, or from ?brand_id= on generate routes
   const dashboardMatch = location.pathname.match(/^\/dashboard\/([^/]+)/)
   const exportMatch = location.pathname.match(/^\/export\/([^/]+)/)
-  const activeBrandId = (dashboardMatch && dashboardMatch[1]) || (exportMatch && exportMatch[1]) || null
+  const generateMatch = location.pathname.match(/^\/generate\//)
+  const activeBrandId =
+    (dashboardMatch && dashboardMatch[1]) ||
+    (exportMatch && exportMatch[1]) ||
+    (generateMatch && searchParams.get('brand_id')) ||
+    null
 
   const staticLinks = [
     { path: '/', label: 'Home' },

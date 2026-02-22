@@ -328,6 +328,13 @@ class CreatePlanBody(_PydanticBaseModel):
     num_days: int = 7
 
 
+@app.get("/api/brands/{brand_id}/plans")
+async def list_plans(brand_id: str):
+    """List all content plans for a brand, newest first."""
+    plans = await firestore_client.list_plans(brand_id)
+    return {"plans": plans}
+
+
 @app.post("/api/brands/{brand_id}/plans")
 async def create_plan(brand_id: str, body: CreatePlanBody = Body(CreatePlanBody())):
     """Generate a content calendar plan using the Strategy Agent."""

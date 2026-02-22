@@ -51,6 +51,14 @@ async def create_plan(brand_id: str, data: dict) -> str:
              .collection("content_plans").document(plan_id).set(doc))
     return plan_id
 
+async def list_plans(brand_id: str) -> list:
+    db = get_client()
+    docs = await (db.collection("brands").document(brand_id)
+                    .collection("content_plans")
+                    .order_by("created_at", direction="DESCENDING")
+                    .get())
+    return [d.to_dict() for d in docs]
+
 async def get_plan(plan_id: str, brand_id: str) -> Optional[dict]:
     db = get_client()
     # Try to find plan across all brands if brand_id not provided

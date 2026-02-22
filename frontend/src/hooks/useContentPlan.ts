@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 
 export function useContentPlan(brandId: string) {
@@ -6,6 +6,19 @@ export function useContentPlan(brandId: string) {
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+
+  // Load the most recent plan on mount (so page refresh restores the calendar)
+  useEffect(() => {
+    if (!brandId) return
+    setLoading(true)
+    api.listPlans(brandId)
+      .then((res: any) => {
+        const plans: any[] = res.plans || []
+        if (plans.length > 0) setPlan(plans[0])
+      })
+      .catch(() => { /* silently ignore — user can generate a new plan */ })
+      .finally(() => setLoading(false))
+  }, [brandId])
 
   const generatePlan = async (numDays = 7) => {
     setGenerating(true)

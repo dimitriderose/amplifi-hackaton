@@ -21,6 +21,7 @@ export const api = {
   uploadBrandAsset: (brandId: string, formData: FormData) =>
     fetch(`/api/brands/${brandId}/upload`, { method: 'POST', body: formData }).then(r => r.json()),
 
+  listPlans: (brandId: string) => request(`/api/brands/${brandId}/plans`),
   createPlan: (brandId: string, numDays = 7) =>
     request(`/api/brands/${brandId}/plans`, { method: 'POST', body: JSON.stringify({ num_days: numDays }) }),
   getPlan: (brandId: string, planId: string) => request(`/api/brands/${brandId}/plans/${planId}`),
