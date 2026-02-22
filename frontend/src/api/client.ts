@@ -34,8 +34,21 @@ export const api = {
   approvePost: (brandId: string, postId: string) =>
     request(`/api/brands/${brandId}/posts/${postId}/approve`, { method: 'POST' }),
   exportPost: (postId: string, brandId: string) => request(`/api/posts/${postId}/export?brand_id=${brandId}`),
-  exportPlan: (planId: string) =>
-    request(`/api/export/${planId}`, { method: 'POST' }),
+  exportPlan: (planId: string, brandId: string) =>
+    fetch(`/api/export/${planId}?brand_id=${encodeURIComponent(brandId)}`, { method: 'POST' })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ error: r.statusText }))
+          throw new Error(err.error || `HTTP ${r.status}`)
+        }
+        const blob = await r.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `amplifi_export_${planId}.zip`
+        a.click()
+        URL.revokeObjectURL(url)
+      }),
 
   generateVideo: (postId: string, tier = 'fast') =>
     request(`/api/posts/${postId}/generate-video?tier=${tier}`, { method: 'POST' }),

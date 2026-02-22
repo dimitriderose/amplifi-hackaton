@@ -30,8 +30,7 @@ export default function PostLibrary({ brandId, planId }: Props) {
     if (!planId) return
     setExporting(true)
     try {
-      const res = await api.exportPlan(planId) as { download_url?: string }
-      if (res.download_url) window.open(res.download_url, '_blank')
+      await api.exportPlan(planId, brandId)
     } catch (err: any) {
       alert('Export failed: ' + err.message)
     } finally {
