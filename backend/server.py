@@ -19,6 +19,7 @@ from backend.services.storage_client import (
     download_from_gcs,
 )
 from backend.agents.brand_analyst import run_brand_analysis
+from backend.agents.strategy_agent import run_strategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -304,6 +305,87 @@ async def export_plan_zip(
             "Content-Disposition": f"attachment; filename=amplifi_export_{plan_id}.zip"
         },
     )
+
+
+# ── Content Plans ─────────────────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBaseModel
+
+
+class CreatePlanBody(_PydanticBaseModel):
+    num_days: int = 7
+
+
+@app.post("/api/brands/{brand_id}/plans")
+async def create_plan(brand_id: str, body: CreatePlanBody = Body(CreatePlanBody())):
+    """Generate a content calendar plan using the Strategy Agent."""
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    num_days = max(1, min(body.num_days, 30))
+
+    try:
+        days = await run_strategy(brand_id, brand, num_days)
+    except Exception as e:
+        logger.error(f"Strategy agent error for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    plan_data = {
+        "brand_id": brand_id,
+        "num_days": num_days,
+        "status": "complete",
+        "days": days,
+    }
+
+    try:
+        plan_id = await firestore_client.create_plan(brand_id, plan_data)
+    except Exception as e:
+        logger.error(f"Failed to persist plan for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"plan_id": plan_id, "status": "complete", "days": days}
+
+
+@app.get("/api/brands/{brand_id}/plans/{plan_id}")
+async def get_plan(brand_id: str, plan_id: str):
+    """Get a content plan by ID."""
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"plan_profile": plan}
+
+
+@app.put("/api/brands/{brand_id}/plans/{plan_id}/days/{day_index}")
+async def update_plan_day(
+    brand_id: str,
+    plan_id: str,
+    day_index: int,
+    data: dict = Body(...),
+):
+    """Update a specific day in a content plan."""
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    days = plan.get("days", [])
+    if day_index < 0 or day_index >= len(days):
+        raise HTTPException(
+            status_code=400,
+            detail=f"day_index {day_index} out of range (plan has {len(days)} days)",
+        )
+
+    # Remove protected fields from user-supplied data
+    safe_data = {k: v for k, v in data.items() if k not in ("day_index", "brand_id", "plan_id")}
+
+    try:
+        await firestore_client.update_plan_day(brand_id, plan_id, day_index, safe_data)
+    except Exception as e:
+        logger.error(f"Failed to update day {day_index} for plan {plan_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    updated_plan = await firestore_client.get_plan(plan_id, brand_id)
+    return {"plan_profile": updated_plan}
 
 
 # ── Static frontend (production) ──────────────────────────────
