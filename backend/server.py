@@ -510,13 +510,17 @@ async def stream_generate(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    # BYOP: if the day has a custom photo, download it for vision-based generation
+    # BYOP: if the day has a custom photo, download it for vision-based generation.
+    # We use the gs:// URI (not the stored signed URL) to generate a fresh short-lived
+    # signed URL at request time. This avoids both SSRF (no user-controlled URL is
+    # fetched) and staleness (the GCS URI never expires).
     custom_photo_bytes: bytes | None = None
     custom_photo_mime = "image/jpeg"
-    custom_photo_url = day_brief.get("custom_photo_url")
-    if custom_photo_url:
+    custom_photo_gcs_uri = day_brief.get("custom_photo_gcs_uri")
+    if custom_photo_gcs_uri:
         try:
-            custom_photo_bytes = await download_from_gcs(custom_photo_url)
+            fresh_url = await get_signed_url(custom_photo_gcs_uri)
+            custom_photo_bytes = await download_from_gcs(fresh_url)
             custom_photo_mime = day_brief.get("custom_photo_mime", "image/jpeg")
         except Exception as e:
             logger.warning("Could not download custom photo for day %s: %s", day_index, e)

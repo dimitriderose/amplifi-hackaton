@@ -82,11 +82,12 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
             image_part = types.Part(
                 inline_data=types.Blob(data=custom_photo_bytes, mime_type=custom_photo_mime)
             )
+            text_part = types.Part(text=byop_prompt)
 
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model="gemini-2.5-flash",
-                contents=[image_part, byop_prompt],
+                contents=[image_part, text_part],
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT"],
                     temperature=0.9,
