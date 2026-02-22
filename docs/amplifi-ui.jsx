@@ -33,7 +33,7 @@ const NavBar = ({ screen, setScreen }) => (
       <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 17, fontWeight: 700, color: A.text, letterSpacing: -0.3 }}>Amplifi</span>
     </div>
     <div style={{ display: "flex", gap: 2 }}>
-      {[["landing","Home"],["onboard","Onboard"],["brand","Brand"],["calendar","Calendar"],["detail","Content"],["dashboard","Dashboard"]].map(([k,l]) => (
+      {[["landing","Home"],["onboard","Onboard"],["brand","Brand"],["calendar","Calendar"],["detail","Content"],["video","Video"],["dashboard","Dashboard"]].map(([k,l]) => (
         <button key={k} onClick={() => setScreen(k)} style={{ padding: "5px 12px", borderRadius: 6, background: screen === k ? A.indigoLight : "transparent", border: "none", cursor: "pointer", fontSize: 12, fontFamily: "'IBM Plex Sans', sans-serif", color: screen === k ? A.indigo : A.textSoft, fontWeight: screen === k ? 600 : 400 }}>{l}</button>
       ))}
     </div>
@@ -616,6 +616,249 @@ const LandingPage = ({ onStart }) => {
   );
 };
 
+// ─── Screen 7: Video Repurposing (P2 Sprint 7+, §12.1.12) ──
+
+const VideoRepurposeScreen = ({ onBack }) => {
+  const [phase, setPhase] = useState("upload"); // upload | confirm | processing | results
+  const [progress, setProgress] = useState(0);
+  const [activeClip, setActiveClip] = useState(0);
+  const [editingCaption, setEditingCaption] = useState(false);
+
+  const fileInfo = { name: "startup-tips-raw.mp4", size: "287 MB", duration: "4:32", resolution: "1920×1080" };
+
+  const processingSteps = [
+    { l: "Uploading video...", i: "📤" },
+    { l: "Extracting audio track", i: "🎵" },
+    { l: "Transcribing speech", i: "📝" },
+    { l: "Analyzing for highlights", i: "🔍" },
+    { l: "Extracting clips", i: "✂️" },
+    { l: "Adding captions", i: "💬" },
+    { l: "Formatting for platforms", i: "📱" },
+  ];
+  const [steps, setSteps] = useState([]);
+
+  const startProcessing = () => {
+    setPhase("processing");
+    processingSteps.forEach((_, idx) => {
+      setTimeout(() => {
+        setSteps(p => [...p, processingSteps[idx]]);
+        setProgress(Math.round(((idx + 1) / processingSteps.length) * 100));
+      }, (idx + 1) * 800);
+    });
+    setTimeout(() => setPhase("results"), processingSteps.length * 800 + 600);
+  };
+
+  const platformLimits = { "Reels": 2200, "LinkedIn": 3000, "YouTube Shorts": 5000 };
+
+  const clips = [
+    { platform: "Reels", platformIcon: "📷", platformColor: "#E1306C", duration: "0:28", aspect: "9:16", hook: "The biggest mistake I see new founders make...", caption: "Stop making this one mistake that's killing your growth. Most founders don't realize it until year two — but by then you've already lost momentum.\n\nHere's what to do instead 👇\n\n#StartupLife #FounderTips #SmallBusiness #GrowthHacks", start: "1:42", end: "2:10" },
+    { platform: "LinkedIn", platformIcon: "💼", platformColor: "#0A66C2", duration: "0:45", aspect: "1:1", hook: "Three years ago I almost shut down the business...", caption: "Three years ago, I was ready to close the doors.\n\nNot because of revenue. Not because of competition. Because I was doing everything myself and burning out.\n\nThe turning point? Learning to delegate before I felt ready.\n\nWhat's the hardest lesson you've learned as a founder?", start: "3:15", end: "4:00" },
+    { platform: "YouTube Shorts", platformIcon: "▶️", platformColor: "#FF0000", duration: "0:18", aspect: "9:16", hook: "Here's the one metric that actually matters...", caption: "Forget followers. Forget likes. The ONE metric that predicts whether your business survives?\n\nCustomer retention rate.\n\nIf people come back, everything else follows. If they don't, no amount of marketing will save you.", start: "0:22", end: "0:40" },
+  ];
+  const c = clips[activeClip];
+  const charCount = c.caption.length;
+  const charLimit = platformLimits[c.platform];
+
+  return (
+    <div style={{ padding: "28px 24px", maxWidth: 760, margin: "0 auto" }}>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 16, background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.textSoft }}>← Back to Content</button>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: `linear-gradient(135deg, ${A.violet}20, ${A.indigo}20)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🎬</div>
+        <div>
+          <h1 style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 20, fontWeight: 700, color: A.text, margin: 0 }}>Video Repurposing</h1>
+          <p style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.textSoft, margin: 0 }}>Turn your raw video into platform-ready clips</p>
+        </div>
+      </div>
+
+      {/* Upload Phase */}
+      {phase === "upload" && (
+        <div style={{ animation: "fadeUp 0.4s ease both" }}>
+          <div onClick={() => setPhase("confirm")} style={{
+            padding: "48px 24px", borderRadius: 16, cursor: "pointer", textAlign: "center",
+            border: `2px dashed ${A.border}`, background: A.surfaceAlt,
+            transition: "border-color 0.2s, background 0.2s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = A.indigo; e.currentTarget.style.background = `${A.indigoLight}`; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = A.border; e.currentTarget.style.background = A.surfaceAlt; }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📹</div>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 15, fontWeight: 600, color: A.text, marginBottom: 4 }}>Drop your video here</div>
+            <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.textSoft, marginBottom: 16 }}>or click to browse · MP4 or MOV · up to 5 min / 500MB</div>
+            <div style={{ display: "inline-block", padding: "8px 20px", borderRadius: 8, background: A.indigo, color: "white", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600 }}>Choose File</div>
+          </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+            {[{ icon: "✂️", label: "Auto-clips", desc: "AI finds the best moments" }, { icon: "💬", label: "Captions", desc: "Auto-generated subtitles" }, { icon: "📱", label: "Multi-format", desc: "Reels, LinkedIn, Shorts" }].map((f, i) => (
+              <div key={i} style={{ flex: 1, padding: "14px", borderRadius: 10, background: A.surface, border: `1px solid ${A.borderLight}`, textAlign: "center" }}>
+                <div style={{ fontSize: 20, marginBottom: 6 }}>{f.icon}</div>
+                <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: A.text }}>{f.label}</div>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 10, color: A.textSoft, marginTop: 2 }}>{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* File Confirmation Phase */}
+      {phase === "confirm" && (
+        <div style={{ animation: "fadeUp 0.4s ease both" }}>
+          <div style={{ padding: "24px", borderRadius: 16, background: A.surface, border: `1px solid ${A.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* Thumbnail placeholder */}
+              <div style={{ width: 80, height: 56, borderRadius: 8, background: `linear-gradient(135deg, ${A.text}12, ${A.text}06)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${A.borderLight}` }}>
+                <span style={{ fontSize: 24 }}>🎞️</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 600, color: A.text }}>{fileInfo.name}</div>
+                <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                  {[
+                    { l: "Size", v: fileInfo.size },
+                    { l: "Duration", v: fileInfo.duration },
+                    { l: "Resolution", v: fileInfo.resolution },
+                  ].map((m, i) => (
+                    <div key={i}>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.textMuted }}>{m.l}: </span>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.text, fontWeight: 500 }}>{m.v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => setPhase("upload")} style={{ padding: "4px 10px", borderRadius: 6, background: "none", border: `1px solid ${A.border}`, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 11, color: A.textSoft }}>Change</button>
+            </div>
+            <div style={{ margin: "16px 0", height: 1, background: A.border }} />
+            <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.textSoft, marginBottom: 16 }}>Amplifi will extract 2–3 highlight clips, add captions, and format them for Reels, LinkedIn, and YouTube Shorts.</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setPhase("upload")} style={{ flex: 1, padding: "12px", borderRadius: 10, background: A.surface, border: `1px solid ${A.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 500, color: A.text, cursor: "pointer" }}>Cancel</button>
+              <button onClick={startProcessing} style={{ flex: 2, padding: "12px", borderRadius: 10, background: `linear-gradient(135deg, ${A.indigo}, ${A.indigoDark})`, border: "none", color: "white", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: `0 2px 12px ${A.indigo}25` }}>Start Processing →</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Processing Phase */}
+      {phase === "processing" && (
+        <div style={{ animation: "fadeUp 0.4s ease both" }}>
+          <div style={{ padding: "32px 24px", borderRadius: 16, background: A.surface, border: `1px solid ${A.border}`, textAlign: "center" }}>
+            <div style={{ width: 48, height: 48, margin: "0 auto 16px", borderRadius: "50%", border: `3px solid ${A.borderLight}`, borderTopColor: A.indigo, animation: "spin 1s linear infinite" }} />
+            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 16, fontWeight: 600, color: A.text, marginBottom: 4 }}>Analyzing your video...</div>
+            <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.textSoft, marginBottom: 6 }}>{fileInfo.name} · {fileInfo.duration}</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: A.indigo, marginBottom: 16 }}>{progress}% complete · ~{Math.max(1, Math.round((100 - progress) * 0.45))}s remaining</div>
+            <div style={{ width: "100%", height: 6, borderRadius: 3, background: A.surfaceAlt, marginBottom: 24 }}>
+              <div style={{ width: `${progress}%`, height: "100%", borderRadius: 3, background: `linear-gradient(90deg, ${A.indigo}, ${A.violet})`, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ textAlign: "left" }}>
+              {steps.map((st, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", animation: `fadeUp 0.3s ${i * 0.05}s both` }}>
+                  <span style={{ fontSize: 14 }}>{st.i}</span>
+                  <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: i === steps.length - 1 ? A.text : A.textSoft, fontWeight: i === steps.length - 1 ? 500 : 400 }}>{st.l}</span>
+                  {i < steps.length - 1 && <span style={{ marginLeft: "auto", fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: A.emerald }}>✓</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Results Phase */}
+      {phase === "results" && (
+        <div style={{ animation: "fadeUp 0.4s ease both" }}>
+          {/* Source info bar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderRadius: 8, background: A.surfaceAlt, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12 }}>🎞️</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: A.text }}>{fileInfo.name}</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: A.textSoft }}>· {clips.length} clips extracted</span>
+            </div>
+            <button onClick={() => { setPhase("upload"); setSteps([]); setProgress(0); }} style={{ padding: "4px 12px", borderRadius: 6, background: A.surface, border: `1px solid ${A.border}`, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 11, color: A.textSoft, display: "flex", alignItems: "center", gap: 4 }}>🔄 Regenerate Clips</button>
+          </div>
+
+          {/* Clip selector tabs */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {clips.map((cl, i) => (
+              <button key={i} onClick={() => { setActiveClip(i); setEditingCaption(false); }} style={{
+                flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer", textAlign: "center",
+                background: activeClip === i ? `${cl.platformColor}08` : A.surface,
+                border: `1px solid ${activeClip === i ? cl.platformColor + "40" : A.border}`,
+                transition: "all 0.2s",
+              }}>
+                <span style={{ fontSize: 16, display: "block", marginBottom: 4 }}>{cl.platformIcon}</span>
+                <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: activeClip === i ? cl.platformColor : A.text }}>{cl.platform}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.textSoft, marginTop: 2 }}>{cl.duration} · {cl.aspect}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Clip detail */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {/* Left: Video preview — richer */}
+            <div>
+              <div style={{ width: "100%", aspectRatio: c.aspect === "1:1" ? "1/1" : "9/16", borderRadius: 12, background: `linear-gradient(180deg, ${A.text}06 0%, ${A.text}12 30%, ${A.text}08 60%, ${A.text}14 100%)`, border: `1px solid ${A.border}`, position: "relative", overflow: "hidden" }}>
+                {/* Simulated frame bands */}
+                {[15, 35, 55, 75].map((top, i) => (
+                  <div key={i} style={{ position: "absolute", top: `${top}%`, left: 0, right: 0, height: 1, background: `${A.text}06` }} />
+                ))}
+                {/* Play overlay */}
+                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 48, height: 48, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", backdropFilter: "blur(4px)" }}>
+                  <div style={{ width: 0, height: 0, borderLeft: "14px solid white", borderTop: "8px solid transparent", borderBottom: "8px solid transparent", marginLeft: 3 }} />
+                </div>
+                {/* Platform badge */}
+                <div style={{ position: "absolute", top: 10, left: 10, padding: "4px 10px", borderRadius: 6, background: `${c.platformColor}15`, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 10 }}>{c.platformIcon}</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: c.platformColor, fontWeight: 500 }}>{c.platform}</span>
+                </div>
+                {/* Duration badge */}
+                <div style={{ position: "absolute", top: 10, right: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(0,0,0,0.5)", fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "white" }}>{c.duration}</div>
+                {/* Caption overlay — positioned in bottom third */}
+                <div style={{ position: "absolute", bottom: 36, left: 10, right: 10, padding: "6px 10px", borderRadius: 4, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(2px)" }}>
+                  <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 10, color: "white", textAlign: "center", lineHeight: 1.4 }}>{c.hook}</div>
+                </div>
+                {/* Scrubber bar */}
+                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 24, background: "linear-gradient(transparent, rgba(0,0,0,0.4))", display: "flex", alignItems: "flex-end", padding: "0 10px 6px" }}>
+                  <div style={{ flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.3)", position: "relative" }}>
+                    <div style={{ width: "35%", height: "100%", borderRadius: 2, background: "white" }} />
+                    <div style={{ position: "absolute", top: "-3px", left: "35%", width: 9, height: 9, borderRadius: "50%", background: "white", transform: "translateX(-50%)", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} />
+                  </div>
+                </div>
+              </div>
+              {/* Timecodes */}
+              <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+                <div style={{ flex: 1, padding: "6px 8px", borderRadius: 6, background: A.surfaceAlt, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.textSoft, textAlign: "center" }}>Start: {c.start}</div>
+                <div style={{ flex: 1, padding: "6px 8px", borderRadius: 6, background: A.surfaceAlt, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.textSoft, textAlign: "center" }}>End: {c.end}</div>
+              </div>
+            </div>
+
+            {/* Right: Caption + actions */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Hook callout */}
+              <div style={{ padding: "4px 10px", borderRadius: 6, background: `${c.platformColor}08`, border: `1px solid ${c.platformColor}20`, display: "inline-flex", alignItems: "center", gap: 4, alignSelf: "flex-start" }}>
+                <span style={{ fontSize: 10 }}>💡</span>
+                <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 11, color: c.platformColor, fontWeight: 500 }}>Hook: {c.hook}</span>
+              </div>
+              {/* Caption card with character count */}
+              <div style={{ padding: 16, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}`, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: A.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Caption · {c.platform}</div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: charCount > charLimit * 0.9 ? "#E53E3E" : A.textMuted }}>{charCount}/{charLimit}</div>
+                </div>
+                {editingCaption ? (
+                  <textarea style={{ width: "100%", minHeight: 120, padding: 10, borderRadius: 8, border: `1px solid ${A.indigo}40`, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.text, lineHeight: 1.6, resize: "vertical", outline: "none", background: A.surfaceAlt }} defaultValue={c.caption} />
+                ) : (
+                  <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: A.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{c.caption}</div>
+                )}
+              </div>
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setEditingCaption(!editingCaption)} style={{ flex: 1, padding: 10, borderRadius: 8, background: A.surface, border: `1px solid ${A.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 500, color: A.text, cursor: "pointer" }}>{editingCaption ? "Save" : "✏️ Edit Caption"}</button>
+                <button style={{ flex: 1, padding: 10, borderRadius: 8, background: A.indigo, border: "none", color: "white", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>⬇️ Download Clip</button>
+              </div>
+              <button style={{ padding: 10, borderRadius: 8, background: `linear-gradient(135deg, ${A.indigo}, ${A.indigoDark})`, border: "none", color: "white", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 2px 12px ${A.indigo}25` }}>📦 Download All Clips (ZIP)</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main ────────────────────────────────────────────────────
 
 export default function AmplifiApp() {
@@ -638,6 +881,7 @@ export default function AmplifiApp() {
       {screen === "brand" && <BrandProfileScreen onNext={() => setScreen("calendar")} />}
       {screen === "calendar" && <CalendarScreen onDetail={() => setScreen("detail")} />}
       {screen === "detail" && <ContentDetailScreen onBack={() => setScreen("calendar")} />}
+      {screen === "video" && <VideoRepurposeScreen onBack={() => setScreen("detail")} />}
       {screen === "dashboard" && <DashboardScreen onScreen={setScreen} />}
     </div>
   );

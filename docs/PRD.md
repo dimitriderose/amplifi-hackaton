@@ -230,7 +230,7 @@ brands/{brandId}/
 | Engagement prediction scoring | **P2 — Nice to Have** | Replace or supplement the Review Agent's brand consistency checks with engagement prediction. Score posts on likely engagement (1–10) based on platform-specific signals: hook strength, emotional resonance, call-to-action clarity, trending topic alignment. Would require historical engagement data or few-shot examples to calibrate. More valuable than brand-color checking for solopreneurs who care about reach, not visual polish. |
 | Existing social media voice analysis | **P2 — Nice to Have** | "Learn my voice from my last 50 posts" — ingest a user's existing LinkedIn, X, or Instagram content to build a more accurate brand voice profile than website scraping alone. The website version of most solopreneurs is polished and corporate; their social media voice is casual and opinionated. Requires social media API integrations (LinkedIn API, X API) with OAuth flows, rate limits, and approval processes. High value but weeks of integration work. |
 | Platform meta intelligence | **P2 — Nice to Have** | Dynamic, data-driven understanding of what content formats perform best on each platform right now. "LinkedIn rewards personal stories on Tuesday mornings" changes every quarter and varies by niche. Would require a data pipeline analyzing trending content patterns per platform, updated regularly. Current Strategy Agent uses static best practices; this would make recommendations dynamic and seasonally aware. |
-| Video repurposing / smart editing | **P2 — Nice to Have** | "I recorded a 3-minute talking-head video — extract the best 30 seconds, add captions, format for Reels." This is video editing, not video generation, and is a fundamentally different capability from the Veo-based P1 video feature. Would require speech-to-text analysis, highlight detection, auto-captioning, and platform-specific reformatting. Different product surface entirely, but extremely high value for solopreneurs creating face-to-camera content. |
+| Video repurposing / smart editing | **P2 — Nice to Have** | User uploads raw video (up to 5 minutes, .mp4/.mov) and Amplifi automatically produces platform-ready short-form clips. **User flow:** (1) User uploads a raw video from Content Detail or Calendar screen via "Upload your video" button alongside the existing BYOP photo upload. (2) AI analyzes the video: speech-to-text transcription, speaker identification, topic segmentation, engagement-peak detection (moments with emphasis, laughter, key statements). (3) AI proposes 2–3 clip options with timestamps, each optimized for a different platform — a 15-second hook for Reels/TikTok, a 30-second highlight for LinkedIn, a 60-second version for YouTube Shorts. (4) User previews clips with auto-generated captions overlay, selects/edits, and exports. **Processing pipeline:** Gemini handles transcription + content analysis (which moments are most compelling). Clip extraction uses FFmpeg server-side. Caption overlay uses a simple text rendering layer. Platform formatting (aspect ratio, duration limits) is rule-based per platform. **Agent design:** New `VideoEditor` agent in the SequentialAgent pipeline, activated only when user uploads raw video. Sits after Content Creator, uses the brand profile's tone and style to write caption overlays that match the brand voice. The `content_type` field on calendar days already distinguishes "reel" from "photo" — a "user_video" type triggers this path. **Key differentiator from Veo (P1):** Veo generates synthetic video from scratch. Video repurposing takes the user's authentic footage and makes it platform-ready. For solopreneurs recording face-to-camera content, this is often more valuable than synthetic video because authenticity drives engagement. **Input constraints:** Max 5 minutes, max 500MB, .mp4 or .mov. Server-side processing via Cloud Run job (not in the request path — upload triggers async processing, user gets notified when clips are ready). |
 | Instagram grid visual consistency | **P2 — Nice to Have** | Enforce visual coherence across all 7 independently generated images so the Instagram profile grid looks intentional, not chaotic. Current architecture generates each post's image in a separate API call, causing stylistic variance. Solutions include: generating a "style reference image" first and passing it as context to subsequent generations, or post-processing generated images through a color/style normalization step. Meaningful for Instagram-heavy brands where grid aesthetics drive follower decisions. |
 | Multi-platform formatting | **P2 — Nice to Have** | Auto-resize and reformat generated content for different platform specs (IG square, TikTok vertical, LinkedIn landscape). |
 | Content editing/regeneration | **P2 — Nice to Have** | User can request "regenerate image" or "make caption shorter" for individual posts. |
@@ -317,6 +317,57 @@ brands/{brandId}/
 | **Sat Mar 15** | **SUBMISSION DAY** |
 
 **Hard deadline: Sunday March 16, 2026 at 5:00 PM PDT.**
+
+## Post-Hackathon P2 Roadmap
+
+P2 features sequenced by impact × effort. Grouped into sprints assuming 1–2 week cycles post-hackathon. SA should spec TDD sections in this order.
+
+### Sprint 4 (Week 4): Export & Workflow — *highest impact, lowest effort*
+
+These are the features that close the gap between "AI generates content" and "user actually posts content." Without them, Amplifi generates beautiful calendars that still require manual copy-paste workflows.
+
+| Feature | Effort | Why Now |
+|---|---|---|
+| One-tap caption export | 3–4 hours | Copy-to-clipboard button on every caption. Also per-post image download and full-week ZIP export. Maria persona's #1 workflow request — without this, every caption requires manual highlight → copy → switch app → paste. Frontend-only. |
+| Platform preview formatting | 1–2 days | Live preview of how each post appears on target platform: LinkedIn character count with "see more" fold, Instagram square crop, X truncation warning. Jason persona's key ask for LinkedIn-heavy content. Frontend components with real character limits. |
+| Content editing/regeneration | 1–2 days | Edit individual captions inline. Regenerate a single post without regenerating the full week. Requires a new endpoint (`POST /api/content/{postId}/regenerate`) that calls Content Creator for one post with existing brand context. |
+| Competitor visibility toggle | 2–3 hours | Show/hide toggle on competitor section of Brand Profile. Frontend-only. Maria finds competitor data stressful. Data still extracted (informs strategy), display is optional. |
+
+**Sprint 4 total: ~3–4 days. Mostly frontend. One new endpoint.**
+
+### Sprint 5 (Week 5–6): Brand Intelligence — *high impact, moderate effort*
+
+These make the brand analysis smarter and the onboarding more flexible for different user types.
+
+| Feature | Effort | Why Now |
+|---|---|---|
+| AI image quality validation | 4–6 hours | Quality confidence indicator on generated images. BYOP toggle prominence for high-risk industries (food, fashion, real estate). Brand Analyst flags industries where BYOP is recommended. Prompt change + frontend indicator. |
+| Description-first onboarding option | 3–4 hours | A/B test inverting the URL-first flow — make description the default, URL the enhancement. For solopreneur-heavy audiences (coaches, consultants) who don't have websites. Frontend toggle + analytics event. |
+| Visual identity seed | 1–2 days | Extract dominant colors, typography cues, and visual style from website/uploads. Generate an `image_style_directive` that's passed to every Content Creator image generation call. Ensures visual consistency across the week. Partially implemented in §3.2 — needs completion. |
+| Multi-platform formatting | 1–2 days | Auto-adapt content for each platform's requirements: LinkedIn long-form vs X 280-char vs Instagram caption style. Strategy Agent already assigns platforms per post — this adds platform-specific Content Creator prompts per post. |
+
+**Sprint 5 total: ~4–5 days. Prompt engineering + frontend.**
+
+### Sprint 6 (Week 7–8): Analytics & Intelligence — *high impact, higher effort*
+
+These require new data pipelines and integrations beyond the current Gemini-only stack.
+
+| Feature | Effort | Why Now |
+|---|---|---|
+| Engagement prediction scoring | 3–5 days | Review Agent scores each post for predicted engagement. Requires calibration data (initially heuristic, later trained on actual post performance). Replaces static brand-consistency scoring with predictive scoring. |
+| Existing social media voice analysis | 3–5 days | OAuth integrations for LinkedIn, X, Instagram APIs. Analyze user's existing posts to extract voice, successful patterns, audience preferences. Feeds into Brand Analyst. Major integration effort but transforms brand analysis accuracy. |
+| Platform meta intelligence | 2–3 days | Crawl trending content per platform, analyze patterns, update Strategy Agent recommendations weekly. New data pipeline + tool on Strategy Agent. |
+| Instagram grid visual consistency | 2–3 days | Style reference image generated during brand analysis, passed as visual context to every Content Creator call. Pixel-level consistency beyond prompt-level. |
+
+**Sprint 6 total: ~1.5–2 weeks. New integrations + data pipelines.**
+
+### Sprint 7+ (Month 2+): Stretch Features
+
+| Feature | Effort | Notes |
+|---|---|---|
+| Video repurposing / smart editing | 1–2 weeks | User uploads raw video → AI auto-captions, extracts highlights, adapts to platform formats. Separate pipeline from Veo generation. New agent required. |
+| Industry-adaptive demo content (P3) | 2–3 days | Personalize sample content during onboarding to match user's inferred industry. Leadership coach sees LinkedIn posts, not farm-to-table captions. Prompt change + sample generation during Brand Analyst phase. |
+| Post analytics dashboard (P3) | 2–3 weeks | Connect to social media APIs to track actual post performance. Close the feedback loop: which AI-generated posts performed best? Requires OAuth + analytics pipeline + dashboard UI. |
 
 ---
 

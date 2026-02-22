@@ -14,7 +14,7 @@ This Technical Design Document specifies the implementation architecture for Amp
 
 **Scope:** All P0 (Must Have) features from the PRD: brand analysis from URL, content calendar generation, interleaved post generation, brand consistency review, React dashboard, image storage, and streaming UI.
 
-**Out of scope (P1/P2/P3):** Voice brand coaching, multi-platform formatting, content editing/regeneration, post analytics dashboard.
+**Out of scope (unspecified):** Voice brand coaching (P3), post analytics dashboard (P3). All P2 features are now specified in §12.1, including video repurposing (§12.1.12). P3 features are additive and do not affect core architecture.
 
 ---
 
@@ -2011,12 +2011,19 @@ logger.info("generation_event", extra={
 | Visual identity seed (P1) | §3.2 Brand Analyst image_style_directive output, §3.4 Content Creator Mode A prepend, §5.1 image_style_directive field, §7.1 ImageStyleDirective | ✓ Specified |
 | Caption style directive (P1) | §3.2 Brand Analyst caption_style_directive output, §3.4 Content Creator base_context prepend, §5.1 caption_style_directive field, §7.1 CaptionStyleDirective | ✓ Specified |
 | Video generation via Veo 3.1 (P1) | §6.4 Video Generation, §6.4.2 Veo API, §6.4.3 REST endpoint, §6.4.4 Frontend | ✓ Specified |
-| ZIP export (P2) | §4.1 POST /api/export/{planId} — deferred to Week 3 if time | ○ Placeholder only |
-| Engagement prediction (P2) | §12.1 P2 Architecture Notes | ○ Not specified — post-hackathon |
-| Social media voice analysis (P2) | §12.1 P2 Architecture Notes | ○ Not specified — post-hackathon |
-| Platform meta intelligence (P2) | §12.1 P2 Architecture Notes | ○ Not specified — post-hackathon |
-| Video repurposing / smart editing (P2) | §12.1 P2 Architecture Notes | ○ Not specified — post-hackathon |
-| Instagram grid consistency (P2) | §12.1 P2 Architecture Notes | ○ Not specified — post-hackathon |
+| ZIP export (P2) | §12.1.1 One-Tap Caption Export (includes ZIP) | ✓ Specified |
+| Engagement prediction (P2) | §12.1.8 Engagement Prediction Scoring | ✓ Specified |
+| Social media voice analysis (P2) | §12.1.9 Social Media Voice Analysis | ✓ Specified |
+| Platform meta intelligence (P2) | §12.1.10 Platform Meta Intelligence | ✓ Specified |
+| Video repurposing / smart editing (P2) | §12.1.12 Video Repurposing / Smart Editing | ✓ Specified |
+| Instagram grid consistency (P2) | §12.1.11 Instagram Grid Visual Consistency | ✓ Specified |
+| One-tap caption export (P2) | §12.1.1 One-Tap Caption Export | ✓ Specified |
+| Platform preview formatting (P2) | §12.1.2 Platform Preview Formatting | ✓ Specified |
+| Content editing/regeneration (P2) | §12.1.3 Content Editing & Regeneration | ✓ Specified |
+| Competitor visibility toggle (P2) | §12.1.4 Competitor Visibility Toggle | ✓ Specified |
+| AI image quality validation (P2) | §12.1.5 AI Image Quality Validation | ✓ Specified |
+| Description-first onboarding (P2) | §12.1.6 Description-First Onboarding Option | ✓ Specified |
+| Multi-platform formatting (P2) | §12.1.7 Multi-Platform Formatting | ✓ Specified |
 | Frontend serving (single container) | §8.1 Docker Configuration | ✓ Specified |
 | CORS configuration | §4.2 FastAPI app setup | ✓ Specified |
 | Gemini model compliance | §3.4 model="gemini-2.5-flash" | ✓ gemini-2.5-flash with ["TEXT", "IMAGE"] |
@@ -2028,17 +2035,962 @@ logger.info("generation_event", extra={
 
 ## 12.1 P2 Architecture Notes (Post-Hackathon)
 
-These features are documented in the PRD but intentionally unspecified in this TDD. The following notes ensure the current architecture doesn't foreclose on them.
+These features are documented in the PRD and sequenced by PM sprint priority (see PRD Post-Hackathon P2 Roadmap). Each includes implementation detail sufficient to build.
 
-**Engagement Prediction Scoring:** Would replace or supplement the Review Agent's criteria. Architecture-compatible: the Review Agent already produces a structured score. Swapping the scoring rubric from brand consistency to engagement prediction is a prompt change + calibration data. The Review Agent's tool interface (`check_brand_consistency`) would gain a sibling `predict_engagement` tool. No structural changes to the pipeline.
+---
 
-**Existing Social Media Voice Analysis:** Requires OAuth integrations (LinkedIn, X, Instagram APIs) which are out of scope. When implemented, would feed into the Brand Analyst as an additional input source alongside website scraping. The `brand_profile` schema already has `tone` and `content_themes` fields that would be populated from social data instead of (or in addition to) website data. No schema changes needed — just a new input pipeline.
+### 12.1.1 One-Tap Caption Export (Sprint 4)
 
-**Platform Meta Intelligence:** Would require a data pipeline (crawl trending content per platform, analyze patterns, update recommendations weekly). The Strategy Agent's system prompt already references platform best practices — making these dynamic instead of static is a prompt injection change, not an architecture change. Could be implemented as a `research_platform_trends` tool on the Strategy Agent.
+**Effort:** 3–4 hours | **Type:** Frontend + one new endpoint
 
-**Video Repurposing / Smart Editing:** Fundamentally different from Veo-based generation. Would require: speech-to-text (Gemini can do this), highlight detection (new capability), auto-captioning (Gemini can do this), and format adaptation. This is a new pipeline, not an extension of the current one. Would likely be a separate agent (`VideoEditor`) in the SequentialAgent pipeline, activated only when user uploads raw video. The `content_type` field on days already distinguishes "reel" from "photo" — a "user_video" type could trigger this path.
+**Frontend — Copy-to-clipboard button:**
+```typescript
+// Add to ContentDetail and CalendarDayCard components
 
-**Instagram Grid Consistency:** Partially addressed by the P1 visual identity seed (§3.2 `image_style_directive`), which ensures every generated image shares the same color palette, lighting, and composition guidelines. Two remaining approaches for full consistency: (A) Generate a "style reference image" during brand analysis and pass it as a visual context to every Content Creator call — this would use Gemini's image understanding to maintain pixel-level consistency, not just prompt-level. (B) Post-process generated images through a color normalization step before upload to GCS. The P1 seed gets you 70% of the way; full grid consistency is a diminishing-returns problem best left for post-hackathon.
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  
+  return (
+    <button onClick={handleCopy} className="copy-btn">
+      {copied ? "✓ Copied" : "📋 Copy Caption"}
+    </button>
+  );
+};
+
+// Per-post image download — already supported via GCS signed URL
+// Add explicit download button that triggers browser download
+const DownloadImageButton: React.FC<{ url: string; filename: string }> = ({ url, filename }) => (
+  <a href={url} download={filename} className="download-btn">⬇️ Download Image</a>
+);
+```
+
+**Backend — ZIP export endpoint:**
+```python
+@app.post("/api/export/{plan_id}")
+async def export_plan_zip(plan_id: str):
+    """Export full weekly plan as ZIP: all captions + images."""
+    import zipfile, io
+    
+    db = firestore.client()
+    plan_ref = db.collection("plans").document(plan_id)
+    plan = plan_ref.get().to_dict()
+    brand_id = plan["brand_id"]
+    
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, day in enumerate(plan.get("days", [])):
+            day_num = i + 1
+            platform = day.get("platform", "instagram")
+            
+            # Caption as .txt file
+            caption = day.get("caption", "")
+            hashtags = " ".join(day.get("hashtags", []))
+            zf.writestr(f"day{day_num}_{platform}_caption.txt", f"{caption}\n\n{hashtags}")
+            
+            # Image (download from GCS)
+            image_url = day.get("image_url")
+            if image_url:
+                image_bytes = download_from_gcs(image_url)
+                zf.writestr(f"day{day_num}_{platform}_image.png", image_bytes)
+    
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=amplifi_week_{plan_id[:8]}.zip"}
+    )
+```
+
+**Component tree update:**
+```
+├── ContentDetail
+│   ├── CaptionText
+│   ├── CopyButton (NEW — copies caption + hashtags to clipboard)
+│   ├── DownloadImageButton (NEW — browser download of generated image)
+│   └── ActionBar (existing)
+│
+├── CalendarView
+│   └── ExportWeekButton (NEW — triggers ZIP download)
+```
+
+---
+
+### 12.1.2 Platform Preview Formatting (Sprint 4)
+
+**Effort:** 1–2 days | **Type:** Frontend components
+
+```typescript
+// Platform-specific preview components
+
+const PLATFORM_LIMITS = {
+  instagram: { captionMax: 2200, hashtagMax: 30 },
+  linkedin: { captionMax: 3000, foldAt: 140 },  // "see more" fold
+  x: { captionMax: 280 },
+  tiktok: { captionMax: 2200 },
+  facebook: { captionMax: 63206 }
+};
+
+const LinkedInPreview: React.FC<{ caption: string; image?: string }> = ({ caption, image }) => {
+  const foldAt = PLATFORM_LIMITS.linkedin.foldAt;
+  const isFolded = caption.length > foldAt;
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <div className="linkedin-preview">
+      <div className="preview-header">
+        <span className="brand-avatar" />
+        <span className="brand-name">{brandName}</span>
+      </div>
+      {image && <img src={image} className="preview-image" style={{ aspectRatio: '1.91/1' }} />}
+      <p className="preview-caption">
+        {expanded || !isFolded ? caption : caption.slice(0, foldAt)}
+        {isFolded && !expanded && (
+          <button onClick={() => setExpanded(true)} className="see-more">...see more</button>
+        )}
+      </p>
+      <div className="char-count">{caption.length} / {PLATFORM_LIMITS.linkedin.captionMax}</div>
+      {isFolded && (
+        <div className="fold-indicator">
+          ⚠️ First {foldAt} characters appear above fold — hook must be here
+        </div>
+      )}
+    </div>
+  );
+};
+
+const XPreview: React.FC<{ caption: string }> = ({ caption }) => {
+  const overLimit = caption.length > PLATFORM_LIMITS.x.captionMax;
+  return (
+    <div className="x-preview">
+      <p className={overLimit ? "caption-over-limit" : ""}>
+        {overLimit ? caption.slice(0, 277) + "..." : caption}
+      </p>
+      <div className={`char-count ${overLimit ? "over" : ""}`}>
+        {caption.length} / {PLATFORM_LIMITS.x.captionMax}
+        {overLimit && " ⚠️ Will be truncated"}
+      </div>
+    </div>
+  );
+};
+
+const InstagramPreview: React.FC<{ caption: string; image?: string }> = ({ caption, image }) => (
+  <div className="instagram-preview">
+    {image && <img src={image} className="preview-image" style={{ aspectRatio: '1/1' }} />}
+    <p className="preview-caption">{caption}</p>
+    <div className="hashtag-count">
+      {(caption.match(/#/g) || []).length} / {PLATFORM_LIMITS.instagram.hashtagMax} hashtags
+    </div>
+  </div>
+);
+
+// Platform preview switcher on ContentDetail page
+const PlatformPreview: React.FC<{ platform: string; caption: string; image?: string }> = (props) => {
+  switch (props.platform) {
+    case "linkedin": return <LinkedInPreview {...props} />;
+    case "x": return <XPreview {...props} />;
+    case "instagram": return <InstagramPreview {...props} />;
+    default: return <GenericPreview {...props} />;
+  }
+};
+```
+
+**Component tree update:**
+```
+├── ContentDetail
+│   ├── PlatformPreview (NEW — shows how post appears on target platform)
+│   │   ├── LinkedInPreview (character count, "see more" fold, 1.91:1 image crop)
+│   │   ├── XPreview (280 char limit, truncation warning)
+│   │   ├── InstagramPreview (square crop, hashtag count)
+│   │   └── TikTokPreview (caption + video frame)
+│   ├── CaptionText
+│   └── CopyButton
+```
+
+No backend changes. No Firestore changes. Pure frontend.
+
+---
+
+### 12.1.3 Content Editing & Regeneration (Sprint 4)
+
+**Effort:** 1–2 days | **Type:** New endpoint + frontend
+
+**Backend — Single post regeneration:**
+```python
+@app.post("/api/content/{plan_id}/day/{day_index}/regenerate")
+async def regenerate_single_post(plan_id: str, day_index: int, 
+                                  edit_instructions: str = None):
+    """Regenerate a single day's content without regenerating the full week."""
+    db = firestore.client()
+    plan_ref = db.collection("plans").document(plan_id)
+    plan = plan_ref.get().to_dict()
+    brand_id = plan["brand_id"]
+    
+    brand_ref = db.collection("brands").document(brand_id)
+    brand = brand_ref.get().to_dict()
+    
+    day = plan["days"][day_index]
+    
+    # Build context from brand + strategy for this specific day
+    context = {
+        "brand_profile": brand,
+        "day_strategy": day,  # pillar, platform, content_type
+        "edit_instructions": edit_instructions,  # Optional: "make it more casual" / "focus on the sale"
+    }
+    
+    # Call Content Creator for just this one post
+    result = await content_creator_agent.generate_single_post(context)
+    
+    # Update Firestore — only this day's content
+    plan["days"][day_index]["caption"] = result["caption"]
+    plan["days"][day_index]["hashtags"] = result["hashtags"]
+    if result.get("image_url"):
+        plan["days"][day_index]["image_url"] = result["image_url"]
+    plan["days"][day_index]["regenerated"] = True
+    plan["days"][day_index]["regenerated_at"] = firestore.SERVER_TIMESTAMP
+    
+    plan_ref.update({"days": plan["days"]})
+    
+    return {"day": plan["days"][day_index]}
+```
+
+**Frontend — Inline editing:**
+```typescript
+const EditableCaption: React.FC<{ caption: string; onSave: (text: string) => void }> = ({ caption, onSave }) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(caption);
+  
+  if (!editing) {
+    return (
+      <div onClick={() => setEditing(true)} className="editable-caption">
+        <p>{caption}</p>
+        <span className="edit-hint">✏️ Click to edit</span>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="caption-editor">
+      <textarea value={text} onChange={e => setText(e.target.value)} />
+      <button onClick={() => { onSave(text); setEditing(false); }}>Save</button>
+      <button onClick={() => { setText(caption); setEditing(false); }}>Cancel</button>
+    </div>
+  );
+};
+
+// Regenerate button with optional instructions
+const RegenerateButton: React.FC<{ planId: string; dayIndex: number }> = ({ planId, dayIndex }) => {
+  const [instructions, setInstructions] = useState("");
+  const [showInput, setShowInput] = useState(false);
+  
+  const handleRegenerate = async () => {
+    const result = await api.regeneratePost(planId, dayIndex, instructions || undefined);
+    // Update local state with new content
+  };
+  
+  return (
+    <div>
+      <button onClick={() => setShowInput(!showInput)}>🔄 Regenerate</button>
+      {showInput && (
+        <div className="regen-input">
+          <input placeholder="Optional: 'make it funnier' or 'focus on the promotion'" 
+                 value={instructions} onChange={e => setInstructions(e.target.value)} />
+          <button onClick={handleRegenerate}>Go</button>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+---
+
+### 12.1.4 Competitor Visibility Toggle (Sprint 4)
+
+**Effort:** 2–3 hours | **Type:** Frontend only
+
+```typescript
+// Add to BrandProfileCard
+const CompetitorSection: React.FC<{ competitors: Competitor[] }> = ({ competitors }) => {
+  const [visible, setVisible] = useState(true);  // Default visible
+  
+  return (
+    <div className="competitor-section">
+      <div className="section-header">
+        <h3>Competitor Landscape</h3>
+        <ToggleSwitch checked={visible} onChange={setVisible} label={visible ? "Showing" : "Hidden"} />
+      </div>
+      {visible && (
+        <div className="competitor-grid">
+          {competitors.map(c => <CompetitorCard key={c.name} {...c} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+**Firestore schema addition:**
+```
+brands/{brandId}/
+  ├── ui_preferences: {
+  │     show_competitors: true   # NEW — user toggle
+  │   }
+```
+
+Competitor data is always extracted during brand analysis (it informs content strategy). The toggle only affects the user-facing display.
+
+---
+
+### 12.1.5 AI Image Quality Validation (Sprint 5)
+
+**Effort:** 4–6 hours | **Type:** Prompt change + frontend indicator
+
+**Brand Analyst prompt addition:**
+```
+INDUSTRY RISK ASSESSMENT:
+After inferring the business type, assess AI image generation risk:
+- HIGH RISK (recommend BYOP): food photography, fashion, real estate, jewelry, 
+  automotive, cosmetics — industries where bad AI images are worse than no images
+- MEDIUM RISK: fitness, travel, education — AI images acceptable but user photos preferred
+- LOW RISK: SaaS, consulting, coaching, finance — abstract/graphic images work well
+
+Output a new field:
+  "image_generation_risk": "high" | "medium" | "low"
+  "byop_recommendation": "We recommend using your own photos for food content — 
+    AI-generated food photography can look unappetizing. Upload your best shots 
+    and we'll write perfect captions."
+```
+
+**Frontend — Quality confidence indicator:**
+```typescript
+const ImageQualityIndicator: React.FC<{ risk: string; contentType: string }> = ({ risk, contentType }) => {
+  if (risk === "high" && contentType === "photo") {
+    return (
+      <div className="quality-warning">
+        ⚠️ AI image quality may be limited for {industry}. 
+        <strong>Upload your own photos</strong> for best results.
+        <ToggleSwitch label="Caption-only mode" />
+      </div>
+    );
+  }
+  return null;
+};
+```
+
+**Firestore schema addition:**
+```
+brands/{brandId}/
+  ├── image_generation_risk: "high" | "medium" | "low"  # NEW
+  ├── byop_recommendation: "..."                          # NEW
+```
+
+---
+
+### 12.1.6 Description-First Onboarding Option (Sprint 5)
+
+**Effort:** 3–4 hours | **Type:** Frontend flow change + A/B test
+
+```typescript
+// Two onboarding modes — A/B tested
+
+// Mode A (current): URL primary, description secondary
+// Mode B (new): Description primary, URL as optional enhancement
+
+const OnboardPage: React.FC<{ variant: "url_first" | "description_first" }> = ({ variant }) => {
+  if (variant === "description_first") {
+    return (
+      <div className="onboard">
+        <h2>Tell us about your business</h2>
+        <DescriptionInput required minLength={20} />
+        <AssetUploadZone optional />
+        <CollapsibleSection label="Have a website? Paste it for even better results">
+          <URLInput optional />
+        </CollapsibleSection>
+        <AnalyzeButton />
+      </div>
+    );
+  }
+  
+  // Mode A: existing flow
+  return (
+    <div className="onboard">
+      <URLInput />
+      <NoWebsiteToggle />
+      <DescriptionInput />
+      <AssetUploadZone />
+      <AnalyzeButton />
+    </div>
+  );
+};
+```
+
+**Analytics event:** Track conversion rate per variant:
+```python
+# POST /api/analytics/onboard
+{
+  "variant": "description_first",
+  "completed": true,
+  "had_url": false,
+  "had_assets": true,
+  "time_to_complete_ms": 45000
+}
+```
+
+No backend API changes — the `POST /api/brands` endpoint already accepts `description` (required) and `website_url` (optional).
+
+---
+
+### 12.1.7 Multi-Platform Formatting (Sprint 5)
+
+**Effort:** 1–2 days | **Type:** Prompt engineering per platform
+
+**Content Creator prompt update — platform-specific generation:**
+```python
+PLATFORM_PROMPTS = {
+    "instagram": """
+    FORMAT: Instagram caption. 
+    - Hook in first line (appears above fold)
+    - 2-3 short paragraphs with line breaks
+    - Call to action (comment, save, share)
+    - 20-30 relevant hashtags at the end
+    - Emoji use: moderate, on-brand
+    Max: 2200 characters
+    """,
+    "linkedin": """
+    FORMAT: LinkedIn post.
+    - Strong opening hook (first 140 chars appear above "see more")
+    - Professional but personable tone
+    - 3-5 short paragraphs
+    - End with a question or CTA to drive comments
+    - 3-5 hashtags maximum (LinkedIn penalizes more)
+    - No emoji overuse — 1-2 per post max
+    Max: 3000 characters
+    """,
+    "x": """
+    FORMAT: X (Twitter) post.
+    - Concise, punchy, conversational
+    - One clear idea per post
+    - Thread format if content needs more than 280 chars (indicate with 🧵)
+    - 1-3 hashtags integrated naturally (not appended)
+    Max: 280 characters per tweet
+    """,
+    "tiktok": """
+    FORMAT: TikTok caption.
+    - Ultra-casual, trend-aware
+    - Hook immediately — first 3 words matter most
+    - Hashtags mixed with trending tags
+    - CTA: "Follow for more" or "Save this for later"
+    Max: 2200 characters
+    """,
+    "facebook": """
+    FORMAT: Facebook post.
+    - Conversational, community-oriented
+    - Ask questions to drive comments
+    - Longer form acceptable
+    - 1-3 hashtags or none
+    - Emoji use: moderate
+    """,
+}
+```
+
+**Integration:** The Strategy Agent already assigns a platform per day. When the Content Creator generates each post, it receives the corresponding `PLATFORM_PROMPTS[platform]` fragment prepended to the generation prompt. This is a prompt change, not architecture.
+
+---
+
+### 12.1.8 Engagement Prediction Scoring (Sprint 6)
+
+**Effort:** 3–5 days | **Type:** New tool on Review Agent
+
+```python
+# Add to Review Agent tools
+
+@tool
+def predict_engagement(caption: str, platform: str, brand_profile: dict, 
+                       image_description: str = None) -> dict:
+    """Predict engagement potential for a post. Returns score and reasoning.
+    
+    Scoring rubric (heuristic v1 — replace with ML model when data available):
+    - Hook strength (0-25): Does the first line grab attention?
+    - Relevance (0-25): Does content match audience interests?
+    - CTA effectiveness (0-20): Clear call-to-action that drives interaction?
+    - Visual appeal (0-15): Image/video quality and relevance?
+    - Platform fit (0-15): Optimized for this specific platform's algorithm?
+    """
+    prompt = f"""Score this social media post for predicted engagement.
+    
+    Platform: {platform}
+    Brand audience: {brand_profile.get('target_audience')}
+    Brand tone: {brand_profile.get('tone')}
+    Caption: {caption}
+    Image: {image_description or 'No image description available'}
+    
+    Score each dimension 0-100 and provide one-sentence reasoning:
+    1. Hook strength (weight: 25%)
+    2. Audience relevance (weight: 25%)
+    3. CTA effectiveness (weight: 20%)
+    4. Visual appeal (weight: 15%)
+    5. Platform optimization (weight: 15%)
+    
+    Return JSON: {{
+      "overall_score": 0-100,
+      "dimensions": {{
+        "hook": {{"score": N, "reasoning": "..."}},
+        "relevance": {{"score": N, "reasoning": "..."}},
+        "cta": {{"score": N, "reasoning": "..."}},
+        "visual": {{"score": N, "reasoning": "..."}},
+        "platform_fit": {{"score": N, "reasoning": "..."}}
+      }},
+      "improvement_suggestions": ["...", "..."]
+    }}
+    """
+    
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    return json.loads(response.text)
+```
+
+**Firestore schema addition:**
+```
+plans/{planId}/days[N]/
+  ├── engagement_prediction: {
+  │     overall_score: 78,
+  │     dimensions: { hook: {score: 85, reasoning: "..."}, ... },
+  │     improvement_suggestions: ["Add a question to drive comments", ...]
+  │   }
+```
+
+**Frontend:** Show engagement score as a colored badge on each calendar day card (green 80+, yellow 60-79, red <60). Tap to expand full breakdown.
+
+---
+
+### 12.1.9 Social Media Voice Analysis (Sprint 6)
+
+**Effort:** 3–5 days | **Type:** OAuth integrations + new input pipeline
+
+```python
+# New endpoint for connecting social accounts
+@app.post("/api/brands/{brand_id}/connect-social")
+async def connect_social_account(brand_id: str, platform: str, oauth_token: str):
+    """Connect a social media account for voice analysis."""
+    # Platform-specific API calls
+    if platform == "linkedin":
+        posts = await fetch_linkedin_posts(oauth_token, limit=50)
+    elif platform == "instagram":
+        posts = await fetch_instagram_posts(oauth_token, limit=50)
+    elif platform == "x":
+        posts = await fetch_x_posts(oauth_token, limit=50)
+    
+    # Analyze voice patterns
+    voice_analysis = await analyze_social_voice(posts)
+    
+    # Update brand profile with social voice data
+    db = firestore.client()
+    db.collection("brands").document(brand_id).update({
+        "social_voice_analysis": voice_analysis,
+        "connected_platforms": firestore.ArrayUnion([platform])
+    })
+    
+    return voice_analysis
+
+async def analyze_social_voice(posts: list[dict]) -> dict:
+    """Use Gemini to analyze writing patterns from existing posts."""
+    post_texts = "\n---\n".join([p["text"] for p in posts[:30]])
+    
+    prompt = f"""Analyze these social media posts and extract the writer's voice:
+    
+    {post_texts}
+    
+    Return JSON:
+    {{
+      "voice_characteristics": ["conversational", "uses humor", "asks questions"],
+      "common_phrases": ["here's the thing", "let me explain"],
+      "emoji_usage": "moderate" | "heavy" | "minimal" | "none",
+      "average_post_length": N,
+      "successful_patterns": ["posts with questions get 2x engagement", ...],
+      "tone_adjectives": ["warm", "authoritative", "playful"]
+    }}
+    """
+    
+    response = await client.aio.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    return json.loads(response.text)
+```
+
+**Brand Analyst integration:** When `social_voice_analysis` exists on a brand, the Brand Analyst includes it in context:
+```
+The user's existing social media voice has been analyzed:
+Voice characteristics: {voice_characteristics}
+Common phrases: {common_phrases}
+Successful patterns: {successful_patterns}
+
+IMPORTANT: Generated content should match this existing voice, not replace it.
+```
+
+---
+
+### 12.1.10 Platform Meta Intelligence (Sprint 6)
+
+**Effort:** 2–3 days | **Type:** Data pipeline + Strategy Agent tool
+
+```python
+# New tool for Strategy Agent
+
+@tool
+def research_platform_trends(platform: str, industry: str) -> dict:
+    """Research current trending content patterns for a platform + industry.
+    
+    Uses Gemini with web search grounding to find current best practices.
+    """
+    prompt = f"""Research the current trending content patterns on {platform} 
+    for the {industry} industry.
+    
+    What's working right now (this week/month)?
+    - Trending formats (carousel, short video, text post, etc.)
+    - Trending topics or hooks
+    - Algorithm preferences (what's being boosted?)
+    - Posting time recommendations
+    
+    Return JSON: {{
+      "trending_formats": ["carousel", "behind-the-scenes reels"],
+      "trending_hooks": ["hot takes", "myth-busting", "day-in-the-life"],
+      "algorithm_notes": "LinkedIn is boosting document posts and polls this month",
+      "best_posting_times": ["Tue 8am", "Thu 12pm"],
+      "freshness": "2026-02-22"
+    }}
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            tools=[genai.types.Tool(google_search=genai.types.GoogleSearch())]
+        )
+    )
+    return json.loads(response.text)
+```
+
+**Caching:** Trend data is cached in Firestore per platform+industry for 7 days. Strategy Agent checks cache before making a new research call.
+
+```
+platform_trends/{platform}_{industry}/
+  ├── data: { ... trend JSON ... }
+  ├── fetched_at: timestamp
+  ├── expires_at: timestamp + 7 days
+```
+
+---
+
+### 12.1.11 Instagram Grid Visual Consistency (Sprint 6)
+
+**Effort:** 2–3 days | **Type:** Style reference image + Content Creator update
+
+```python
+# During brand analysis, generate a "style reference image"
+
+async def generate_style_reference(brand_profile: dict) -> str:
+    """Generate a reference image that captures the brand's visual identity.
+    Used as context for every subsequent image generation call."""
+    
+    prompt = f"""Generate a style reference image for a brand with these characteristics:
+    Colors: {brand_profile['colors']}
+    Tone: {brand_profile['tone']}  
+    Industry: {brand_profile['business_type']}
+    Style directive: {brand_profile.get('image_style_directive', 'modern, clean')}
+    
+    This is NOT a real post — it's a visual reference showing:
+    - The brand's color palette applied to a simple composition
+    - The lighting style (warm/cool/natural)
+    - The texture and mood (minimal/rich/rustic)
+    - The typography style if applicable
+    
+    Generate a single cohesive image that a designer could use as a mood board reference.
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(response_modalities=["IMAGE"])
+    )
+    
+    # Upload style reference to GCS
+    for part in response.candidates[0].content.parts:
+        if part.inline_data:
+            blob = bucket.blob(f"brands/{brand_id}/style_reference.png")
+            blob.upload_from_string(part.inline_data.data, content_type="image/png")
+            return blob.public_url
+    
+    return None
+
+# Content Creator update — pass style reference with every image generation
+# In the Content Creator prompt for Mode A (AI-generated images):
+"""
+VISUAL CONSISTENCY:
+Reference this style image for color palette, lighting, and mood: {style_reference_url}
+Every image you generate should feel like it belongs in the same Instagram grid 
+as this reference. Match the warmth, saturation, and composition style.
+"""
+```
+
+**Firestore schema addition:**
+```
+brands/{brandId}/
+  ├── style_reference_url: "gs://..."   # NEW
+```
+
+---
+
+### 12.1.12 Video Repurposing / Smart Editing (Sprint 7+)
+
+**Effort:** 1–2 weeks | **Type:** New agent + async processing pipeline + FFmpeg integration
+
+User uploads raw video (up to 5 min, .mp4/.mov). Amplifi produces 2–3 platform-ready short-form clips with auto-generated captions.
+
+**New endpoint — Upload raw video:**
+```python
+@app.post("/api/brands/{brand_id}/video")
+async def upload_raw_video(brand_id: str, file: UploadFile = File(...)):
+    """Upload raw video for repurposing. Triggers async processing."""
+    # Validate: max 500MB, .mp4 or .mov only
+    if file.size > 500 * 1024 * 1024:
+        raise HTTPException(413, "Video must be under 500MB")
+    if not file.filename.lower().endswith(('.mp4', '.mov')):
+        raise HTTPException(400, "Only .mp4 and .mov files accepted")
+    
+    # Upload to GCS
+    video_id = str(uuid.uuid4())
+    gcs_path = f"brands/{brand_id}/raw_video/{video_id}/{file.filename}"
+    upload_to_gcs(gcs_path, await file.read())
+    
+    # Create processing job record
+    db = firestore.client()
+    db.collection("video_jobs").document(video_id).set({
+        "brand_id": brand_id,
+        "status": "queued",
+        "source_url": f"gs://{GCS_BUCKET}/{gcs_path}",
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "clips": [],  # Populated by processor
+    })
+    
+    # Trigger async processing via Cloud Tasks or Pub/Sub
+    enqueue_video_processing(video_id, brand_id, gcs_path)
+    
+    return {"video_id": video_id, "status": "processing"}
+```
+
+**New endpoint — Check job status / get clips:**
+```python
+@app.get("/api/video/{video_id}")
+async def get_video_status(video_id: str):
+    """Poll processing status. Returns clips when ready."""
+    db = firestore.client()
+    job = db.collection("video_jobs").document(video_id).get().to_dict()
+    return {
+        "status": job["status"],  # queued | processing | complete | failed
+        "clips": job.get("clips", []),
+        "error": job.get("error"),
+    }
+```
+
+**Async processing pipeline (Cloud Run Job or Cloud Tasks handler):**
+```python
+class VideoEditorAgent:
+    """New agent — activated only for user-uploaded video repurposing."""
+    
+    async def process_video(self, video_id: str, brand_id: str, source_url: str):
+        db = firestore.client()
+        db.collection("video_jobs").document(video_id).update({"status": "processing"})
+        
+        # Step 1: Download from GCS and extract audio
+        video_path = download_from_gcs(source_url)
+        audio_path = extract_audio(video_path)  # FFmpeg: ffmpeg -i input.mp4 -vn audio.wav
+        
+        # Step 2: Transcribe via Gemini
+        transcript = await self.transcribe(audio_path)
+        # Returns: [{"start": 0.0, "end": 3.2, "text": "So today I want to talk about..."}, ...]
+        
+        # Step 3: Analyze content for highlights
+        brand_profile = db.collection("brands").document(brand_id).get().to_dict()
+        
+        analysis_prompt = f"""Analyze this video transcript for a {brand_profile.get('description', 'business')} 
+        that posts on social media. Brand tone: {brand_profile.get('tone', 'professional')}.
+        
+        Transcript (with timestamps):
+        {json.dumps(transcript)}
+        
+        Identify the TOP 3 clip-worthy moments. For each, provide:
+        - start_time: float (seconds)
+        - end_time: float (seconds) 
+        - platform: best target platform ("reels" | "tiktok" | "linkedin" | "youtube_shorts")
+        - hook: the opening line/moment that grabs attention
+        - reason: why this moment is compelling (key insight, emotional beat, quotable line)
+        - suggested_caption: a caption in the brand's voice style
+        
+        Platform constraints:
+        - Reels/TikTok: 15-60 seconds, hook in first 3 seconds
+        - LinkedIn: 30-90 seconds, insight-driven
+        - YouTube Shorts: 15-60 seconds, high energy
+        
+        Return as JSON array sorted by engagement potential.
+        """
+        
+        response = await generate_content(analysis_prompt)
+        clip_specs = json.loads(response.text)
+        
+        # Step 4: Extract clips via FFmpeg
+        clips = []
+        for i, spec in enumerate(clip_specs[:3]):
+            clip_filename = f"clip_{i+1}_{spec['platform']}.mp4"
+            clip_path = f"/tmp/{video_id}/{clip_filename}"
+            
+            # FFmpeg clip extraction
+            extract_clip(
+                input_path=video_path,
+                output_path=clip_path,
+                start=spec["start_time"],
+                end=spec["end_time"],
+            )
+            
+            # Step 5: Add caption overlay
+            captioned_path = add_captions(
+                clip_path=clip_path,
+                transcript=get_segment(transcript, spec["start_time"], spec["end_time"]),
+                style=brand_profile.get("caption_style", "default"),
+            )
+            
+            # Step 6: Platform-specific formatting
+            formatted_path = format_for_platform(
+                clip_path=captioned_path,
+                platform=spec["platform"],
+                # Reels/TikTok: 9:16 vertical
+                # LinkedIn: 1:1 or 16:9
+                # YouTube Shorts: 9:16 vertical
+            )
+            
+            # Upload to GCS
+            gcs_clip_path = f"brands/{brand_id}/clips/{video_id}/{clip_filename}"
+            upload_to_gcs(gcs_clip_path, open(formatted_path, "rb").read())
+            
+            clips.append({
+                "clip_url": f"gs://{GCS_BUCKET}/{gcs_clip_path}",
+                "platform": spec["platform"],
+                "duration_seconds": spec["end_time"] - spec["start_time"],
+                "hook": spec["hook"],
+                "suggested_caption": spec["suggested_caption"],
+                "start_time": spec["start_time"],
+                "end_time": spec["end_time"],
+            })
+        
+        # Update job status
+        db.collection("video_jobs").document(video_id).update({
+            "status": "complete",
+            "clips": clips,
+            "completed_at": firestore.SERVER_TIMESTAMP,
+        })
+```
+
+**FFmpeg utility functions:**
+```python
+import subprocess
+
+def extract_audio(video_path: str) -> str:
+    audio_path = video_path.replace(".mp4", ".wav").replace(".mov", ".wav")
+    subprocess.run([
+        "ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", 
+        "-ar", "16000", "-ac", "1", audio_path
+    ], check=True)
+    return audio_path
+
+def extract_clip(input_path: str, output_path: str, start: float, end: float):
+    subprocess.run([
+        "ffmpeg", "-i", input_path, "-ss", str(start), "-to", str(end),
+        "-c:v", "libx264", "-c:a", "aac", "-y", output_path
+    ], check=True)
+
+def add_captions(clip_path: str, transcript: list, style: str = "default") -> str:
+    """Burn-in captions using FFmpeg subtitles filter."""
+    srt_path = clip_path.replace(".mp4", ".srt")
+    generate_srt(transcript, srt_path)
+    output_path = clip_path.replace(".mp4", "_captioned.mp4")
+    
+    # Style presets
+    font_size = {"default": 24, "bold": 28, "minimal": 20}[style]
+    subprocess.run([
+        "ffmpeg", "-i", clip_path, "-vf",
+        f"subtitles={srt_path}:force_style='FontSize={font_size},PrimaryColour=&HFFFFFF,Outline=2'",
+        "-c:a", "copy", "-y", output_path
+    ], check=True)
+    return output_path
+
+def format_for_platform(clip_path: str, platform: str) -> str:
+    """Crop/pad to platform aspect ratio."""
+    output_path = clip_path.replace(".mp4", f"_{platform}.mp4")
+    aspect = {
+        "reels": "9:16", "tiktok": "9:16", "youtube_shorts": "9:16",
+        "linkedin": "1:1",
+    }.get(platform, "16:9")
+    
+    w, h = {"9:16": (1080, 1920), "1:1": (1080, 1080), "16:9": (1920, 1080)}[aspect]
+    subprocess.run([
+        "ffmpeg", "-i", clip_path, "-vf",
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
+        "-c:a", "copy", "-y", output_path
+    ], check=True)
+    return output_path
+```
+
+**Firestore schema:**
+```
+video_jobs/{videoId}/
+  ├── brand_id: "brand_xyz"
+  ├── status: "queued" | "processing" | "complete" | "failed"
+  ├── source_url: "gs://bucket/brands/brand_xyz/raw_video/..."
+  ├── created_at: timestamp
+  ├── completed_at: timestamp | null
+  ├── error: string | null
+  ├── clips: [
+  │     {
+  │       clip_url: "gs://bucket/brands/brand_xyz/clips/...",
+  │       platform: "reels",
+  │       duration_seconds: 28.5,
+  │       hook: "The biggest mistake I see new founders make...",
+  │       suggested_caption: "Stop doing this one thing...",
+  │       start_time: 42.0,
+  │       end_time: 70.5
+  │     }
+  │   ]
+```
+
+**Frontend component tree addition:**
+```
+├── ContentDetail
+│   ├── ... (existing)
+│   ├── UploadVideoButton (NEW — appears alongside BYOP photo upload)
+│   ├── VideoProcessingIndicator (NEW — shows "Analyzing your video..." with progress)
+│   └── ClipPreviewCarousel (NEW — shows 2-3 clip options with:
+│       ├── VideoPlayer (trimmed clip with caption overlay preview)
+│       ├── PlatformBadge (which platform this clip is optimized for)
+│       ├── HookPreview (the opening line that hooks viewers)
+│       ├── CaptionEditor (edit suggested caption before export)
+│       └── DownloadClipButton
+│       )
+```
+
+**Docker dependency:** FFmpeg must be installed in the Cloud Run container image:
+```dockerfile
+# Add to Dockerfile
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+```
+
+**Processing notes:**
+- Processing is ASYNC — not in the request path. Upload returns immediately with a job ID.
+- Client polls `GET /api/video/{video_id}` every 5 seconds until status = "complete".
+- Processing time estimate: 30–90 seconds for a 3-minute video (dominated by Gemini transcription + analysis).
+- Cloud Run jobs have a 60-minute timeout — sufficient for 5-minute videos.
+- If processing fails, status is set to "failed" with error message. Client shows retry button.
 
 ---
 
