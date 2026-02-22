@@ -20,11 +20,11 @@ export function useContentPlan(brandId: string) {
       .finally(() => setLoading(false))
   }, [brandId])
 
-  const generatePlan = async (numDays = 7) => {
+  const generatePlan = async (numDays = 7, businessEvents?: string) => {
     setGenerating(true)
     setError('')
     try {
-      const result = await api.createPlan(brandId, numDays) as any
+      const result = await api.createPlan(brandId, numDays, businessEvents) as any
       setPlan(result)
     } catch (err: any) {
       setError(err.message || 'Failed to generate plan')

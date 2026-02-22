@@ -6,6 +6,7 @@ import { useContentPlan } from '../hooks/useContentPlan'
 import BrandProfileCard from '../components/BrandProfileCard'
 import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
+import EventsInput from '../components/EventsInput'
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
@@ -122,69 +123,17 @@ export default function DashboardPage() {
               }
             />
           ) : (
-            /* No plan yet — show generate CTA */
+            /* No plan yet — show events input + generate CTA */
             <>
-              <h3 style={{ fontSize: 16, fontWeight: 600, color: A.text, marginBottom: 16 }}>
-                Content Calendar
-              </h3>
-
-              {generating ? (
-                /* Spinner while generating */
-                <div
-                  style={{
-                    padding: 40,
-                    textAlign: 'center',
-                    background: A.surfaceAlt,
-                    borderRadius: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 16,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      border: `3px solid ${A.indigo}`,
-                      borderTopColor: 'transparent',
-                      animation: 'spin 0.8s linear infinite',
-                    }}
-                  />
-                  <p style={{ fontSize: 14, color: A.textSoft, margin: 0 }}>
-                    Building your 7-day content plan...
-                  </p>
-                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                </div>
-              ) : (
-                /* Generate button + optional error */
-                <div style={{ padding: 32, textAlign: 'center', background: A.surfaceAlt, borderRadius: 8 }}>
-                  {planError && (
-                    <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
-                      {planError}
-                    </p>
-                  )}
-                  <p style={{ fontSize: 14, color: A.textSoft, marginBottom: 16 }}>
-                    Generate a personalised 7-day content plan tailored to your brand.
-                  </p>
-                  <button
-                    onClick={() => generatePlan(7)}
-                    style={{
-                      padding: '10px 24px',
-                      borderRadius: 8,
-                      border: 'none',
-                      cursor: 'pointer',
-                      background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-                      color: 'white',
-                      fontSize: 14,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Generate Content Calendar ✨
-                  </button>
-                </div>
+              {planError && (
+                <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
+                  {planError}
+                </p>
               )}
+              <EventsInput
+                onGenerate={(events) => generatePlan(7, events || undefined)}
+                generating={generating}
+              />
             </>
           )}
         </div>

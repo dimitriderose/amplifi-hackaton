@@ -13,13 +13,14 @@ PLATFORMS = ["instagram", "linkedin", "twitter", "facebook"]
 PILLARS = ["education", "inspiration", "promotion", "behind_the_scenes", "user_generated"]
 
 
-async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7) -> list[dict]:
+async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, business_events: str | None = None) -> list[dict]:
     """Run the Strategy Agent to generate a multi-day content plan.
 
     Args:
         brand_id: The brand identifier.
         brand_profile: Full brand profile dict from Firestore.
         num_days: Number of day briefs to generate (default 7).
+        business_events: Optional string describing real business events this week.
 
     Returns:
         List of day brief dicts, each describing one day's content.
@@ -30,6 +31,8 @@ Your job is to generate a {num_days}-day content calendar for the following bran
 
 BRAND PROFILE:
 {json.dumps(brand_profile, indent=2, default=str)}
+
+BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile."}
 
 Generate exactly {num_days} day briefs. Each brief covers one day of social media content.
 
@@ -47,9 +50,17 @@ Each day brief MUST have these exact fields:
 - image_prompt: string — detailed visual description for AI image generation (2-3 sentences, very specific about style, colors, composition, mood)
 - hashtags: array of 5-8 relevant hashtag strings (without the # symbol)
 - derivative_type: "original"
+- event_anchor: string or null — short event name if this day's content is directly tied to a business event, otherwise null
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
 The image_prompt should reference the brand's visual style and colors if provided.
+
+EVENT-AWARE PLANNING:
+- If BUSINESS_EVENTS_THIS_WEEK is provided, identify 1-2 of the most impactful events and make them content pillars
+- Events become the "promotion" or "behind_the_scenes" day brief for the day they occur
+- Derivative posts can reference the event (e.g. "The launch is tomorrow — here's why we created this")
+- Add an "event_anchor" field to day briefs where the content is directly tied to a business event (value = short event name string, null otherwise)
+- Other days can build anticipation for or reflect on the event
 
 Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text.
 """
@@ -119,6 +130,7 @@ def _normalize_day(day: dict, index: int, brand_profile: dict) -> dict:
         "image_prompt": str(day.get("image_prompt", "Professional brand photo with clean composition.")),
         "hashtags": hashtags[:8],
         "derivative_type": str(day.get("derivative_type", "original")),
+        "event_anchor": day.get("event_anchor", None),
     }
 
 
@@ -166,6 +178,7 @@ def _fallback_day(index: int, brand_profile: dict) -> dict:
             "contentcreator",
         ],
         "derivative_type": "original",
+        "event_anchor": None,
     }
 
 
