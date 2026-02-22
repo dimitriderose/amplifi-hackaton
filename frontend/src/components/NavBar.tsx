@@ -5,10 +5,17 @@ export default function NavBar() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const links = [
+  // Extract brandId from dashboard or export routes so we can link to /export/:brandId
+  const dashboardMatch = location.pathname.match(/^\/dashboard\/([^/]+)/)
+  const exportMatch = location.pathname.match(/^\/export\/([^/]+)/)
+  const activeBrandId = (dashboardMatch && dashboardMatch[1]) || (exportMatch && exportMatch[1]) || null
+
+  const staticLinks = [
     { path: '/', label: 'Home' },
     { path: '/onboard', label: 'Get Started' },
   ]
+
+  const isActive = (path: string) => location.pathname === path
 
   return (
     <nav style={{
@@ -29,15 +36,29 @@ export default function NavBar() {
         </span>
       </div>
       <div style={{ display: 'flex', gap: 2 }}>
-        {links.map(({ path, label }) => (
+        {staticLinks.map(({ path, label }) => (
           <button key={path} onClick={() => navigate(path)} style={{
             padding: '5px 12px', borderRadius: 6,
-            background: location.pathname === path ? A.indigoLight : 'transparent',
+            background: isActive(path) ? A.indigoLight : 'transparent',
             border: 'none', cursor: 'pointer', fontSize: 13,
-            color: location.pathname === path ? A.indigo : A.textSoft,
-            fontWeight: location.pathname === path ? 600 : 400,
+            color: isActive(path) ? A.indigo : A.textSoft,
+            fontWeight: isActive(path) ? 600 : 400,
           }}>{label}</button>
         ))}
+        {activeBrandId && (
+          <button
+            onClick={() => navigate(`/export/${activeBrandId}`)}
+            style={{
+              padding: '5px 12px', borderRadius: 6,
+              background: location.pathname.startsWith('/export/') ? A.indigoLight : 'transparent',
+              border: 'none', cursor: 'pointer', fontSize: 13,
+              color: location.pathname.startsWith('/export/') ? A.indigo : A.textSoft,
+              fontWeight: location.pathname.startsWith('/export/') ? 600 : 400,
+            }}
+          >
+            Export
+          </button>
+        )}
       </div>
     </nav>
   )

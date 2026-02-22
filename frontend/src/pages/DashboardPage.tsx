@@ -1,15 +1,35 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { A } from '../theme'
 import { useBrandProfile } from '../hooks/useBrandProfile'
 import { useContentPlan } from '../hooks/useContentPlan'
 import BrandProfileCard from '../components/BrandProfileCard'
 import ContentCalendar from '../components/ContentCalendar'
+import PostLibrary from '../components/PostLibrary'
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan } = useContentPlan(brandId ?? '')
+
+  const approvedParam = searchParams.get('approved')
+  const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (approvedParam) {
+      if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
+      approvedTimerRef.current = setTimeout(() => {
+        const next = new URLSearchParams(searchParams)
+        next.delete('approved')
+        setSearchParams(next, { replace: true })
+      }, 4000)
+    }
+    return () => {
+      if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
+    }
+  }, [approvedParam, searchParams, setSearchParams])
 
   if (brandLoading) {
     return (
@@ -40,6 +60,31 @@ export default function DashboardPage() {
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
+      {/* Approved success banner */}
+      {approvedParam && (
+        <div style={{
+          marginBottom: 20, padding: '10px 16px', borderRadius: 8,
+          background: A.emeraldLight, border: `1px solid ${A.emerald}44`,
+          color: A.emerald, fontSize: 13, fontWeight: 500,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <span>Post approved and ready for export ✓</span>
+          <button
+            onClick={() => {
+              const next = new URLSearchParams(searchParams)
+              next.delete('approved')
+              setSearchParams(next, { replace: true })
+            }}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: A.emerald, fontSize: 16, lineHeight: 1, padding: '0 4px',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
@@ -144,6 +189,16 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Post Library — shown when a plan exists */}
+      {plan && brandId && (
+        <div style={{
+          marginTop: 32, padding: 24, borderRadius: 12,
+          background: A.surface, border: `1px solid ${A.border}`,
+        }}>
+          <PostLibrary brandId={brandId} planId={plan.plan_id} />
+        </div>
+      )}
     </div>
   )
 }
