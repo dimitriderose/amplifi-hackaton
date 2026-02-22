@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { usePostGeneration } from '../hooks/usePostGeneration'
+import { api } from '../api/client'
 import PostGenerator from '../components/PostGenerator'
 import ReviewPanel from '../components/ReviewPanel'
 
@@ -12,6 +13,20 @@ export default function GeneratePage() {
   const brandId = searchParams.get('brand_id') || ''
 
   const { state, generate, reset } = usePostGeneration()
+
+  const [dayBrief, setDayBrief] = useState<{ platform: string; pillar: string; content_theme: string } | undefined>(undefined)
+
+  // Load the day brief so PostGenerator knows the platform (needed for video button eligibility)
+  useEffect(() => {
+    if (!planId || dayIndex === undefined || !brandId) return
+    ;(api.getPlan(brandId, planId) as Promise<any>)
+      .then(res => {
+        const days: any[] = res.plan_profile?.days || []
+        const idx = parseInt(dayIndex, 10)
+        if (days[idx]) setDayBrief(days[idx])
+      })
+      .catch(() => {})
+  }, [planId, dayIndex, brandId])
 
   // Auto-start generation on mount; return cleanup so EventSource closes on unmount
   useEffect(() => {
@@ -73,6 +88,7 @@ export default function GeneratePage() {
       }}>
         <PostGenerator
           state={state}
+          dayBrief={dayBrief}
           onApprove={handleApprove}
           onRegenerate={handleRegenerate}
           brandId={brandId}

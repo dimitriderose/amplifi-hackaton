@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { api } from '../api/client'
 
 type VideoStatus = 'idle' | 'generating' | 'complete' | 'error'
@@ -48,6 +48,13 @@ export function useVideoGeneration(postId: string, brandId: string) {
     },
     [postId, brandId]
   )
+
+  // Clear interval on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
 
   return { status, videoUrl, progress, error, startGeneration }
 }
