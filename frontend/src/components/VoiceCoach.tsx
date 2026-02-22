@@ -37,6 +37,10 @@ export default function VoiceCoach({ brandId, brandName }: Props) {
         @keyframes vc-spin {
           to { transform: rotate(360deg); }
         }
+        @keyframes vc-activedot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.75); }
+        }
       `}</style>
 
       {/* Expanded panel — shown when session is open */}
@@ -61,31 +65,40 @@ export default function VoiceCoach({ brandId, brandName }: Props) {
               background: `linear-gradient(135deg, ${A.violet}, ${A.indigo})`,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ fontSize: 14 }}>🎤</span>
+            {/* Coach avatar with green status dot */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 16,
+                }}>
+                  🧑‍💼
+                </div>
+                {status === 'active' && (
+                  <span style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    background: '#22c55e',
+                    border: '1.5px solid white',
+                    animation: 'vc-activedot 2s ease-in-out infinite',
+                  }} />
+                )}
+              </div>
               <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
                 {brandName || 'Brand Coach'}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Live indicator */}
-              {status === 'active' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: '50%',
-                      background: '#ff3b3b',
-                      display: 'inline-block',
-                      animation: 'vc-liveblink 1.2s ease-in-out infinite',
-                    }}
-                  />
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)', fontWeight: 600, letterSpacing: 0.5 }}>
-                    LIVE
-                  </span>
-                </div>
-              )}
               {/* Close button */}
               <button
                 onClick={stopSession}
