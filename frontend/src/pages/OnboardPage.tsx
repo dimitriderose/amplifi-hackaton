@@ -1,4 +1,310 @@
+import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { A } from '../theme'
+import { api } from '../api/client'
+
+interface UploadedFile {
+  name: string
+  type: string
+  size: number
+}
+
+type AnalysisStep = { label: string; icon: string }
+
+const URL_STEPS: AnalysisStep[] = [
+  { label: 'Crawling website...', icon: '🌐' },
+  { label: 'Extracting brand colors', icon: '🎨' },
+  { label: 'Analyzing tone of voice', icon: '✍️' },
+  { label: 'Identifying target audience', icon: '👥' },
+  { label: 'Scanning competitors', icon: '🔍' },
+  { label: 'Building brand profile', icon: '✨' },
+]
+
+const NO_WEB_STEPS: AnalysisStep[] = [
+  { label: 'Analyzing your description...', icon: '📝' },
+  { label: 'Inferring brand personality', icon: '🎨' },
+  { label: 'Identifying target audience', icon: '👥' },
+  { label: 'Researching your market', icon: '🔍' },
+  { label: 'Building brand profile', icon: '✨' },
+]
+
 export default function OnboardPage() {
-  return <div style={{ padding: 40, textAlign: 'center', color: A.textSoft }}>Brand onboarding — coming in feature/brand-analysis</div>
+  const navigate = useNavigate()
+  const [url, setUrl] = useState('')
+  const [desc, setDesc] = useState('')
+  const [noWebsite, setNoWebsite] = useState(false)
+  const [uploads, setUploads] = useState<UploadedFile[]>([])
+  const [analyzing, setAnalyzing] = useState(false)
+  const [completedSteps, setCompletedSteps] = useState<AnalysisStep[]>([])
+  const [progress, setProgress] = useState(0)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const steps = noWebsite ? NO_WEB_STEPS : URL_STEPS
+  const canSubmit = desc.length >= 20 && (noWebsite || url.trim().length > 0)
+
+  const handleFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    const valid = files.filter(f =>
+      f.type.startsWith('image/') || f.type === 'application/pdf'
+    ).slice(0, 3 - uploads.length)
+    setUploads(prev => [...prev, ...valid.map(f => ({ name: f.name, type: f.type, size: f.size }))])
+  }
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return
+    setAnalyzing(true)
+    setError('')
+    setCompletedSteps([])
+    setProgress(0)
+
+    // Simulate analysis progress steps
+    steps.forEach((step, idx) => {
+      setTimeout(() => {
+        setCompletedSteps(prev => [...prev, step])
+        setProgress(((idx + 1) / steps.length) * 100)
+      }, (idx + 1) * 800)
+    })
+
+    try {
+      // Create brand record
+      const { brand_id } = await api.createBrand({
+        website_url: noWebsite ? null : url,
+        description: desc,
+      }) as { brand_id: string }
+
+      // Wait for animation to mostly finish before navigating
+      await new Promise(r => setTimeout(r, steps.length * 800 + 400))
+
+      // Trigger analysis in background (non-blocking — dashboard polls status)
+      api.analyzeBrand(brand_id, {
+        website_url: noWebsite ? null : url,
+        description: desc,
+      }).catch(err => console.error('Analysis error:', err))
+
+      navigate(`/dashboard/${brand_id}`)
+    } catch (err: unknown) {
+      setAnalyzing(false)
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    }
+  }
+
+  if (analyzing) {
+    return (
+      <div style={{
+        minHeight: 'calc(100vh - 53px)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center', padding: '40px 24px',
+      }}>
+        <div style={{ maxWidth: 520, width: '100%' }}>
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, color: A.text, marginBottom: 6 }}>
+              Building your brand profile
+            </h2>
+            <p style={{ fontSize: 13, color: A.textSoft }}>
+              {noWebsite ? 'Crafting your brand identity...' : `Analyzing ${url}...`}
+            </p>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ height: 4, background: A.surfaceAlt, borderRadius: 2, overflow: 'hidden', marginBottom: 24 }}>
+            <div style={{
+              height: '100%', width: `${progress}%`,
+              background: `linear-gradient(90deg, ${A.indigo}, ${A.violet})`,
+              borderRadius: 2, transition: 'width 0.6s ease',
+            }} />
+          </div>
+
+          {/* Steps */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {completedSteps.map((step, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', borderRadius: 8,
+                background: i === completedSteps.length - 1 ? A.indigoLight : A.surface,
+                border: `1px solid ${i === completedSteps.length - 1 ? A.indigo + '30' : A.borderLight}`,
+              }}>
+                <span style={{ fontSize: 16 }}>{step.icon}</span>
+                <span style={{ fontSize: 13, color: A.text, fontWeight: i === completedSteps.length - 1 ? 500 : 400 }}>
+                  {step.label}
+                </span>
+                {i < completedSteps.length - 1 && (
+                  <span style={{ marginLeft: 'auto', color: A.emerald, fontSize: 14 }}>✓</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      minHeight: 'calc(100vh - 53px)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center', padding: '40px 24px',
+    }}>
+      <div style={{ maxWidth: 560, width: '100%' }}>
+        {/* Header */}
+        <div style={{ marginBottom: 32 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: A.text, marginBottom: 8 }}>
+            Tell us about your brand
+          </h1>
+          <p style={{ fontSize: 15, color: A.textSoft }}>
+            We'll analyze your brand and build a content strategy in under 2 minutes.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* No-website toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              onClick={() => setNoWebsite(!noWebsite)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                borderRadius: 20, border: `1px solid ${noWebsite ? A.indigo : A.border}`,
+                background: noWebsite ? A.indigoLight : 'transparent',
+                color: noWebsite ? A.indigo : A.textSoft,
+                fontSize: 13, cursor: 'pointer', fontWeight: noWebsite ? 500 : 400,
+              }}
+            >
+              <span>{noWebsite ? '✓' : '○'}</span>
+              I don't have a website
+            </button>
+            {noWebsite && (
+              <span style={{ fontSize: 12, color: A.textMuted }}>
+                No problem — description only works great
+              </span>
+            )}
+          </div>
+
+          {/* URL input */}
+          {!noWebsite && (
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
+                Website URL
+              </label>
+              <input
+                type="url"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                placeholder="https://yourbusiness.com"
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: 8,
+                  border: `1px solid ${A.border}`, fontSize: 14, color: A.text,
+                  background: A.surface, outline: 'none',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Description */}
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
+              Describe your business
+              <span style={{ color: A.textMuted, fontWeight: 400, marginLeft: 8 }}>
+                ({desc.length}/20 min)
+              </span>
+            </label>
+            <textarea
+              value={desc}
+              onChange={e => setDesc(e.target.value)}
+              placeholder="e.g. I run a family-owned Italian bakery in Austin. We specialize in sourdough and seasonal pastries, and our customers are local food enthusiasts who value craftsmanship."
+              rows={4}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 8,
+                border: `1px solid ${desc.length >= 20 ? A.emerald : A.border}`,
+                fontSize: 14, color: A.text, background: A.surface,
+                outline: 'none', resize: 'vertical', lineHeight: 1.5,
+                transition: 'border-color 0.2s',
+              }}
+            />
+            {desc.length > 0 && desc.length < 20 && (
+              <p style={{ fontSize: 12, color: A.amber, marginTop: 4 }}>
+                {20 - desc.length} more characters needed
+              </p>
+            )}
+          </div>
+
+          {/* Asset upload */}
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
+              Brand assets <span style={{ color: A.textMuted, fontWeight: 400 }}>(optional — logo, photos, PDF brand guide)</span>
+            </label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              style={{
+                border: `2px dashed ${A.border}`, borderRadius: 8, padding: '20px 16px',
+                textAlign: 'center', cursor: 'pointer', background: A.surfaceAlt,
+                transition: 'border-color 0.2s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = A.indigo)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = A.border)}
+            >
+              <span style={{ fontSize: 24 }}>📎</span>
+              <p style={{ fontSize: 13, color: A.textSoft, marginTop: 8 }}>
+                Drop files here or click to upload
+              </p>
+              <p style={{ fontSize: 12, color: A.textMuted, marginTop: 4 }}>
+                JPG, PNG, PDF — max 3 files
+              </p>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                onChange={handleFileAdd}
+                style={{ display: 'none' }}
+              />
+            </div>
+
+            {uploads.length > 0 && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {uploads.map((f, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 12px', borderRadius: 6,
+                    background: A.surface, border: `1px solid ${A.border}`,
+                  }}>
+                    <span style={{ fontSize: 16 }}>{f.type.includes('pdf') ? '📄' : '🖼️'}</span>
+                    <span style={{ fontSize: 13, color: A.text, flex: 1 }}>{f.name}</span>
+                    <button
+                      onClick={() => setUploads(prev => prev.filter((_, j) => j !== i))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: A.textMuted, fontSize: 16 }}
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              background: '#FFF0F0', border: `1px solid ${A.coral}30`,
+              fontSize: 13, color: A.coral,
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            style={{
+              padding: '14px', borderRadius: 10, border: 'none', cursor: canSubmit ? 'pointer' : 'not-allowed',
+              background: canSubmit
+                ? `linear-gradient(135deg, ${A.indigo}, ${A.violet})`
+                : A.surfaceAlt,
+              color: canSubmit ? 'white' : A.textMuted,
+              fontSize: 15, fontWeight: 600, transition: 'all 0.2s',
+            }}
+          >
+            {noWebsite ? 'Build My Brand Profile →' : 'Analyze My Brand →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
