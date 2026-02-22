@@ -3,6 +3,7 @@ import { A } from '../theme'
 import { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
 import PlatformPreview from './PlatformPreview'
+import { api } from '../api/client'
 
 interface Props {
   state: GenerationState
@@ -28,17 +29,24 @@ const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stori
 export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [editingCaption, setEditingCaption] = useState(false)
+  const [draftCaption, setDraftCaption] = useState('')
+  const [localCaption, setLocalCaption] = useState<string | null>(null)
+  const [captionSaving, setCaptionSaving] = useState(false)
+  const [captionSaveError, setCaptionSaveError] = useState<string | null>(null)
 
   const { status, statusMessage, captionChunks, caption, hashtags, imageUrl, postId, error } = state
 
+  // localCaption overrides the server caption after a user edit
+  const savedCaption = localCaption ?? caption
   const displayCaption = status === 'generating' && captionChunks.length > 0
     ? captionChunks.join('')
-    : caption
+    : savedCaption
 
   const handleCopy = () => {
     if (!navigator.clipboard) return
     const tags = hashtags.map(h => `#${h.replace(/^#/, '')}`).join(' ')
-    const fullText = [caption, tags].filter(Boolean).join('\n\n')
+    const fullText = [savedCaption, tags].filter(Boolean).join('\n\n')
     navigator.clipboard.writeText(fullText)
       .then(() => {
         if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
@@ -46,6 +54,37 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
         copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
       })
       .catch(() => {})
+  }
+
+  const handleCaptionEdit = () => {
+    setDraftCaption(savedCaption || '')
+    setCaptionSaveError(null)
+    setEditingCaption(true)
+  }
+
+  const handleCaptionSave = async () => {
+    if (!postId || !brandId) {
+      setLocalCaption(draftCaption)
+      setEditingCaption(false)
+      return
+    }
+    setCaptionSaving(true)
+    setCaptionSaveError(null)
+    try {
+      await api.updatePost(brandId, postId, { caption: draftCaption })
+      setLocalCaption(draftCaption)
+      setEditingCaption(false)
+    } catch (err: unknown) {
+      setCaptionSaveError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setCaptionSaving(false)
+    }
+  }
+
+  const handleCaptionCancel = () => {
+    setEditingCaption(false)
+    setDraftCaption('')
+    setCaptionSaveError(null)
   }
 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
@@ -109,54 +148,116 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
             </div>
           )}
 
-          {/* Caption text box */}
-          <div style={{
-            minHeight: 120, padding: '12px 14px 12px', borderRadius: 10,
-            background: A.surfaceAlt, border: `1px solid ${A.border}`,
-            fontSize: 14, color: A.text, lineHeight: 1.6,
-            position: 'relative',
-            paddingRight: status === 'complete' && caption ? 72 : 14,
-          }}>
-            {displayCaption || (
-              <span style={{ color: A.textMuted, fontStyle: 'italic' }}>
-                {status === 'idle' ? 'Caption will appear here...' : 'Writing caption...'}
-              </span>
-            )}
-            {/* Blinking cursor during streaming */}
-            {status === 'generating' && captionChunks.length > 0 && (
-              <span style={{
-                display: 'inline-block', width: 2, height: 16,
-                background: A.indigo, marginLeft: 2, verticalAlign: 'text-bottom',
-                animation: 'blink 1s step-end infinite',
-              }} />
-            )}
-            <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
-            {/* Copy button — visible when caption is ready */}
-            {status === 'complete' && caption && (
-              <button
-                type="button"
-                onClick={handleCopy}
-                aria-label={copied ? 'Copied to clipboard' : 'Copy caption to clipboard'}
-                title="Copy caption + hashtags"
+          {/* Caption text box — editable when post is complete */}
+          {editingCaption ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <textarea
+                value={draftCaption}
+                onChange={e => setDraftCaption(e.target.value)}
+                autoFocus
+                rows={6}
                 style={{
-                  position: 'absolute', top: 8, right: 8,
-                  padding: '3px 8px', borderRadius: 6,
-                  background: copied ? A.emeraldLight : 'rgba(255,255,255,0.8)',
-                  border: `1px solid ${copied ? A.emerald : A.border}`,
-                  color: copied ? A.emerald : A.textMuted,
-                  fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+                  width: '100%', padding: '10px 12px', borderRadius: 10,
+                  border: `1.5px solid ${A.indigo}`, fontSize: 14, color: A.text,
+                  lineHeight: 1.6, resize: 'vertical', background: A.surface,
+                  boxSizing: 'border-box',
                 }}
-              >
-                {copied ? '✓ Copied' : '⎘ Copy'}
-              </button>
-            )}
-          </div>
+              />
+              {captionSaveError && (
+                <p style={{ fontSize: 11, color: A.coral, margin: 0 }}>{captionSaveError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleCaptionSave}
+                  disabled={captionSaving}
+                  style={{
+                    padding: '6px 14px', borderRadius: 7, border: 'none', cursor: captionSaving ? 'not-allowed' : 'pointer',
+                    background: A.indigo, color: 'white', fontSize: 12, fontWeight: 600,
+                    opacity: captionSaving ? 0.7 : 1,
+                  }}
+                >
+                  {captionSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCaptionCancel}
+                  style={{
+                    padding: '6px 14px', borderRadius: 7, border: `1px solid ${A.border}`,
+                    background: 'transparent', cursor: 'pointer', fontSize: 12, color: A.textSoft,
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              role={status === 'complete' && savedCaption ? 'button' : undefined}
+              tabIndex={status === 'complete' && savedCaption ? 0 : undefined}
+              onClick={status === 'complete' && savedCaption ? handleCaptionEdit : undefined}
+              onKeyDown={status === 'complete' && savedCaption ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleCaptionEdit() } : undefined}
+              aria-label={status === 'complete' && savedCaption ? 'Click to edit caption' : undefined}
+              style={{
+                minHeight: 120, padding: '12px 14px', borderRadius: 10,
+                background: A.surfaceAlt, border: `1px solid ${A.border}`,
+                fontSize: 14, color: A.text, lineHeight: 1.6,
+                position: 'relative',
+                paddingRight: status === 'complete' && savedCaption ? 72 : 14,
+                cursor: status === 'complete' && savedCaption ? 'text' : 'default',
+              }}
+            >
+              {displayCaption || (
+                <span style={{ color: A.textMuted, fontStyle: 'italic' }}>
+                  {status === 'idle' ? 'Caption will appear here...' : 'Writing caption...'}
+                </span>
+              )}
+              {/* Blinking cursor during streaming */}
+              {status === 'generating' && captionChunks.length > 0 && (
+                <span style={{
+                  display: 'inline-block', width: 2, height: 16,
+                  background: A.indigo, marginLeft: 2, verticalAlign: 'text-bottom',
+                  animation: 'blink 1s step-end infinite',
+                }} />
+              )}
+              <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
+              {/* Edit hint — visible when complete */}
+              {status === 'complete' && savedCaption && (
+                <span style={{
+                  position: 'absolute', top: 8, left: 10,
+                  fontSize: 10, color: A.textMuted, opacity: 0.6,
+                  pointerEvents: 'none',
+                }}>
+                  ✏️ Click to edit
+                </span>
+              )}
+              {/* Copy button — visible when caption is ready */}
+              {status === 'complete' && savedCaption && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); handleCopy() }}
+                  aria-label={copied ? 'Copied to clipboard' : 'Copy caption to clipboard'}
+                  title="Copy caption + hashtags"
+                  style={{
+                    position: 'absolute', top: 8, right: 8,
+                    padding: '3px 8px', borderRadius: 6,
+                    background: copied ? A.emeraldLight : 'rgba(255,255,255,0.8)',
+                    border: `1px solid ${copied ? A.emerald : A.border}`,
+                    color: copied ? A.emerald : A.textMuted,
+                    fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+                  }}
+                >
+                  {copied ? '✓ Copied' : '⎘ Copy'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Platform preview — character count, fold/truncation, image crop simulation */}
-          {status === 'complete' && caption && dayBrief?.platform && (
+          {status === 'complete' && savedCaption && dayBrief?.platform && !editingCaption && (
             <PlatformPreview
               platform={dayBrief.platform}
-              caption={caption}
+              caption={savedCaption}
               imageUrl={imageUrl ?? undefined}
               hashtagCount={hashtags.length}
             />

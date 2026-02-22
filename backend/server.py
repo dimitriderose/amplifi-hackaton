@@ -599,6 +599,22 @@ async def stream_generate(
 # ── Post Review ───────────────────────────────────────────────
 from backend.agents.review_agent import review_post as _run_review
 
+_PATCHABLE_POST_FIELDS = {"caption", "hashtags"}
+
+
+@app.patch("/api/brands/{brand_id}/posts/{post_id}")
+async def patch_post_endpoint(brand_id: str, post_id: str, data: dict = Body(...)):
+    """Patch individual post fields (caption, hashtags) for inline editing."""
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    allowed = {k: v for k, v in data.items() if k in _PATCHABLE_POST_FIELDS}
+    if not allowed:
+        raise HTTPException(status_code=400, detail="No patchable fields provided")
+    await firestore_client.update_post(brand_id, post_id, {**allowed, "user_edited": True})
+    updated = await firestore_client.get_post(brand_id, post_id)
+    return {"post": updated}
+
 
 @app.post("/api/brands/{brand_id}/posts/{post_id}/review")
 async def review_post_endpoint(brand_id: str, post_id: str):
