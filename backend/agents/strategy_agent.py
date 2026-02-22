@@ -11,6 +11,7 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 
 PLATFORMS = ["instagram", "linkedin", "twitter", "facebook"]
 PILLARS = ["education", "inspiration", "promotion", "behind_the_scenes", "user_generated"]
+DERIVATIVE_TYPES = ["original", "carousel", "thread_hook", "blog_snippet", "story"]
 
 
 async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, business_events: str | None = None) -> list[dict]:
@@ -40,16 +41,31 @@ Distribute content across platforms strategically. Use a healthy mix of content 
 Platforms to use: instagram, linkedin, twitter, facebook
 Content pillars to use: education, inspiration, promotion, behind_the_scenes, user_generated
 
+CONTENT REPURPOSING (IMPORTANT — follow this carefully):
+Choose exactly 2 "hero" content ideas that will be repurposed across different platforms this week.
+For each hero idea:
+  - ONE day is the ORIGINAL hero post: derivative_type "original", ideally on Instagram or LinkedIn.
+  - ONE OR TWO other days REPURPOSE that idea for a different platform and format:
+      derivative_type must be one of: "carousel", "thread_hook", "blog_snippet", "story"
+      - carousel: multi-slide visual breakdown (Instagram or LinkedIn)
+      - thread_hook: Twitter/X thread opening + key points
+      - blog_snippet: LinkedIn thought-leadership excerpt (longer, professional tone)
+      - story: Quick, punchy Instagram/Facebook story-format post
+  - All days in the same repurposing group MUST share the same pillar_id string (e.g., "series_0").
+  - Adapt content_theme, caption_hook, and image_prompt to suit the derivative platform/format.
+The remaining {num_days - 4 if num_days >= 6 else num_days - 2} standalone days each get a unique pillar_id (e.g., "series_2", "series_3", …).
+
 Each day brief MUST have these exact fields:
 - day_index: integer (0-based, so first day is 0, last day is {num_days - 1})
 - platform: one of "instagram", "linkedin", "twitter", "facebook"
 - pillar: one of "education", "inspiration", "promotion", "behind_the_scenes", "user_generated"
+- pillar_id: string — repurposing group ID (e.g., "series_0"). Hero + derivatives share one ID; standalone days get their own unique ID.
 - content_theme: string — specific topic or angle for this post (concise, 5-10 words)
 - caption_hook: string — opening line designed to stop the scroll (under 15 words, punchy)
 - key_message: string — the main takeaway or value this post delivers (1-2 sentences)
 - image_prompt: string — detailed visual description for AI image generation (2-3 sentences, very specific about style, colors, composition, mood)
 - hashtags: array of 5-8 relevant hashtag strings (without the # symbol)
-- derivative_type: "original"
+- derivative_type: "original" for hero posts; "carousel", "thread_hook", "blog_snippet", or "story" for repurposed derivatives
 - event_anchor: string or null — short event name if this day's content is directly tied to a business event, otherwise null
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
@@ -120,16 +136,21 @@ def _normalize_day(day: dict, index: int, brand_profile: dict) -> dict:
     # Strip # prefix if present
     hashtags = [h.lstrip("#") for h in hashtags if isinstance(h, str)]
 
+    derivative_type = str(day.get("derivative_type", "original")).lower()
+    if derivative_type not in DERIVATIVE_TYPES:
+        derivative_type = "original"
+
     return {
         "day_index": int(day.get("day_index", index)),
         "platform": platform,
         "pillar": pillar,
+        "pillar_id": str(day.get("pillar_id", f"series_{index}")),
         "content_theme": str(day.get("content_theme", f"Day {index + 1} content")),
         "caption_hook": str(day.get("caption_hook", "Something worth stopping for.")),
         "key_message": str(day.get("key_message", "Share your brand story.")),
         "image_prompt": str(day.get("image_prompt", "Professional brand photo with clean composition.")),
         "hashtags": hashtags[:8],
-        "derivative_type": str(day.get("derivative_type", "original")),
+        "derivative_type": derivative_type,
         "event_anchor": day.get("event_anchor", None),
     }
 
@@ -161,6 +182,7 @@ def _fallback_day(index: int, brand_profile: dict) -> dict:
         "day_index": index,
         "platform": platform,
         "pillar": pillar,
+        "pillar_id": f"series_{index}",
         "content_theme": themes_by_pillar[pillar],
         "caption_hook": hooks_by_pillar[pillar],
         "key_message": f"Showcase the value and authenticity of {business_name}.",
