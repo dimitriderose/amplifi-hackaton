@@ -204,7 +204,7 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
               </button>
             )}
             <button
-              onClick={() => { setReview(null); runReview() }}
+              onClick={async () => { setReview(null); await runReview() }}
               style={{
                 padding: '10px 16px', borderRadius: 8,
                 border: `1px solid ${A.border}`,
