@@ -12,12 +12,12 @@ export default function GeneratePage() {
 
   const { state, generate, reset } = usePostGeneration()
 
-  // Auto-start generation on mount
+  // Auto-start generation on mount; return cleanup so EventSource closes on unmount
   useEffect(() => {
     if (planId && dayIndex !== undefined && brandId) {
-      generate(planId, parseInt(dayIndex, 10), brandId)
+      return generate(planId, parseInt(dayIndex, 10), brandId)
     }
-  }, [planId, dayIndex, brandId]) // note: 'generate' is stable via useCallback
+  }, [planId, dayIndex, brandId, generate])
 
   const handleApprove = (postId: string) => {
     // Navigate back to dashboard with success
