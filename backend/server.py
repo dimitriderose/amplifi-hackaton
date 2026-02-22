@@ -5,7 +5,7 @@ import logging
 import os
 import uuid
 import zipfile
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Body
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Body, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -19,8 +19,15 @@ from backend.services.storage_client import (
     download_from_gcs,
     upload_byop_photo,
 )
+from google import genai as _genai
+from google.genai import types as _gtypes
+from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
 from backend.agents.brand_analyst import run_brand_analysis
 from backend.agents.strategy_agent import run_strategy
+from backend.agents.voice_coach import build_coaching_prompt
+
+_live_client = _genai.Client(api_key=GOOGLE_API_KEY)
+_LIVE_MODEL = "gemini-2.0-flash-live-001"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -747,6 +754,144 @@ async def get_video_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Video job not found")
     return job
+
+
+# ── Voice Coaching (Gemini Live API) ──────────────────────────
+
+@app.websocket("/api/brands/{brand_id}/voice-coaching")
+async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
+    """Bidirectional voice coaching via Gemini Live API.
+
+    Frontend sends PCM audio (16kHz, 16-bit, mono) as binary WebSocket frames.
+    Backend proxies to Gemini Live and returns PCM audio responses (24kHz).
+
+    Control messages sent to frontend:
+      { "type": "connected" }            — session ready
+      { "type": "transcript", "text" }  — AI text transcript (when available)
+      { "type": "error", "message" }    — fatal error
+    """
+    await websocket.accept()
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        await websocket.close(code=1008, reason="Brand not found")
+        return
+
+    system_prompt = build_coaching_prompt(brand)
+    config = _gtypes.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        system_instruction=_gtypes.Content(
+            parts=[_gtypes.Part(text=system_prompt)]
+        ),
+        speech_config=_gtypes.SpeechConfig(
+            voice_config=_gtypes.VoiceConfig(
+                prebuilt_voice_config=_gtypes.PrebuiltVoiceConfig(voice_name="Aoede")
+            )
+        ),
+    )
+
+    try:
+        async with _live_client.aio.live.connect(model=_LIVE_MODEL, config=config) as session:
+            await websocket.send_json({"type": "connected"})
+
+            async def recv_from_frontend():
+                """Forward mic audio from browser → Gemini Live.
+
+                Re-raises on non-disconnect errors so asyncio.wait propagates them.
+                Normal return (WebSocketDisconnect) signals the session to end.
+                """
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        raw = msg.get("bytes")
+                        if raw:
+                            await session.send(
+                                input=_gtypes.LiveClientRealtimeInput(
+                                    media_chunks=[
+                                        _gtypes.Blob(
+                                            data=raw,
+                                            mime_type="audio/pcm;rate=16000",
+                                        )
+                                    ]
+                                )
+                            )
+                except WebSocketDisconnect:
+                    pass  # normal client close — let the task return
+                except Exception:
+                    logger.exception("recv_from_frontend error for brand %s", brand_id)
+                    raise
+
+            async def recv_from_gemini():
+                """Forward Gemini audio responses → browser."""
+                try:
+                    async for response in session.receive():
+                        sc = getattr(response, "server_content", None)
+                        if not sc:
+                            continue
+
+                        # Signal end-of-turn to frontend (so it knows AI finished speaking)
+                        if getattr(sc, "turn_complete", False):
+                            try:
+                                await websocket.send_json({"type": "turn_complete"})
+                            except Exception:
+                                return
+
+                        model_turn = getattr(sc, "model_turn", None)
+                        if not model_turn:
+                            continue
+                        for part in model_turn.parts:
+                            inline = getattr(part, "inline_data", None)
+                            if inline and inline.data:
+                                try:
+                                    await websocket.send_bytes(inline.data)
+                                except Exception:
+                                    return
+                            text = getattr(part, "text", None)
+                            if text:
+                                try:
+                                    await websocket.send_json(
+                                        {"type": "transcript", "text": text}
+                                    )
+                                except Exception:
+                                    return
+                except asyncio.CancelledError:
+                    raise  # let the task framework handle cancellation
+                except Exception:
+                    logger.exception("recv_from_gemini error for brand %s", brand_id)
+                    try:
+                        await websocket.send_json(
+                            {"type": "error", "message": "Voice session interrupted"}
+                        )
+                    except Exception:
+                        pass
+
+            # BUG-1 fix: use asyncio.wait(FIRST_COMPLETED) so that when either task
+            # finishes (frontend disconnect or Gemini session end), the other is
+            # explicitly cancelled — preventing zombie Gemini sessions.
+            fe_task = asyncio.create_task(recv_from_frontend())
+            gm_task = asyncio.create_task(recv_from_gemini())
+            try:
+                done, pending = await asyncio.wait(
+                    [fe_task, gm_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for task in (fe_task, gm_task):
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("Voice coaching error for brand %s: %s", brand_id, e)
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
 
 
 # ── Static frontend (production) ──────────────────────────────

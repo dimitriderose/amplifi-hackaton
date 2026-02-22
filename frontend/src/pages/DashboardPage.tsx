@@ -7,6 +7,7 @@ import BrandProfileCard from '../components/BrandProfileCard'
 import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
 import EventsInput from '../components/EventsInput'
+import VoiceCoach from '../components/VoiceCoach'
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
@@ -164,6 +165,11 @@ export default function DashboardPage() {
         }}>
           <PostLibrary brandId={brandId} planId={plan.plan_id} />
         </div>
+      )}
+
+      {/* Voice Brand Coach — floating button, fixed position */}
+      {brandId && (
+        <VoiceCoach brandId={brandId} brandName={brand.business_name} />
       )}
     </div>
   )
