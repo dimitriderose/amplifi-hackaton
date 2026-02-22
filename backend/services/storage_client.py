@@ -27,7 +27,7 @@ async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(
         None,
         lambda: blob.upload_from_string(image_bytes, content_type=mime_type)
@@ -46,7 +46,7 @@ async def upload_brand_asset(brand_id: str, file_bytes: bytes,
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(
         None,
         lambda: blob.upload_from_string(file_bytes, content_type=mime_type)
@@ -58,7 +58,7 @@ async def get_signed_url(gcs_uri: str) -> str:
     blob_path = gcs_uri.replace(f"gs://{GCS_BUCKET_NAME}/", "")
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None,
         lambda: blob.generate_signed_url(expiration=timedelta(hours=1), method="GET")
