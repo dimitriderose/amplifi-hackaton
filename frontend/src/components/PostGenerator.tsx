@@ -22,6 +22,7 @@ const PLATFORM_ICONS: Record<string, string> = {
   instagram: '📸',
   linkedin: '💼',
   twitter: '🐦',
+  x: '✖',
   facebook: '👥',
 }
 
