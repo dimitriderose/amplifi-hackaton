@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { api } from '../api/client'
@@ -40,6 +40,12 @@ export default function OnboardPage() {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus URL input when accordion expands
+  useEffect(() => {
+    if (urlExpanded) urlInputRef.current?.focus()
+  }, [urlExpanded])
 
   const hasUrl = url.trim().length > 0
   const steps = hasUrl ? URL_STEPS : NO_WEB_STEPS
@@ -168,13 +174,14 @@ export default function OnboardPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Description — primary input */}
           <div>
-            <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
+            <label htmlFor="desc-input" style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
               Describe your business
               <span style={{ color: A.textMuted, fontWeight: 400, marginLeft: 8 }}>
                 ({desc.length}/20 min)
               </span>
             </label>
             <textarea
+              id="desc-input"
               value={desc}
               onChange={e => setDesc(e.target.value)}
               placeholder="e.g. I run a family-owned Italian bakery in Austin. We specialize in sourdough and seasonal pastries, and our customers are local food enthusiasts who value craftsmanship."
@@ -253,7 +260,12 @@ export default function OnboardPage() {
             overflow: 'hidden',
           }}>
             <button
-              onClick={() => setUrlExpanded(v => !v)}
+              onClick={() => setUrlExpanded(v => {
+                if (v) setUrl('')  // clear URL when collapsing
+                return !v
+              })}
+              aria-expanded={urlExpanded}
+              aria-controls="url-panel"
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '12px 14px', background: urlExpanded ? A.indigoLight : A.surfaceAlt,
@@ -263,17 +275,21 @@ export default function OnboardPage() {
               }}
             >
               <span>🌐 Have a website? Paste it for even better results</span>
-              <span style={{ fontSize: 11, opacity: 0.7 }}>{urlExpanded ? '▲' : '▼'}</span>
+              <span aria-hidden="true" style={{ fontSize: 11, opacity: 0.7 }}>{urlExpanded ? '▲' : '▼'}</span>
             </button>
 
             {urlExpanded && (
-              <div style={{ padding: '12px 14px', borderTop: `1px solid ${A.border}` }}>
+              <div id="url-panel" style={{ padding: '12px 14px', borderTop: `1px solid ${A.border}` }}>
+                <label htmlFor="url-input" style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, display: 'block', marginBottom: 6 }}>
+                  Website URL
+                </label>
                 <input
+                  id="url-input"
+                  ref={urlInputRef}
                   type="url"
                   value={url}
                   onChange={e => setUrl(e.target.value)}
                   placeholder="https://yourbusiness.com"
-                  autoFocus
                   style={{
                     width: '100%', padding: '10px 14px', borderRadius: 8,
                     border: `1px solid ${hasUrl ? A.indigo : A.border}`,
