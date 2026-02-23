@@ -32,10 +32,14 @@ export default function GeneratePage() {
   // Fetch brand to get image quality risk recommendation
   useEffect(() => {
     if (!brandId) return
-    ;(api.getBrand(brandId) as Promise<any>)
+    interface BrandProfile { image_generation_risk?: 'high' | 'medium' | 'low'; byop_recommendation?: string }
+    ;(api.getBrand(brandId) as Promise<BrandProfile>)
       .then(res => {
         if (res.image_generation_risk === 'high') {
-          setByopRecommendation(res.byop_recommendation || undefined)
+          const rec = res.byop_recommendation
+          setByopRecommendation(
+            typeof rec === 'string' && rec.trim().length > 0 ? rec : undefined
+          )
         }
       })
       .catch(() => {})
