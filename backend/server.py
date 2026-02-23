@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.config import CORS_ORIGINS
-from backend.models.brand import BrandProfileCreate, BrandProfile
+from backend.models.brand import BrandProfileCreate, BrandProfile, BrandProfileUpdate
 from backend.services import firestore_client
 from backend.services.storage_client import (
     upload_brand_asset,
@@ -42,7 +42,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,13 +86,19 @@ async def analyze_brand(brand_id: str, data: BrandProfileCreate):
             social_voice_analysis=existing_voice,
         )
 
-        # Merge AI results into Firestore document
-        update_data = {
-            **profile,
+        # Only copy known-safe fields from LLM output — never spread arbitrary keys into Firestore
+        _ALLOWED_PROFILE_KEYS = {
+            "business_name", "business_type", "industry", "tone", "colors",
+            "target_audience", "visual_style", "content_themes", "competitors",
+            "image_style_directive", "caption_style_directive",
+            "image_generation_risk", "byop_recommendation", "style_reference_gcs_uri",
+        }
+        update_data = {k: v for k, v in profile.items() if k in _ALLOWED_PROFILE_KEYS}
+        update_data.update({
             "description": data.description,
             "website_url": data.website_url,
             "analysis_status": "complete",
-        }
+        })
         await firestore_client.update_brand(brand_id, update_data)
 
         brand = await firestore_client.get_brand(brand_id)
@@ -114,12 +120,13 @@ async def get_brand(brand_id: str):
 
 
 @app.put("/api/brands/{brand_id}")
-async def update_brand(brand_id: str, data: dict = Body(...)):
-    """Update brand profile fields (user corrections)."""
+async def update_brand(brand_id: str, data: BrandProfileUpdate):
+    """Update brand profile fields (user corrections). Only whitelisted fields accepted."""
     brand = await firestore_client.get_brand(brand_id)
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
-    await firestore_client.update_brand(brand_id, data)
+    # exclude_unset=True so only explicitly provided fields are written
+    await firestore_client.update_brand(brand_id, data.model_dump(exclude_unset=True))
     updated = await firestore_client.get_brand(brand_id)
     return {"brand_profile": updated, "status": "updated"}
 
