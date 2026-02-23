@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
@@ -58,6 +58,9 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [approved, setApproved] = useState(false)
+  // L-6: copy-to-clipboard state for revised caption
+  const [captionCopied, setCaptionCopied] = useState(false)
+  const captionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // DK-3: Auto-trigger review on mount so user doesn't have to click a button
   useEffect(() => {
@@ -69,6 +72,12 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
     // Reset prior results at the start so the re-review button doesn't cause a
     // stale-state flash (setReview(null) outside was async and didn't flush first)
     setReview(null)
+    // Clear any in-flight copy timer so a re-review doesn't inherit stale "Copied" state
+    if (captionCopyTimerRef.current) {
+      clearTimeout(captionCopyTimerRef.current)
+      captionCopyTimerRef.current = null
+    }
+    setCaptionCopied(false)
     setLoading(true)
     setError('')
     try {
@@ -261,9 +270,29 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
           {/* Revised caption if provided */}
           {review.revised_caption && (
             <div style={{ padding: '10px 14px', borderRadius: 8, background: A.indigoLight, border: `1px solid ${A.indigo}20` }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: A.indigo, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                AI-revised caption
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: A.indigo, margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  AI-revised caption
+                </p>
+                {/* L-6: Copy revised caption to clipboard */}
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(review.revised_caption!).then(() => {
+                      if (captionCopyTimerRef.current) clearTimeout(captionCopyTimerRef.current)
+                      setCaptionCopied(true)
+                      captionCopyTimerRef.current = setTimeout(() => setCaptionCopied(false), 1500)
+                    }).catch(() => {})
+                  }}
+                  style={{
+                    padding: '3px 10px', borderRadius: 6, border: `1px solid ${captionCopied ? A.emerald : A.indigo}40`,
+                    background: captionCopied ? A.emeraldLight : 'white',
+                    color: captionCopied ? A.emerald : A.indigo,
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s',
+                  }}
+                >
+                  {captionCopied ? '✓ Copied' : '⎘ Use this caption'}
+                </button>
+              </div>
               <p style={{ fontSize: 13, color: A.text, lineHeight: 1.5, margin: 0 }}>{review.revised_caption}</p>
             </div>
           )}

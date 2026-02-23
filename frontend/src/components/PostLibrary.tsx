@@ -9,11 +9,13 @@ type Filter = 'all' | 'approved' | 'complete' | 'generating' | 'failed'
 interface Props {
   brandId: string
   planId?: string
+  /** M-8: allow ExportPage to default to 'approved' filter */
+  defaultFilter?: Filter
 }
 
-export default function PostLibrary({ brandId, planId }: Props) {
+export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: Props) {
   const { posts, loading, error, refresh } = usePostLibrary(brandId, planId)
-  const [filter, setFilter] = React.useState<Filter>('all')
+  const [filter, setFilter] = React.useState<Filter>(defaultFilter)
   const [exporting, setExporting] = React.useState(false)
   // DK-5: Track locally dismissed post IDs (stuck generating/failed) — no server call needed
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set())

@@ -42,17 +42,11 @@ export default function VideoRepurpose({ brandId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Clean up polling interval on unmount
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-  }, [])
+  const storageKey = `amplifi_vrjob_${brandId}`
 
+  // startPolling is defined before the mount effect that calls it for readability
   const startPolling = (jobId: string) => {
+    sessionStorage.setItem(storageKey, jobId)
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
       try {
@@ -61,12 +55,30 @@ export default function VideoRepurpose({ brandId }: Props) {
         if (j.status === 'complete' || j.status === 'failed') {
           clearInterval(pollRef.current!)
           pollRef.current = null
+          sessionStorage.removeItem(storageKey)
         }
       } catch {
         // transient poll error — keep polling
       }
     }, 5000)
   }
+
+  // M-7: Restore in-flight job from sessionStorage on mount (survives navigation).
+  // brandId is stable for the component lifetime (routing unmounts on brand change),
+  // so the empty dep array is intentional — storageKey and startPolling are stable closures.
+  useEffect(() => {
+    const savedJobId = sessionStorage.getItem(storageKey)
+    if (savedJobId) {
+      setJob({ job_id: savedJobId, status: 'processing', clips: [] })
+      startPolling(savedJobId)
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFile = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
@@ -223,7 +235,7 @@ export default function VideoRepurpose({ brandId }: Props) {
             </p>
           )}
           <button
-            onClick={() => { setJob(null); setError('') }}
+            onClick={() => { setJob(null); setError(''); sessionStorage.removeItem(storageKey) }}
             style={{
               padding: '6px 14px', borderRadius: 6, border: `1px solid ${A.coral}60`,
               background: 'white', color: A.coral, fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -306,7 +318,7 @@ export default function VideoRepurpose({ brandId }: Props) {
           </div>
 
           <button
-            onClick={() => { setJob(null); setError('') }}
+            onClick={() => { setJob(null); setError(''); sessionStorage.removeItem(storageKey) }}
             style={{
               marginTop: 12, padding: '7px 14px', borderRadius: 6,
               border: `1px solid ${A.border}`, background: 'transparent',

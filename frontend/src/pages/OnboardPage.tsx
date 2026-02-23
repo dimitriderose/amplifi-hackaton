@@ -142,19 +142,37 @@ export default function OnboardPage() {
               <div key={i} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '10px 14px', borderRadius: 8,
-                background: i === completedSteps.length - 1 ? A.indigoLight : A.surface,
-                border: `1px solid ${i === completedSteps.length - 1 ? A.indigo + '30' : A.borderLight}`,
+                background: i === completedSteps.length - 1 && completedSteps.length < steps.length ? A.indigoLight : A.surface,
+                border: `1px solid ${i === completedSteps.length - 1 && completedSteps.length < steps.length ? A.indigo + '30' : A.borderLight}`,
               }}>
                 <span style={{ fontSize: 16 }}>{step.icon}</span>
-                <span style={{ fontSize: 13, color: A.text, fontWeight: i === completedSteps.length - 1 ? 500 : 400 }}>
+                <span style={{ fontSize: 13, color: A.text, fontWeight: i === completedSteps.length - 1 && completedSteps.length < steps.length ? 500 : 400 }}>
                   {step.label}
                 </span>
-                {i < completedSteps.length - 1 && (
+                {(i < completedSteps.length - 1 || completedSteps.length === steps.length) && (
                   <span style={{ marginLeft: 'auto', color: A.emerald, fontSize: 14 }}>✓</span>
                 )}
               </div>
             ))}
+            {/* M-1: Keep screen alive while API finishes after steps complete */}
+            {completedSteps.length === steps.length && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', borderRadius: 8,
+                background: A.indigoLight, border: `1px solid ${A.indigo}30`,
+              }}>
+                <span style={{
+                  display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
+                  background: A.indigo, flexShrink: 0,
+                  animation: 'ob-pulse 1.2s ease-in-out infinite',
+                }} />
+                <span style={{ fontSize: 13, color: A.indigo, fontWeight: 500 }}>
+                  Finalizing your brand profile...
+                </span>
+              </div>
+            )}
           </div>
+          <style>{`@keyframes ob-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.75)} }`}</style>
         </div>
       </div>
     )
@@ -181,8 +199,9 @@ export default function OnboardPage() {
           <div>
             <label htmlFor="desc-input" style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
               Describe your business
+              {/* M-2: Was "(0/20 min)" which read as "minutes" — clarified */}
               <span style={{ color: A.textMuted, fontWeight: 400, marginLeft: 8 }}>
-                ({desc.length}/20 min)
+                (min. 20 chars)
               </span>
             </label>
             <textarea
