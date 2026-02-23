@@ -835,9 +835,14 @@ async def start_video_generation(
     # Create job record in Firestore
     job_id = await firestore_client.create_video_job(post_id, tier)
 
-    # Fire background task (non-blocking)
-    asyncio.create_task(
+    # Fire background task; store reference to prevent GC before completion
+    _veo_task = asyncio.create_task(
         _run_video_generation(job_id, post_id, brand_id, hero_image_bytes, post, brand, tier)
+    )
+    _veo_task.add_done_callback(
+        lambda t: t.exception() and logger.error(
+            "Unhandled exception in video generation task for job %s: %s", job_id, t.exception()
+        ) if not t.cancelled() else None
     )
 
     return {
