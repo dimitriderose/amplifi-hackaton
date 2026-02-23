@@ -1473,7 +1473,7 @@ App (React Router)
 ├── LandingPage (/)
 │   ├── HeroSection (gradient headline, value prop, dual CTAs)
 │   ├── ProductPreview (mini calendar preview with pillar tags)
-│   ├── HowItWorks (3-step cards: URL → Brand → Calendar)
+│   ├── HowItWorks (3-step cards: Describe → Strategy → Generate)
 │   ├── FeaturesGrid (2×3: brand-aware, multi-platform, BYOP, video, pillars, events)
 │   ├── Testimonial (social proof placeholder)
 │   └── FooterCTA (repeat start button)
@@ -1486,9 +1486,10 @@ App (React Router)
 │       ├── AssetUploadZone (optional drag-drop for images/PDFs, max 3 files)
 │       │   └── UploadedFileList (filename, type icon, remove button)
 │       └── AnalysisProgress (step-by-step with adaptive steps based on mode)
+│           └── FinalizingRow (pulsing "Finalizing your brand profile..." after all steps complete)
 │
 ├── DashboardPage (/dashboard/{brandId})
-│   ├── BrandProfileCard (editable brand profile summary)
+│   ├── BrandProfileCard (editable brand profile summary — inline save with loading state and error feedback)
 │   │   ├── InferredBusinessType (AI-inferred from description, editable)
 │   │   ├── ColorSwatches (clickable hex colors)
 │   │   ├── ToneChips (editable tone adjectives)
@@ -1499,10 +1500,17 @@ App (React Router)
 │   │   ├── AudienceDescription
 │   │   └── EditButton → BrandEditModal
 │   │
+│   ├── SocialConnect (P2 — per-platform voice analysis with OAuth-ready connect)
+│   │   └── PlatformCard[] (Instagram, LinkedIn, X)
+│   │       ├── ConnectButton (OAuth placeholder)
+│   │       ├── TryDemoLink ("or load demo data →" — loads per-platform demo voice analysis)
+│   │       └── VoiceProfile (voice characteristics, common phrases, tone adjectives, emoji usage)
+│   │
 │   ├── ContentCalendar
-│   │   ├── CalendarHeader (week selector, "Generate All" button)
-│   │   ├── EventsInput (P1 — "What's happening this week?" free-text area)
+│   │   ├── CalendarHeader (week selector, "Generate All" button, ClearPlanButton with confirm dialog)
+│   │   ├── EventsInput (P1 — "What's happening this week?" free-text area, disabled during brand analysis)
 │   │   │   └── Placeholder: "launching lavender croissant Tuesday, farmer's market Saturday..."
+│   │   ├── CalendarProgress (6-step animated sequence: understanding brand → mapping events → building pillars → scheduling platform mix → crafting repurposing chains → finalizing)
 │   │   ├── PillarSummary (P1 — shows 1-2 pillar themes with derivative count + event/generated badge)
 │   │   └── DayCard[7]
 │   │       ├── DayLabel ("Monday")
@@ -1514,7 +1522,8 @@ App (React Router)
 │   │       ├── StatusBadge (planned / generated / approved)
 │   │       └── GenerateButton → opens PostGenerator
 │   │
-│   └── PostLibrary (grid of all generated posts)
+│   └── PostLibrary (grid of all generated posts — auto-polls every 8s while generating, defaultFilter prop)
+│       ├── FilterTabs (All / ✓ Approved / Ready / Generating / Failed — with counts)
 │       ├── HeaderRow
 │       │   ├── RefreshButton
 │       │   ├── CopyAllButton ("📋 Copy All" / "✓ Copied N" — bulk clipboard export)
@@ -1525,9 +1534,11 @@ App (React Router)
 │           ├── CaptionPreview
 │           ├── PlatformBadge
 │           ├── ReviewScore (1-5 stars)
-│           └── ActionButtons (approve, regenerate, download, copy caption)
+│           ├── DismissButton (× — shown on generating/failed posts for local removal)
+│           └── ActionButtons (regenerate, download, copy caption)
 │
 ├── GeneratePage (/generate/{planId}/{dayIndex})
+│   ├── PageSubtitle ("Day N · Platform · Content Theme" — human-readable context)
 │   ├── DayBriefPanel (theme, platform, directions — editable)
 │   │   └── PillarContext (P1 — shows pillar key message if this is a derivative)
 │   │
@@ -1545,20 +1556,23 @@ App (React Router)
 │   │   ├── ProgressBar (0-100% during async generation)
 │   │   └── VideoPlayer (plays MP4 on completion)
 │   │
-│   ├── ReviewPanel (appears after generation completes)
-│   │   ├── ScoreRadar (5 criteria as radar chart)
-│   │   ├── CheckList (green ✓ / yellow ⚠ per criterion)
-│   │   └── SuggestionsList
+│   ├── ReviewPanel (auto-triggers on mount once generation completes — sole approval path)
+│   │   ├── ScoreCircle (brand alignment score with badge)
+│   │   ├── EngagementPrediction (bars: hook strength, relevance, CTA clarity, platform fit)
+│   │   ├── StrengthsList (green ✓ checkmarks)
+│   │   ├── ImprovementsList (yellow → arrows with suggestions)
+│   │   ├── UseThisCaptionButton (copy-to-clipboard — shown when AI proposes a revised caption)
+│   │   ├── ApproveButton (sole location for post approval)
+│   │   └── NextDayCTA ("Next Day →" — navigates to next day in plan after review)
 │   │
 │   └── ActionBar
-│       ├── ApproveButton
 │       ├── RegenerateButton
 │       ├── DownloadImageButton
 │       └── CopyCaptionButton
 │
-└── ExportPage (/export/{planId})
+└── ExportPage (/export/{brandId}?plan_id={planId} — linked from NavBar when plan is active)
     ├── PageSubtitle ("Copy captions to clipboard, download individual posts, or export as ZIP")
-    └── PostLibrary (reused — with CopyAllButton, filter tabs, PostCard grid)
+    └── PostLibrary (reused — defaultFilter="approved", CopyAllButton, filter tabs, PostCard grid)
 ```
 
 ## 7.2 Key UI Interactions
