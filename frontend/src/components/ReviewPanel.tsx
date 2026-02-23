@@ -66,6 +66,9 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
   }, [postId, brandId])
 
   const runReview = async () => {
+    // Reset prior results at the start so the re-review button doesn't cause a
+    // stale-state flash (setReview(null) outside was async and didn't flush first)
+    setReview(null)
     setLoading(true)
     setError('')
     try {
@@ -280,7 +283,7 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
               </button>
             )}
             <button
-              onClick={async () => { setReview(null); await runReview() }}
+              onClick={runReview}
               style={{
                 padding: '10px 16px', borderRadius: 8,
                 border: `1px solid ${A.border}`,

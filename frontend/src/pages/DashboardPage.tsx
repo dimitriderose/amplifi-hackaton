@@ -18,10 +18,13 @@ export default function DashboardPage() {
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
 
-  // H-8: Store planId in sessionStorage so NavBar can include it in the Export link
+  // H-8: Store planId in sessionStorage so NavBar can include it in the Export link.
+  // Clear on plan removal so stale Export links don't point at the old plan.
   useEffect(() => {
     if (plan?.plan_id && brandId) {
       sessionStorage.setItem(`amplifi_plan_${brandId}`, plan.plan_id)
+    } else if (brandId) {
+      sessionStorage.removeItem(`amplifi_plan_${brandId}`)
     }
   }, [plan?.plan_id, brandId])
 
@@ -32,15 +35,18 @@ export default function DashboardPage() {
     if (approvedParam) {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
       approvedTimerRef.current = setTimeout(() => {
-        const next = new URLSearchParams(searchParams)
-        next.delete('approved')
-        setSearchParams(next, { replace: true })
+        // Use functional updater so searchParams is not a stale-dep trigger
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev)
+          next.delete('approved')
+          return next
+        }, { replace: true })
       }, 4000)
     }
     return () => {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
     }
-  }, [approvedParam, searchParams, setSearchParams])
+  }, [approvedParam, setSearchParams])
 
   if (brandLoading) {
     return (
@@ -137,10 +143,10 @@ export default function DashboardPage() {
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
             <SocialConnect
               brandId={brandId ?? ''}
-              connectedPlatforms={(brand as any).connected_platforms ?? []}
-              existingVoiceAnalyses={(brand as any).social_voice_analyses}
-              existingVoiceAnalysis={(brand as any).social_voice_analysis}
-              existingVoicePlatform={(brand as any).social_voice_platform}
+              connectedPlatforms={brand.connected_platforms ?? []}
+              existingVoiceAnalyses={brand.social_voice_analyses}
+              existingVoiceAnalysis={brand.social_voice_analysis}
+              existingVoicePlatform={brand.social_voice_platform}
             />
           </div>
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
@@ -171,7 +177,7 @@ export default function DashboardPage() {
             </div>
             <ContentCalendar
               plan={{ plan_id: plan.plan_id, days: plan.days }}
-              brandId={brandId}
+              brandId={brandId ?? ''}
               onGeneratePost={(planId, dayIndex) =>
                 navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
               }
