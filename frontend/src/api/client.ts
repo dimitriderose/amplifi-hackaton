@@ -80,4 +80,23 @@ export const api = {
       `/api/brands/${brandId}/connect-social`,
       { method: 'POST', body: JSON.stringify({ platform, oauth_token: oauthToken }) },
     ),
+
+  uploadVideoForRepurpose: (brandId: string, formData: FormData) =>
+    fetch(`/api/brands/${brandId}/video-repurpose`, { method: 'POST', body: formData }).then(
+      async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: r.statusText }))
+          throw new Error(err.detail || `HTTP ${r.status}`)
+        }
+        return r.json()
+      }
+    ),
+
+  getVideoRepurposeJob: (jobId: string) =>
+    request<{
+      job_id: string
+      status: string
+      clips: unknown[]
+      error?: string
+    }>(`/api/video-repurpose-jobs/${jobId}`),
 }

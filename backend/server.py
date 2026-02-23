@@ -18,6 +18,8 @@ from backend.services.storage_client import (
     get_signed_url,
     download_from_gcs,
     upload_byop_photo,
+    upload_raw_video_source,
+    upload_repurposed_clip,
 )
 from google import genai as _genai
 from google.genai import types as _gtypes
@@ -854,6 +856,102 @@ async def get_video_job_status(job_id: str):
     job = await firestore_client.get_video_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Video job not found")
+    return job
+
+
+# ── Video Repurposing ──────────────────────────────────────────
+
+_MAX_VIDEO_BYTES = 500 * 1024 * 1024  # 500 MB
+
+
+async def _run_video_repurposing(
+    job_id: str,
+    brand_id: str,
+    source_gcs_uri: str,
+    brand: dict,
+) -> None:
+    """Background task: download source video, run Gemini analysis + FFmpeg, upload clips."""
+    from backend.agents.video_repurpose_agent import analyze_and_repurpose
+    from backend.services.storage_client import download_gcs_uri
+
+    try:
+        await firestore_client.update_repurpose_job(job_id, "processing")
+
+        video_bytes = await download_gcs_uri(source_gcs_uri)
+        raw_clips = await analyze_and_repurpose(video_bytes, brand)
+
+        clips_out = []
+        for clip in raw_clips:
+            signed_url, gcs_uri = await upload_repurposed_clip(
+                brand_id, job_id, clip["clip_bytes"], clip["filename"]
+            )
+            clips_out.append({
+                "platform": clip["platform"],
+                "duration_seconds": clip["duration_seconds"],
+                "start_time": clip["start_time"],
+                "end_time": clip["end_time"],
+                "hook": clip["hook"],
+                "suggested_caption": clip["suggested_caption"],
+                "reason": clip["reason"],
+                "clip_url": signed_url,
+                "clip_gcs_uri": gcs_uri,
+                "filename": clip["filename"],
+            })
+
+        await firestore_client.update_repurpose_job(job_id, "complete", clips=clips_out)
+        logger.info("Video repurposing complete for job %s: %d clips", job_id, len(clips_out))
+
+    except Exception as e:
+        logger.error("Video repurposing failed for job %s: %s", job_id, e)
+        await firestore_client.update_repurpose_job(job_id, "failed", error=str(e))
+
+
+@app.post("/api/brands/{brand_id}/video-repurpose")
+async def upload_video_for_repurpose(
+    brand_id: str,
+    file: UploadFile = File(...),
+):
+    """Upload a raw video (mp4/mov ≤ 500 MB) and start async clip extraction.
+
+    Returns: {job_id, status: "queued"}
+    """
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    filename = file.filename or "video.mp4"
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext not in ("mp4", "mov"):
+        raise HTTPException(status_code=400, detail="Only .mp4 and .mov files are accepted")
+
+    video_bytes = await file.read()
+    if len(video_bytes) > _MAX_VIDEO_BYTES:
+        raise HTTPException(status_code=413, detail="Video must be under 500 MB")
+    if len(video_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    # Generate job_id up front so it's consistent across GCS path + Firestore
+    job_id = str(uuid.uuid4())
+    source_gcs_uri = await upload_raw_video_source(brand_id, job_id, video_bytes, filename)
+    await firestore_client.create_repurpose_job(brand_id, source_gcs_uri, filename, job_id)
+
+    # Fire background processing task
+    asyncio.create_task(
+        _run_video_repurposing(job_id, brand_id, source_gcs_uri, brand)
+    )
+
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/api/video-repurpose-jobs/{job_id}")
+async def get_video_repurpose_job(job_id: str):
+    """Poll video repurposing job status.
+
+    Returns: {job_id, status, clips, error}
+    """
+    job = await firestore_client.get_repurpose_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Repurpose job not found")
     return job
 
 
