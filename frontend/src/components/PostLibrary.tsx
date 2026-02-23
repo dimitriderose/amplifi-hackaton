@@ -24,6 +24,13 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
   // Copy All Captions — clipboard with 1.5s confirmation flash
   const [copyAllDone, setCopyAllDone] = React.useState(false)
   const copyAllTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Snapshot count at click time to avoid drift if posts update during the 1.5s flash
+  const copiedCountRef = React.useRef(0)
+
+  // Cleanup timer on unmount
+  React.useEffect(() => {
+    return () => { if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current) }
+  }, [])
 
   const FILTERS: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -38,13 +45,13 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
 
   const handleCopyAll = () => {
     if (!navigator.clipboard || filtered.length === 0) return
-    const lines = filtered
-      .filter(p => p.caption)
-      .map((p, i) => {
-        const tags = (p.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
-        const header = `[${i + 1}] ${p.platform ? p.platform.charAt(0).toUpperCase() + p.platform.slice(1) : 'Post'} · Day ${(p.day_index ?? 0) + 1}`
-        return [header, p.caption, tags].filter(Boolean).join('\n')
-      })
+    const withCaption = filtered.filter(p => p.caption)
+    copiedCountRef.current = withCaption.length
+    const lines = withCaption.map((p, i) => {
+      const tags = (p.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
+      const header = `[${i + 1}] ${p.platform ? p.platform.charAt(0).toUpperCase() + p.platform.slice(1) : 'Post'} · Day ${(p.day_index ?? 0) + 1}`
+      return [header, p.caption, tags].filter(Boolean).join('\n\n')
+    })
     const text = lines.join('\n\n---\n\n')
     navigator.clipboard.writeText(text).then(() => {
       if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current)
@@ -95,7 +102,7 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
                 transition: 'all 0.2s',
               }}
             >
-              {copyAllDone ? `✓ Copied ${filtered.filter(p => p.caption).length}` : '📋 Copy All'}
+              {copyAllDone ? `✓ Copied ${copiedCountRef.current}` : '📋 Copy All'}
             </button>
           )}
           {planId && (
