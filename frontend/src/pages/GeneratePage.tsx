@@ -14,7 +14,8 @@ export default function GeneratePage() {
 
   const { state, generate, reset } = usePostGeneration()
 
-  const [dayBrief, setDayBrief] = useState<{ platform: string; pillar: string; content_theme: string } | undefined>(undefined)
+  const [dayBrief, setDayBrief] = useState<{ platform: string; pillar: string; content_theme: string; day_index?: number } | undefined>(undefined)
+  const [planDayCount, setPlanDayCount] = useState<number>(0)
   const [byopRecommendation, setByopRecommendation] = useState<string | undefined>(undefined)
 
   // Load the day brief so PostGenerator knows the platform (needed for video button eligibility)
@@ -23,6 +24,7 @@ export default function GeneratePage() {
     ;(api.getPlan(brandId, planId) as Promise<any>)
       .then(res => {
         const days: any[] = res.plan_profile?.days || []
+        setPlanDayCount(days.length)
         const idx = parseInt(dayIndex, 10)
         if (days[idx]) setDayBrief(days[idx])
       })
@@ -52,17 +54,30 @@ export default function GeneratePage() {
     }
   }, [planId, dayIndex, brandId, generate])
 
-  const handleApprove = (postId: string) => {
-    // Navigate back to dashboard with success
-    navigate(`/dashboard/${brandId}?approved=${postId}`)
-  }
-
   const handleRegenerate = (instructions?: string) => {
-    reset()
     if (planId && dayIndex !== undefined && brandId) {
-      setTimeout(() => generate(planId, parseInt(dayIndex, 10), brandId, instructions), 100)
+      // reset() closes the existing EventSource; generate() handles its own
+      // teardown at the top of its body — no setTimeout needed
+      reset()
+      generate(planId, parseInt(dayIndex, 10), brandId, instructions)
     }
   }
+
+  // L-8: Navigate to next day if one exists
+  const currentDayIdx = dayIndex !== undefined ? parseInt(dayIndex, 10) : -1
+  const hasNextDay = planDayCount > 0 && currentDayIdx < planDayCount - 1
+
+  const goToNextDay = () => {
+    if (planId && hasNextDay) {
+      reset()
+      navigate(`/generate/${planId}/${currentDayIdx + 1}?brand_id=${brandId}`)
+    }
+  }
+
+  // H-3: Subtitle uses platform + content_theme from dayBrief instead of raw UUID
+  const subtitle = dayBrief
+    ? `Day ${currentDayIdx + 1} · ${dayBrief.platform} · ${dayBrief.content_theme}`
+    : `Day ${currentDayIdx + 1}`
 
   return (
     <div style={{
@@ -73,29 +88,24 @@ export default function GeneratePage() {
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28 }}>
+        {/* H-1: Navigate to dashboard instead of navigate(-1) which can exit the app */}
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(`/dashboard/${brandId}`)}
           style={{
             padding: '6px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
             background: 'transparent', color: A.textSoft, fontSize: 13, cursor: 'pointer',
           }}
         >
-          ← Back
+          ← Dashboard
         </button>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: A.text, margin: 0 }}>
             Generate Post
           </h1>
-          <p style={{ fontSize: 13, color: A.textSoft, margin: 0 }}>
-            Day {dayIndex !== undefined ? parseInt(dayIndex, 10) + 1 : '?'}
-            {planId && ` · Plan ${planId.slice(-6)}`}
-          </p>
+          {/* H-3: Show human-readable context instead of Plan UUID */}
+          <p style={{ fontSize: 13, color: A.textSoft, margin: 0 }}>{subtitle}</p>
         </div>
-
-        {/* Budget indicator — placeholder */}
-        <div style={{ marginLeft: 'auto', fontSize: 12, color: A.textMuted }}>
-          ✨ AI Generation
-        </div>
+        {/* L-7: Remove dead "✨ AI Generation" placeholder */}
       </div>
 
       {/* Generator */}
@@ -106,14 +116,13 @@ export default function GeneratePage() {
         <PostGenerator
           state={state}
           dayBrief={dayBrief}
-          onApprove={handleApprove}
           onRegenerate={handleRegenerate}
           brandId={brandId}
           byopRecommendation={byopRecommendation}
         />
       </div>
 
-      {/* AI Brand Review — shown once generation is complete */}
+      {/* AI Brand Review — shown once generation is complete. H-2: Approval handled only here, not in PostGenerator */}
       {state.status === 'complete' && state.postId && brandId && (
         <div style={{
           marginTop: 16, padding: 24, borderRadius: 12,
@@ -125,8 +134,24 @@ export default function GeneratePage() {
           <ReviewPanel
             brandId={brandId}
             postId={state.postId}
-            onApproved={() => navigate(`/dashboard/${brandId}`)}
+            onApproved={() => navigate(`/dashboard/${brandId}?approved=${state.postId}`)}
           />
+
+          {/* L-8: Next Day CTA — shown after post is complete */}
+          {hasNextDay && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${A.border}` }}>
+              <button
+                onClick={goToNextDay}
+                style={{
+                  padding: '10px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
+                  color: 'white', fontSize: 13, fontWeight: 600,
+                }}
+              >
+                Next Day → Day {currentDayIdx + 2}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

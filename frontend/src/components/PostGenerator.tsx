@@ -13,7 +13,7 @@ interface Props {
     content_theme: string
   }
   brandId?: string
-  onApprove?: (postId: string) => void
+  // H-2: onApprove removed — approval is handled solely by ReviewPanel to avoid duplicate flows
   onRegenerate?: (instructions?: string) => void
   byopRecommendation?: string
 }
@@ -101,9 +101,16 @@ function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: stri
   )
 }
 
-/** BYOP risk warning with caption-only mode toggle. */
-function CaptionOnlyBanner({ recommendation }: { recommendation: string }) {
+/** BYOP risk warning with caption-only mode toggle. M-3: toggle actually hides the image via callback. */
+function CaptionOnlyBanner({ recommendation, onToggle }: { recommendation: string; onToggle: (captionOnly: boolean) => void }) {
   const [captionOnly, setCaptionOnly] = useState(false)
+
+  const toggle = () => {
+    const next = !captionOnly
+    setCaptionOnly(next)
+    onToggle(next)
+  }
+
   return (
     <div style={{
       padding: '10px 14px', borderRadius: 8,
@@ -116,7 +123,7 @@ function CaptionOnlyBanner({ recommendation }: { recommendation: string }) {
           {recommendation}
         </div>
         <button
-          onClick={() => setCaptionOnly(v => !v)}
+          onClick={toggle}
           title="Caption-only mode: hide AI-generated image"
           style={{
             flexShrink: 0, padding: '3px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
@@ -138,7 +145,7 @@ function CaptionOnlyBanner({ recommendation }: { recommendation: string }) {
   )
 }
 
-export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate, byopRecommendation }: Props) {
+export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, byopRecommendation }: Props) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [editingCaption, setEditingCaption] = useState(false)
@@ -146,6 +153,8 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
   const [localCaption, setLocalCaption] = useState<string | null>(null)
   const [captionSaving, setCaptionSaving] = useState(false)
   const [captionSaveError, setCaptionSaveError] = useState<string | null>(null)
+  // M-3: Caption-only mode state lifted up to actually hide the image panel
+  const [captionOnly, setCaptionOnly] = useState(false)
 
   // Refs for focus management and race-condition guard
   const cancelledRef = useRef(false)
@@ -161,6 +170,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
     setDraftCaption('')
     setCaptionSaveError(null)
     setCaptionSaving(false)
+    setCaptionOnly(false)
     cancelledRef.current = false
   }, [postId])
 
@@ -233,9 +243,10 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
   }
 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
+  const platform = dayBrief?.platform?.toLowerCase() ?? ''
+  const isVideoPlatform = VIDEO_PLATFORMS.has(platform)
 
-  const showVideoButton = status === 'complete' && postId && brandId &&
-    VIDEO_PLATFORMS.has(dayBrief?.platform?.toLowerCase() ?? '')
+  const showVideoSection = status === 'complete' && postId && brandId
 
   const { status: videoStatus, videoUrl, progress, error: videoError, startGeneration } =
     useVideoGeneration(postId ?? '', brandId ?? '')
@@ -276,7 +287,8 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      {/* M-3: When captionOnly, collapse to 1-column so caption fills the width */}
+      <div style={{ display: 'grid', gridTemplateColumns: captionOnly ? '1fr' : '1fr 1fr', gap: 20 }}>
 
         {/* Left: Caption */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -404,17 +416,22 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
 
           {/* BYOP recommendation — shown when brand is high-risk for AI image generation */}
           {byopRecommendation && status === 'complete' && imageUrl && (
-            <CaptionOnlyBanner recommendation={byopRecommendation} />
+            <CaptionOnlyBanner recommendation={byopRecommendation} onToggle={setCaptionOnly} />
           )}
 
-          {/* Platform preview — character count, fold/truncation, image crop simulation */}
+          {/* L-4: Label the platform preview section */}
           {status === 'complete' && savedCaption && dayBrief?.platform && !editingCaption && (
-            <PlatformPreview
-              platform={dayBrief.platform}
-              caption={savedCaption}
-              imageUrl={imageUrl ?? undefined}
-              hashtagCount={hashtags.length}
-            />
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: A.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                How this looks on {dayBrief.platform.charAt(0).toUpperCase() + dayBrief.platform.slice(1)}
+              </p>
+              <PlatformPreview
+                platform={dayBrief.platform}
+                caption={savedCaption}
+                imageUrl={imageUrl ?? undefined}
+                hashtagCount={hashtags.length}
+              />
+            </div>
           )}
 
           {/* Hashtags */}
@@ -432,41 +449,33 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
             </div>
           )}
 
-          {/* Action buttons */}
-          {status === 'complete' && postId && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-              {onApprove && (
-                <button
-                  onClick={() => onApprove(postId)}
-                  style={{
-                    width: '100%', padding: '10px', borderRadius: 8, border: 'none',
-                    background: `linear-gradient(135deg, ${A.emerald}, #059669)`,
-                    color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  }}
-                >
-                  ✓ Approve Post
-                </button>
-              )}
-              {onRegenerate && (
-                <RegenerateButton onRegenerate={(instructions) => {
-                  setLocalCaption(null)
-                  onRegenerate(instructions)
-                }} />
-              )}
+          {/* H-2: Removed "Approve Post" button — approval is now handled exclusively by ReviewPanel */}
+          {status === 'complete' && postId && onRegenerate && (
+            <div style={{ marginTop: 4 }}>
+              <RegenerateButton onRegenerate={(instructions) => {
+                setLocalCaption(null)
+                onRegenerate(instructions)
+              }} />
             </div>
           )}
 
-          {/* Video generation — only for video-eligible platforms */}
-          {showVideoButton && (
+          {/* H-6: Video section — shown for all platforms once complete; disabled for non-video platforms */}
+          {showVideoSection && (
             <div style={{
               marginTop: 4, padding: '12px 14px', borderRadius: 10,
-              border: `1px solid ${A.border}`, background: A.surfaceAlt,
+              border: `1px solid ${isVideoPlatform ? A.border : A.borderLight}`,
+              background: isVideoPlatform ? A.surfaceAlt : A.bg,
+              opacity: isVideoPlatform ? 1 : 0.55,
             }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: '0 0 8px' }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: '0 0 6px' }}>
                 🎬 Video Clip (Veo 3)
               </p>
 
-              {videoStatus === 'idle' && (
+              {!isVideoPlatform ? (
+                <p style={{ fontSize: 11, color: A.textMuted, margin: 0 }}>
+                  Video generation is available for Instagram, TikTok, and Reels posts.
+                </p>
+              ) : videoStatus === 'idle' ? (
                 <button
                   onClick={() => startGeneration('fast')}
                   style={{
@@ -477,9 +486,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                 >
                   Generate 8-sec Clip →
                 </button>
-              )}
-
-              {videoStatus === 'generating' && (
+              ) : videoStatus === 'generating' ? (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{ fontSize: 11, color: A.textMuted }}>Generating… (~2.5 min)</span>
@@ -494,9 +501,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                     }} />
                   </div>
                 </div>
-              )}
-
-              {videoStatus === 'complete' && videoUrl && (
+              ) : videoStatus === 'complete' && videoUrl ? (
                 <video
                   src={videoUrl}
                   controls
@@ -505,9 +510,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                   loop
                   style={{ width: '100%', borderRadius: 8, marginTop: 4 }}
                 />
-              )}
-
-              {videoStatus === 'error' && (
+              ) : videoStatus === 'error' ? (
                 <div>
                   <p style={{ fontSize: 11, color: A.coral, margin: '0 0 6px' }}>
                     {videoError || 'Video generation failed'}
@@ -523,47 +526,49 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                     Retry
                   </button>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </div>
 
-        {/* Right: Image */}
-        <div style={{
-          borderRadius: 12, overflow: 'hidden',
-          background: A.surfaceAlt, border: `1px solid ${A.border}`,
-          aspectRatio: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          position: 'relative',
-        }}>
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt="Generated post image"
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          ) : (
-            <div style={{ textAlign: 'center', padding: 20 }}>
-              {status === 'generating' ? (
-                <>
-                  {/* Image skeleton shimmer */}
-                  <div style={{
-                    width: 48, height: 48, borderRadius: '50%',
-                    border: `3px solid ${A.indigoLight}`,
-                    borderTopColor: A.indigo,
-                    margin: '0 auto 12px',
-                    animation: 'spin 1s linear infinite',
-                  }} />
-                  <p style={{ fontSize: 12, color: A.textMuted }}>Generating image...</p>
-                </>
-              ) : (
-                <>
-                  <span style={{ fontSize: 32 }}>🖼️</span>
-                  <p style={{ fontSize: 12, color: A.textMuted, marginTop: 8 }}>Image will appear here</p>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Right: Image — M-3: hidden when captionOnly is active */}
+        {!captionOnly && (
+          <div style={{
+            borderRadius: 12, overflow: 'hidden',
+            background: A.surfaceAlt, border: `1px solid ${A.border}`,
+            aspectRatio: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            position: 'relative',
+          }}>
+            {imageUrl ? (
+              <img
+                src={imageUrl}
+                alt="Generated post image"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <div style={{ textAlign: 'center', padding: 20 }}>
+                {status === 'generating' ? (
+                  <>
+                    {/* Image skeleton shimmer */}
+                    <div style={{
+                      width: 48, height: 48, borderRadius: '50%',
+                      border: `3px solid ${A.indigoLight}`,
+                      borderTopColor: A.indigo,
+                      margin: '0 auto 12px',
+                      animation: 'spin 1s linear infinite',
+                    }} />
+                    <p style={{ fontSize: 12, color: A.textMuted }}>Generating image...</p>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 32 }}>🖼️</span>
+                    <p style={{ fontSize: 12, color: A.textMuted, marginTop: 8 }}>Image will appear here</p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
     </div>
