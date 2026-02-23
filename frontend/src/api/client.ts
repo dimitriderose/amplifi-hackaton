@@ -76,8 +76,8 @@ export const api = {
   getVideoJob: (jobId: string) => request(`/api/video-jobs/${jobId}`),
 
   connectSocial: (brandId: string, platform: string, oauthToken: string) =>
-    request(`/api/brands/${brandId}/connect-social`, {
-      method: 'POST',
-      body: JSON.stringify({ platform, oauth_token: oauthToken }),
-    }),
+    request<{ platform: string; voice_analysis: Record<string, unknown> }>(
+      `/api/brands/${brandId}/connect-social`,
+      { method: 'POST', body: JSON.stringify({ platform, oauth_token: oauthToken }) },
+    ),
 }

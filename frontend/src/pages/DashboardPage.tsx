@@ -118,6 +118,7 @@ export default function DashboardPage() {
             <SocialConnect
               brandId={brandId ?? ''}
               connectedPlatforms={(brand as any).connected_platforms ?? []}
+              existingVoiceAnalyses={(brand as any).social_voice_analyses}
               existingVoiceAnalysis={(brand as any).social_voice_analysis}
               existingVoicePlatform={(brand as any).social_voice_platform}
             />
