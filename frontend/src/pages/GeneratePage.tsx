@@ -55,9 +55,11 @@ export default function GeneratePage() {
   }, [planId, dayIndex, brandId, generate])
 
   const handleRegenerate = (instructions?: string) => {
-    reset()
     if (planId && dayIndex !== undefined && brandId) {
-      setTimeout(() => generate(planId, parseInt(dayIndex, 10), brandId, instructions), 100)
+      // reset() closes the existing EventSource; generate() handles its own
+      // teardown at the top of its body — no setTimeout needed
+      reset()
+      generate(planId, parseInt(dayIndex, 10), brandId, instructions)
     }
   }
 

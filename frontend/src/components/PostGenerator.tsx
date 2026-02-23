@@ -287,7 +287,8 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      {/* M-3: When captionOnly, collapse to 1-column so caption fills the width */}
+      <div style={{ display: 'grid', gridTemplateColumns: captionOnly ? '1fr' : '1fr 1fr', gap: 20 }}>
 
         {/* Left: Caption */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
