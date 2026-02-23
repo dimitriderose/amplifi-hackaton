@@ -26,7 +26,7 @@ export default function ExportPage() {
           Export Posts
         </h1>
         <p style={{ fontSize: 14, color: A.textSoft, margin: 0 }}>
-          Download individual posts or export an entire plan as a ZIP archive.
+          Copy captions to clipboard, download individual posts, or export an entire plan as a ZIP archive.
         </p>
       </div>
 
