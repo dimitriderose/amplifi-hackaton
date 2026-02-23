@@ -8,6 +8,11 @@ async def fetch_website(url: str) -> dict:
 
     Returns title, description, text content, colors found, images, and nav items.
     """
+    if not url.startswith(("http://", "https://")):
+        return {
+            "title": "", "description": "", "text_content": "Invalid URL scheme — only http/https allowed.",
+            "colors_found": [], "images": [], "nav_items": [], "error": "Invalid URL scheme",
+        }
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
             response = await client.get(url, headers={

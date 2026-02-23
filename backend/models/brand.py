@@ -7,6 +7,25 @@ class BrandProfileCreate(BaseModel):
     description: str = Field(..., min_length=20)
     uploaded_assets: Optional[List[str]] = []
 
+class BrandProfileUpdate(BaseModel):
+    """Whitelist of fields a user is allowed to update directly."""
+    business_name: Optional[str] = None
+    business_type: Optional[str] = None
+    website_url: Optional[str] = None
+    description: Optional[str] = None
+    industry: Optional[str] = None
+    tone: Optional[str] = None
+    colors: Optional[List[str]] = None
+    target_audience: Optional[str] = None
+    visual_style: Optional[str] = None
+    image_style_directive: Optional[str] = None
+    caption_style_directive: Optional[str] = None
+    content_themes: Optional[List[str]] = None
+    competitors: Optional[List[str]] = None
+    image_generation_risk: Optional[str] = None
+    byop_recommendation: Optional[str] = None
+
+
 class BrandProfile(BaseModel):
     brand_id: str
     business_name: str = ""

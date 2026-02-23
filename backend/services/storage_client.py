@@ -56,7 +56,7 @@ async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
 async def upload_brand_asset(brand_id: str, file_bytes: bytes,
                               filename: str, mime_type: str) -> str:
     """Upload user brand asset (logo, product photo, PDF). Returns GCS URI."""
-    blob_path = f"brands/{brand_id}/{filename}"
+    blob_path = f"brands/{brand_id}/{_safe_filename(filename)}"
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
 
@@ -82,10 +82,12 @@ async def get_signed_url(gcs_uri: str) -> str:
     )
 
 async def download_from_gcs(url: str) -> bytes:
-    """Download bytes from a signed URL or gs:// URI."""
+    """Download bytes from a GCS signed URL. Only storage.googleapis.com URLs accepted."""
     import httpx
+    if not url.startswith("https://storage.googleapis.com/"):
+        raise ValueError(f"Refusing to fetch non-GCS URL: {url!r}")
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, follow_redirects=True)
+        response = await client.get(url, follow_redirects=False)
         response.raise_for_status()
         return response.content
 
