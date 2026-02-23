@@ -78,6 +78,14 @@ Analyze the provided information and extract:
 11. CAPTION_STYLE_DIRECTIVE: A 2-4 sentence writing rhythm guide. Describe structural patterns, not just adjectives.
     BAD: "professional and friendly"
     GOOD: "Open with a one-sentence hook under 10 words. Second beat is a personal anecdote or concrete example. Third beat delivers the counterintuitive insight or actionable takeaway. Close with a direct question to drive comments. Use em dashes liberally. Never use exclamation marks."
+12. IMAGE_GENERATION_RISK: Assess the risk of AI-generated images for this business type:
+    - "high": food photography, fashion, real estate, jewelry, automotive, cosmetics, restaurants — industries where bad AI images are worse than no images. Authenticity is critical.
+    - "medium": fitness, travel, education, events — AI images acceptable but user photos are strongly preferred for authenticity.
+    - "low": SaaS, consulting, coaching, finance, tech — abstract/graphic/conceptual images work well for AI generation.
+13. BYOP_RECOMMENDATION: A concise 1-2 sentence recommendation explaining whether they should use their own photos.
+    For "high" risk: strongly recommend using real photos with an industry-specific reason.
+    For "medium": gently suggest that real photos improve engagement.
+    For "low": confirm that AI-generated images work great for their content type.
 
 Return ONLY a valid JSON object with these exact keys:
 {{
@@ -91,7 +99,9 @@ Return ONLY a valid JSON object with these exact keys:
   "content_themes": ["theme1", "theme2", ...],
   "competitors": ["competitor1", "competitor2"],
   "image_style_directive": "string",
-  "caption_style_directive": "string"
+  "caption_style_directive": "string",
+  "image_generation_risk": "high|medium|low",
+  "byop_recommendation": "string"
 }}
 """
 
@@ -137,4 +147,6 @@ def _fallback_profile(description: str, website_url: str | None) -> dict:
         "competitors": [],
         "image_style_directive": "clean, modern aesthetic with consistent brand colors, professional lighting, crisp compositions with generous whitespace",
         "caption_style_directive": "Open with a compelling hook. Share a relevant insight or story. End with a clear call to action or question to drive engagement.",
+        "image_generation_risk": "low",
+        "byop_recommendation": "AI-generated images work well for this business type. For best results, upload your own photos when you have them.",
     }

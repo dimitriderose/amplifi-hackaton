@@ -15,6 +15,7 @@ interface Props {
   brandId?: string
   onApprove?: (postId: string) => void
   onRegenerate?: (instructions?: string) => void
+  byopRecommendation?: string
 }
 
 const PLATFORM_ICONS: Record<string, string> = {
@@ -100,7 +101,7 @@ function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: stri
   )
 }
 
-export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
+export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate, byopRecommendation }: Props) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [editingCaption, setEditingCaption] = useState(false)
@@ -361,6 +362,19 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                   ✏️ Click caption to edit
                 </p>
               )}
+            </div>
+          )}
+
+          {/* BYOP recommendation — shown when brand is high-risk for AI image generation */}
+          {byopRecommendation && status === 'complete' && imageUrl && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              background: `${A.amber}18`, border: `1px solid ${A.amber}44`,
+              fontSize: 12, color: A.text, lineHeight: 1.5,
+            }}>
+              <span style={{ color: A.amber, marginRight: 6 }}>⚠️</span>
+              {byopRecommendation}
+              <span style={{ color: A.amber, marginLeft: 6 }}>Use the "Drop photo here" zone on the calendar to upload your own.</span>
             </div>
           )}
 
