@@ -472,13 +472,15 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
               onClick={() => setVideoExpanded(true)}
               style={{
                 marginTop: 4, width: '100%', padding: '8px 14px', borderRadius: 10,
-                border: `1px solid ${A.borderLight}`, background: 'transparent',
+                border: `1px solid ${A.border}`, background: A.surfaceAlt,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 cursor: 'pointer',
               }}
+              onMouseEnter={e => { e.currentTarget.style.background = A.bg }}
+              onMouseLeave={e => { e.currentTarget.style.background = A.surfaceAlt }}
             >
-              <span style={{ fontSize: 11, color: A.textMuted }}>🎬 Video Clip (not typical for this platform)</span>
-              <span style={{ fontSize: 11, color: A.textMuted }}>›</span>
+              <span style={{ fontSize: 12, color: A.textSoft }}>🎬 Video Clip (not typical for this platform)</span>
+              <span style={{ fontSize: 12, color: A.textSoft }}>›</span>
             </button>
           )}
 
