@@ -15,6 +15,7 @@ interface Props {
   brandId?: string
   onApprove?: (postId: string) => void
   onRegenerate?: (instructions?: string) => void
+  byopRecommendation?: string
 }
 
 const PLATFORM_ICONS: Record<string, string> = {
@@ -100,7 +101,44 @@ function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: stri
   )
 }
 
-export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate }: Props) {
+/** BYOP risk warning with caption-only mode toggle. */
+function CaptionOnlyBanner({ recommendation }: { recommendation: string }) {
+  const [captionOnly, setCaptionOnly] = useState(false)
+  return (
+    <div style={{
+      padding: '10px 14px', borderRadius: 8,
+      background: `${A.amber}18`, border: `1px solid ${A.amber}44`,
+      fontSize: 12, color: A.text, lineHeight: 1.5,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <span style={{ color: A.amber, marginRight: 6 }}>⚠️</span>
+          {recommendation}
+        </div>
+        <button
+          onClick={() => setCaptionOnly(v => !v)}
+          title="Caption-only mode: hide AI-generated image"
+          style={{
+            flexShrink: 0, padding: '3px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
+            border: `1px solid ${captionOnly ? A.amber : A.border}`,
+            background: captionOnly ? A.amber + '22' : 'transparent',
+            color: captionOnly ? A.amber : A.textSoft, fontWeight: captionOnly ? 600 : 400,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {captionOnly ? '✓ Caption-only' : 'Caption-only mode'}
+        </button>
+      </div>
+      {captionOnly && (
+        <p style={{ margin: '6px 0 0', color: A.textSoft }}>
+          AI image hidden. Upload your own photo from the content calendar for best results.
+        </p>
+      )}
+    </div>
+  )
+}
+
+export default function PostGenerator({ state, dayBrief, brandId, onApprove, onRegenerate, byopRecommendation }: Props) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [editingCaption, setEditingCaption] = useState(false)
@@ -362,6 +400,11 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
                 </p>
               )}
             </div>
+          )}
+
+          {/* BYOP recommendation — shown when brand is high-risk for AI image generation */}
+          {byopRecommendation && status === 'complete' && imageUrl && (
+            <CaptionOnlyBanner recommendation={byopRecommendation} />
           )}
 
           {/* Platform preview — character count, fold/truncation, image crop simulation */}

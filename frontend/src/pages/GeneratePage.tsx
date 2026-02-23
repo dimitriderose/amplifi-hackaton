@@ -15,6 +15,7 @@ export default function GeneratePage() {
   const { state, generate, reset } = usePostGeneration()
 
   const [dayBrief, setDayBrief] = useState<{ platform: string; pillar: string; content_theme: string } | undefined>(undefined)
+  const [byopRecommendation, setByopRecommendation] = useState<string | undefined>(undefined)
 
   // Load the day brief so PostGenerator knows the platform (needed for video button eligibility)
   useEffect(() => {
@@ -27,6 +28,22 @@ export default function GeneratePage() {
       })
       .catch(() => {})
   }, [planId, dayIndex, brandId])
+
+  // Fetch brand to get image quality risk recommendation
+  useEffect(() => {
+    if (!brandId) return
+    interface BrandProfile { image_generation_risk?: 'high' | 'medium' | 'low'; byop_recommendation?: string }
+    ;(api.getBrand(brandId) as Promise<BrandProfile>)
+      .then(res => {
+        if (res.image_generation_risk === 'high') {
+          const rec = res.byop_recommendation
+          setByopRecommendation(
+            typeof rec === 'string' && rec.trim().length > 0 ? rec : undefined
+          )
+        }
+      })
+      .catch(() => {})
+  }, [brandId])
 
   // Auto-start generation on mount; return cleanup so EventSource closes on unmount
   useEffect(() => {
@@ -92,6 +109,7 @@ export default function GeneratePage() {
           onApprove={handleApprove}
           onRegenerate={handleRegenerate}
           brandId={brandId}
+          byopRecommendation={byopRecommendation}
         />
       </div>
 
