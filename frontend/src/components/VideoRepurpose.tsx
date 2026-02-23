@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
@@ -42,11 +42,21 @@ export default function VideoRepurpose({ brandId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, [])
+
   const startPolling = (jobId: string) => {
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
       try {
-        const j = await api.getVideoRepurposeJob(jobId) as Job
+        const j = await api.getVideoRepurposeJob(jobId, brandId) as Job
         setJob(j)
         if (j.status === 'complete' || j.status === 'failed') {
           clearInterval(pollRef.current!)

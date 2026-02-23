@@ -172,11 +172,14 @@ async def update_repurpose_job(
     error: Optional[str] = None,
 ) -> None:
     db = get_client()
-    payload: dict = {"status": status, "updated_at": datetime.now(timezone.utc)}
+    now = datetime.now(timezone.utc)
+    payload: dict = {"status": status, "updated_at": now}
     if clips is not None:
         payload["clips"] = clips
     if error is not None:
         payload["error"] = error
+    if status == "complete":
+        payload["completed_at"] = now
     await db.collection("repurpose_jobs").document(job_id).update(payload)
 
 

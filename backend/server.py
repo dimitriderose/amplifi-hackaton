@@ -864,6 +864,22 @@ async def get_video_job_status(job_id: str):
 _MAX_VIDEO_BYTES = 500 * 1024 * 1024  # 500 MB
 
 
+def _is_valid_video_header(data: bytes) -> bool:
+    """Check first 20 bytes for MP4/MOV container magic (ftyp or moov box)."""
+    return len(data) >= 12 and (b'ftyp' in data[4:12] or b'moov' in data[:20])
+
+
+def _sanitize_repurpose_error(e: Exception) -> str:
+    """Return a user-friendly error string without exposing internal paths/stderr."""
+    if isinstance(e, TimeoutError):
+        return "Processing timed out. Try uploading a shorter video (under 5 minutes)."
+    if isinstance(e, RuntimeError) and "FFmpeg" in str(e):
+        return "Video processing failed. Ensure your video file is valid and not corrupted."
+    if isinstance(e, ValueError):
+        return str(e)  # Already user-facing from the agent
+    return "Video processing failed. Please try again."
+
+
 async def _run_video_repurposing(
     job_id: str,
     brand_id: str,
@@ -878,11 +894,15 @@ async def _run_video_repurposing(
         await firestore_client.update_repurpose_job(job_id, "processing")
 
         video_bytes = await download_gcs_uri(source_gcs_uri)
-        raw_clips = await analyze_and_repurpose(video_bytes, brand)
+
+        # Infer MIME type from the stored GCS path extension
+        mime_type = "video/quicktime" if source_gcs_uri.lower().endswith(".mov") else "video/mp4"
+        raw_clips = await analyze_and_repurpose(video_bytes, brand, mime_type=mime_type)
 
         clips_out = []
         for clip in raw_clips:
-            signed_url, gcs_uri = await upload_repurposed_clip(
+            # Store only gcs_uri — signed URLs are generated fresh at query time
+            gcs_uri = await upload_repurposed_clip(
                 brand_id, job_id, clip["clip_bytes"], clip["filename"]
             )
             clips_out.append({
@@ -893,7 +913,6 @@ async def _run_video_repurposing(
                 "hook": clip["hook"],
                 "suggested_caption": clip["suggested_caption"],
                 "reason": clip["reason"],
-                "clip_url": signed_url,
                 "clip_gcs_uri": gcs_uri,
                 "filename": clip["filename"],
             })
@@ -902,8 +921,10 @@ async def _run_video_repurposing(
         logger.info("Video repurposing complete for job %s: %d clips", job_id, len(clips_out))
 
     except Exception as e:
-        logger.error("Video repurposing failed for job %s: %s", job_id, e)
-        await firestore_client.update_repurpose_job(job_id, "failed", error=str(e))
+        logger.exception("Video repurposing failed for job %s", job_id)
+        await firestore_client.update_repurpose_job(
+            job_id, "failed", error=_sanitize_repurpose_error(e)
+        )
 
 
 @app.post("/api/brands/{brand_id}/video-repurpose")
@@ -925,34 +946,61 @@ async def upload_video_for_repurpose(
         raise HTTPException(status_code=400, detail="Only .mp4 and .mov files are accepted")
 
     video_bytes = await file.read()
-    if len(video_bytes) > _MAX_VIDEO_BYTES:
-        raise HTTPException(status_code=413, detail="Video must be under 500 MB")
     if len(video_bytes) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(video_bytes) > _MAX_VIDEO_BYTES:
+        raise HTTPException(status_code=413, detail="Video must be under 500 MB")
+    if not _is_valid_video_header(video_bytes):
+        raise HTTPException(status_code=400, detail="File does not appear to be a valid MP4/MOV video")
 
     # Generate job_id up front so it's consistent across GCS path + Firestore
     job_id = str(uuid.uuid4())
     source_gcs_uri = await upload_raw_video_source(brand_id, job_id, video_bytes, filename)
     await firestore_client.create_repurpose_job(brand_id, source_gcs_uri, filename, job_id)
 
-    # Fire background processing task
-    asyncio.create_task(
+    # Fire background processing task with done-callback for exception logging
+    task = asyncio.create_task(
         _run_video_repurposing(job_id, brand_id, source_gcs_uri, brand)
+    )
+    task.add_done_callback(
+        lambda t: t.exception() and logger.error(
+            "Unhandled exception in repurpose task for job %s: %s", job_id, t.exception()
+        ) if not t.cancelled() else None
     )
 
     return {"job_id": job_id, "status": "queued"}
 
 
 @app.get("/api/video-repurpose-jobs/{job_id}")
-async def get_video_repurpose_job(job_id: str):
-    """Poll video repurposing job status.
+async def get_video_repurpose_job(job_id: str, brand_id: str = Query(...)):
+    """Poll video repurposing job status. Requires brand_id for ownership verification.
 
-    Returns: {job_id, status, clips, error}
+    Returns: {job_id, status, clips (with fresh clip_url), error}
     """
     job = await firestore_client.get_repurpose_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Repurpose job not found")
-    return job
+    if job.get("brand_id") != brand_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Strip internal-only fields before returning
+    response = {k: v for k, v in job.items() if k not in ("source_gcs_uri",)}
+
+    # Generate fresh signed URLs for completed clip GCS URIs (avoids 7-day expiry in Firestore)
+    if job.get("status") == "complete":
+        clips_with_urls = []
+        for clip in job.get("clips", []):
+            clip_out = dict(clip)
+            gcs_uri = clip.get("clip_gcs_uri")
+            if gcs_uri:
+                try:
+                    clip_out["clip_url"] = await get_signed_url(gcs_uri)
+                except Exception:
+                    clip_out["clip_url"] = None
+            clips_with_urls.append(clip_out)
+        response["clips"] = clips_with_urls
+
+    return response
 
 
 # ── Voice Coaching (Gemini Live API) ──────────────────────────

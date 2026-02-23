@@ -92,11 +92,11 @@ export const api = {
       }
     ),
 
-  getVideoRepurposeJob: (jobId: string) =>
+  getVideoRepurposeJob: (jobId: string, brandId: string) =>
     request<{
       job_id: string
       status: string
       clips: unknown[]
       error?: string
-    }>(`/api/video-repurpose-jobs/${jobId}`),
+    }>(`/api/video-repurpose-jobs/${jobId}?brand_id=${encodeURIComponent(brandId)}`),
 }
