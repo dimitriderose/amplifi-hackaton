@@ -5,7 +5,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    throw new Error(err.detail || err.error || `HTTP ${res.status}`)
   }
   return res.json()
 }
@@ -33,6 +33,8 @@ export const api = {
 
   listPosts: (brandId: string, planId?: string) =>
     request(`/api/posts?brand_id=${brandId}${planId ? `&plan_id=${planId}` : ''}`),
+  updatePost: (brandId: string, postId: string, data: { caption?: string; hashtags?: string[] }) =>
+    request(`/api/brands/${brandId}/posts/${postId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   reviewPost: (brandId: string, postId: string) =>
     request(`/api/brands/${brandId}/posts/${postId}/review`, { method: 'POST' }),
   approvePost: (brandId: string, postId: string) =>
