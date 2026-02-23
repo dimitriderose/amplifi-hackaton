@@ -289,21 +289,10 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
     parsed_hashtags = None
 
     try:
-        # Build contents: prepend style reference image when available
-        if style_reference_gcs_uri:
-            gen_contents = [
-                types.Part(file_data=types.FileData(
-                    file_uri=style_reference_gcs_uri, mime_type="image/png"
-                )),
-                types.Part(text=prompt),
-            ]
-        else:
-            gen_contents = prompt
-
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=GEMINI_MODEL,
-            contents=gen_contents,
+            contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
                 temperature=0.9,

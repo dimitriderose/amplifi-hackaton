@@ -4,8 +4,8 @@ from google import genai
 from google.genai import types
 from backend.tools.web_scraper import fetch_website
 from backend.tools.brand_tools import analyze_brand_colors, extract_brand_voice
-from backend.config import GEMINI_MODEL
-from backend.services.storage_client import upload_image_to_gcs
+from backend.config import GEMINI_MODEL, GOOGLE_API_KEY
+from backend.services.storage_client import upload_brand_asset
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def _generate_style_reference(brand_id: str, profile: dict) -> str | None:
     Returns the gs:// URI on success, None if generation fails.
     This is best-effort — callers must handle None gracefully.
     """
-    client = genai.Client()
+    client = genai.Client(api_key=GOOGLE_API_KEY)
     colors = ", ".join(profile.get("colors", []))
     tone = profile.get("tone", "professional")
     industry = profile.get("industry", "general")
@@ -37,16 +37,21 @@ async def _generate_style_reference(brand_id: str, profile: dict) -> str | None:
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
+                response_modalities=["TEXT", "IMAGE"],
                 temperature=0.7,
             ),
         )
+        if not response.candidates:
+            return None
         for part in response.candidates[0].content.parts:
             if part.inline_data:
-                _, gcs_uri = await upload_image_to_gcs(
+                mime = part.inline_data.mime_type or "image/png"
+                ext = mime.split("/")[-1] if "/" in mime else "png"
+                gcs_uri = await upload_brand_asset(
+                    brand_id,
                     part.inline_data.data,
-                    part.inline_data.mime_type or "image/png",
-                    f"brands/{brand_id}/style_reference",
+                    f"style_reference.{ext}",
+                    mime,
                 )
                 return gcs_uri
     except Exception as e:
