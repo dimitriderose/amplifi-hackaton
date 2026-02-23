@@ -61,9 +61,10 @@ interface PlatformCardProps {
   isConnected: boolean
   existingAnalysis?: VoiceAnalysis
   onConnected: (platform: string, analysis: VoiceAnalysis) => void
+  onLoadDemo?: () => void
 }
 
-function PlatformCard({ platformKey, config, brandId, isConnected, existingAnalysis, onConnected }: PlatformCardProps) {
+function PlatformCard({ platformKey, config, brandId, isConnected, existingAnalysis, onConnected, onLoadDemo }: PlatformCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [token, setToken] = useState('')
   const [loading, setLoading] = useState(false)
@@ -121,15 +122,28 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
             </span>
           )}
         </div>
-        <button
-          onClick={() => setExpanded(v => !v)}
-          style={{
-            padding: '5px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
-            background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
-          }}
-        >
-          {connected ? 'Reconnect' : expanded ? 'Cancel' : 'Connect'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!connected && onLoadDemo && !expanded && (
+            <button
+              onClick={onLoadDemo}
+              style={{
+                padding: '0', border: 'none', background: 'transparent',
+                color: A.indigo, fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
+              }}
+            >
+              demo
+            </button>
+          )}
+          <button
+            onClick={() => setExpanded(v => !v)}
+            style={{
+              padding: '5px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
+              background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            {connected ? 'Reconnect' : expanded ? 'Cancel' : 'Connect'}
+          </button>
+        </div>
       </div>
 
       {/* Voice analysis summary — shown when connected */}
@@ -243,14 +257,32 @@ interface Props {
   existingVoicePlatform?: string
 }
 
-// DK-4: Pre-built demo analysis so the voice feature is demonstrable without a real OAuth token
-const DEMO_VOICE_ANALYSIS: VoiceAnalysis = {
-  voice_characteristics: ['Conversational and warm', 'Uses storytelling to connect with audience'],
-  common_phrases: ['Behind the scenes', 'Made with love', 'Fresh from the oven'],
-  emoji_usage: 'moderate',
-  average_post_length: 'medium (100–150 words)',
-  successful_patterns: ['Personal anecdotes', 'Behind-the-scenes content', 'Product launch teasers'],
-  tone_adjectives: ['authentic', 'warm', 'community-driven', 'artisanal'],
+// DK-4: Per-platform demo analyses so every supported platform has realistic sample data
+const DEMO_VOICE_ANALYSES: Record<string, VoiceAnalysis> = {
+  instagram: {
+    voice_characteristics: ['Conversational and warm', 'Uses storytelling to connect with audience'],
+    common_phrases: ['Behind the scenes', 'Made with love', 'Fresh from the oven'],
+    emoji_usage: 'moderate',
+    average_post_length: 'medium (100–150 words)',
+    successful_patterns: ['Personal anecdotes', 'Behind-the-scenes content', 'Product launch teasers'],
+    tone_adjectives: ['authentic', 'warm', 'community-driven', 'artisanal'],
+  },
+  linkedin: {
+    voice_characteristics: ['Direct and practical', 'Uses specific examples from real situations', 'Avoids buzzwords and generic advice'],
+    common_phrases: ['Here\'s what I\'ve learned', 'The conversation most leaders avoid', 'After 15 years of'],
+    emoji_usage: 'none',
+    average_post_length: 'long (250–400 words)',
+    successful_patterns: ['Opens with a counterintuitive observation', 'Shares a specific failure and what it taught', 'Ends with a single actionable takeaway'],
+    tone_adjectives: ['authoritative', 'candid', 'specific', 'no-nonsense'],
+  },
+  x: {
+    voice_characteristics: ['Punchy and opinionated', 'Uses hot-take framing to spark discussion', 'Thread hooks that demand a click'],
+    common_phrases: ['Hot take:', 'Unpopular opinion:', 'Nobody talks about this but'],
+    emoji_usage: 'minimal',
+    average_post_length: 'short (under 280 chars)',
+    successful_patterns: ['Single sharp observation', 'Contrarian framing of conventional wisdom', 'Question that challenges assumptions'],
+    tone_adjectives: ['sharp', 'opinionated', 'direct', 'provocative'],
+  },
 }
 
 export default function SocialConnect({
@@ -266,11 +298,6 @@ export default function SocialConnect({
   const handleConnected = (platform: string, analysis: VoiceAnalysis) => {
     setConnected(prev => prev.includes(platform) ? prev : [...prev, platform])
     setSessionAnalyses(prev => ({ ...prev, [platform]: analysis }))
-  }
-
-  // DK-4: Load demo Instagram voice analysis without needing a real token
-  const handleLoadDemo = () => {
-    handleConnected('instagram', DEMO_VOICE_ANALYSIS)
   }
 
   // Resolve per-platform analysis: session state wins, then per-platform dict, then single fallback
@@ -297,6 +324,7 @@ export default function SocialConnect({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* DK-4: Each platform card gets its own "demo" link so any platform can be previewed */}
         {Object.entries(PLATFORMS).map(([key, config]) => (
           <PlatformCard
             key={key}
@@ -306,24 +334,10 @@ export default function SocialConnect({
             isConnected={connected.includes(key)}
             existingAnalysis={getAnalysisForPlatform(key)}
             onConnected={handleConnected}
+            onLoadDemo={DEMO_VOICE_ANALYSES[key] ? () => handleConnected(key, DEMO_VOICE_ANALYSES[key]) : undefined}
           />
         ))}
       </div>
-
-      {/* DK-4: Demo button for hackathon/presentation — loads sample voice analysis instantly */}
-      {!hasAnyActive && (
-        <button
-          onClick={handleLoadDemo}
-          style={{
-            marginTop: 10, width: '100%', padding: '8px 12px', borderRadius: 7,
-            border: `1px dashed ${A.border}`, background: 'transparent',
-            color: A.textMuted, fontSize: 11, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          }}
-        >
-          <span>🧪</span> Try with sample voice data (demo)
-        </button>
-      )}
 
       {hasAnyActive && (
         <div style={{
