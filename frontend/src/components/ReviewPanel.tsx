@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
+interface EngagementScores {
+  hook_strength: number
+  relevance: number
+  cta_effectiveness: number
+  platform_fit: number
+}
+
 interface ReviewResult {
   score: number
   brand_alignment: 'strong' | 'moderate' | 'weak'
@@ -9,6 +16,8 @@ interface ReviewResult {
   improvements: string[]
   approved: boolean
   revised_caption: string | null
+  engagement_scores?: EngagementScores
+  engagement_prediction?: 'low' | 'medium' | 'high' | 'viral'
 }
 
 interface Props {
@@ -21,6 +30,27 @@ const ALIGNMENT_COLORS = {
   strong: A.emerald,
   moderate: A.amber,
   weak: A.coral,
+}
+
+const PREDICTION_COLORS = {
+  low: A.coral,
+  medium: A.amber,
+  high: A.emerald,
+  viral: A.violet,
+}
+
+const PREDICTION_LABELS = {
+  low: '📉 Low',
+  medium: '📊 Medium',
+  high: '📈 High',
+  viral: '🚀 Viral',
+}
+
+const ENGAGEMENT_LABELS: Record<string, string> = {
+  hook_strength: 'Hook',
+  relevance: 'Relevance',
+  cta_effectiveness: 'CTA',
+  platform_fit: 'Platform Fit',
 }
 
 export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
@@ -148,6 +178,46 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
               )}
             </div>
           </div>
+
+          {/* Engagement prediction */}
+          {review.engagement_scores && review.engagement_prediction && (
+            <div style={{
+              padding: '12px 16px', borderRadius: 10,
+              background: A.surfaceAlt, border: `1px solid ${A.border}`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, textTransform: 'uppercase', letterSpacing: 0.5, margin: 0 }}>
+                  Engagement Prediction
+                </p>
+                <span style={{
+                  fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 20,
+                  background: PREDICTION_COLORS[review.engagement_prediction] + '18',
+                  color: PREDICTION_COLORS[review.engagement_prediction],
+                }}>
+                  {PREDICTION_LABELS[review.engagement_prediction]}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(Object.entries(review.engagement_scores) as [string, number][]).map(([key, val]) => (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: A.textSoft, width: 90, flexShrink: 0 }}>
+                      {ENGAGEMENT_LABELS[key]}
+                    </span>
+                    <div style={{ flex: 1, height: 6, background: A.border, borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', width: `${val * 10}%`,
+                        background: val >= 8 ? A.emerald : val >= 6 ? A.indigo : val >= 4 ? A.amber : A.coral,
+                        borderRadius: 3, transition: 'width 0.4s ease',
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: A.text, width: 24, textAlign: 'right' }}>
+                      {val}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Strengths */}
           {review.strengths.length > 0 && (

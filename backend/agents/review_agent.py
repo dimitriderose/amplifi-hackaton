@@ -38,12 +38,19 @@ Hashtags: {hashtags}
 
 Evaluate and respond with JSON only:
 {{
-  "score": <integer 1-10>,
+  "score": <integer 1-10, overall brand quality score>,
   "brand_alignment": <"strong"|"moderate"|"weak">,
   "strengths": [<list of 2-3 strength strings>],
   "improvements": [<list of 1-3 improvement suggestions>],
   "approved": <true if score >= 7, false otherwise>,
-  "revised_caption": <improved caption string, or null if score >= 8>
+  "revised_caption": <improved caption string, or null if score >= 8>,
+  "engagement_scores": {{
+    "hook_strength": <integer 1-10: how compelling the opening line is — will people stop scrolling?>,
+    "relevance": <integer 1-10: how on-brand and relevant to target audience>,
+    "cta_effectiveness": <integer 1-10: how clear and motivating the call-to-action is>,
+    "platform_fit": <integer 1-10: how well the format, length, and hashtag use fits {platform}>
+  }},
+  "engagement_prediction": <"low"|"medium"|"high"|"viral" — predicted relative engagement vs average for {platform}>
 }}"""
 
     try:
@@ -65,6 +72,7 @@ Evaluate and respond with JSON only:
         result = json.loads(raw)
 
         # Normalize fields
+        raw_engagement = result.get("engagement_scores", {})
         return {
             "score": int(result.get("score", 5)),
             "brand_alignment": result.get("brand_alignment", "moderate"),
@@ -72,6 +80,13 @@ Evaluate and respond with JSON only:
             "improvements": result.get("improvements", []),
             "approved": bool(result.get("approved", False)),
             "revised_caption": result.get("revised_caption"),
+            "engagement_scores": {
+                "hook_strength": int(raw_engagement.get("hook_strength", 5)),
+                "relevance": int(raw_engagement.get("relevance", 5)),
+                "cta_effectiveness": int(raw_engagement.get("cta_effectiveness", 5)),
+                "platform_fit": int(raw_engagement.get("platform_fit", 5)),
+            },
+            "engagement_prediction": result.get("engagement_prediction", "medium"),
         }
 
     except Exception as e:
@@ -83,4 +98,11 @@ Evaluate and respond with JSON only:
             "improvements": ["Review service temporarily unavailable"],
             "approved": True,
             "revised_caption": None,
+            "engagement_scores": {
+                "hook_strength": 5,
+                "relevance": 5,
+                "cta_effectiveness": 5,
+                "platform_fit": 5,
+            },
+            "engagement_prediction": "medium",
         }
