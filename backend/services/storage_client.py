@@ -1,9 +1,18 @@
+import re
 import uuid
 import asyncio
 from datetime import timedelta
 from typing import Optional
 from google.cloud import storage
 from backend.config import GCS_BUCKET_NAME
+
+
+def _safe_filename(filename: str, max_len: int = 80) -> str:
+    """Strip path components and reduce to safe GCS-object-name characters."""
+    import os
+    base = os.path.basename(filename)
+    safe = re.sub(r'[^a-zA-Z0-9._-]', '_', base)
+    return safe[:max_len] or "video"
 
 _storage_client: Optional[storage.Client] = None
 
@@ -132,3 +141,65 @@ async def upload_video_to_gcs(video_bytes: bytes, post_id: str) -> tuple[str, st
 
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
     return signed_url, gcs_uri
+
+
+async def upload_raw_video_source(
+    brand_id: str,
+    job_id: str,
+    video_bytes: bytes,
+    filename: str,
+) -> str:
+    """Upload a user-supplied raw video to GCS for processing.
+
+    Returns:
+        gcs_uri — gs:// path for downstream processing.
+    """
+    safe_name = _safe_filename(filename)
+    blob_path = f"repurpose/{brand_id}/{job_id}/source_{safe_name}"
+    bucket = get_bucket()
+    blob = bucket.blob(blob_path)
+
+    # Preserve correct MIME type for MOV vs MP4
+    mime = "video/quicktime" if filename.lower().endswith(".mov") else "video/mp4"
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: blob.upload_from_string(video_bytes, content_type=mime),
+    )
+
+    return f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+
+
+async def upload_repurposed_clip(
+    brand_id: str,
+    job_id: str,
+    clip_bytes: bytes,
+    clip_filename: str,
+) -> str:
+    """Upload a processed short-form clip to GCS.
+
+    Returns:
+        gcs_uri — gs:// path. Generate signed URLs at query time via get_signed_url()
+        to avoid embedding expiring URLs in durable Firestore documents.
+    """
+    blob_path = f"repurpose/{brand_id}/{job_id}/clips/{clip_filename}"
+    bucket = get_bucket()
+    blob = bucket.blob(blob_path)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: blob.upload_from_string(clip_bytes, content_type="video/mp4"),
+    )
+
+    return f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+
+
+async def download_gcs_uri(gcs_uri: str) -> bytes:
+    """Download bytes from a gs:// URI directly via the GCS client."""
+    blob_path = gcs_uri.replace(f"gs://{GCS_BUCKET_NAME}/", "")
+    bucket = get_bucket()
+    blob = bucket.blob(blob_path)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, blob.download_as_bytes)

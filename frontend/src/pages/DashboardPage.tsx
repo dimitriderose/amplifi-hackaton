@@ -9,6 +9,7 @@ import PostLibrary from '../components/PostLibrary'
 import EventsInput from '../components/EventsInput'
 import VoiceCoach from '../components/VoiceCoach'
 import SocialConnect from '../components/SocialConnect'
+import VideoRepurpose from '../components/VideoRepurpose'
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
@@ -122,6 +123,9 @@ export default function DashboardPage() {
               existingVoiceAnalysis={(brand as any).social_voice_analysis}
               existingVoicePlatform={(brand as any).social_voice_platform}
             />
+          </div>
+          <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            <VideoRepurpose brandId={brandId ?? ''} />
           </div>
         </div>
 
