@@ -21,6 +21,7 @@ async def generate_post(
     post_id: str,
     custom_photo_bytes: bytes | None = None,
     custom_photo_mime: str = "image/jpeg",
+    instructions: str | None = None,
 ) -> AsyncIterator[dict]:
     """
     Generate a social media post using Gemini 2.5 Flash.
@@ -93,6 +94,11 @@ async def generate_post(
         ),
     }
     derivative_instruction = _DERIVATIVE_INSTRUCTIONS.get(derivative_type, "")
+    instruction_hint = (
+        f"\n\nAdditional instructions for this generation: {instructions.strip()}"
+        if instructions and instructions.strip()
+        else ""
+    )
 
     # ── BYOP mode ─────────────────────────────────────────────────────────────
     if custom_photo_bytes:
@@ -110,7 +116,7 @@ Analyze this photo and write a {platform} post caption that:
 - Starts with this hook: "{caption_hook}"
 - Carries this key message: {key_message}
 - Ends with a call to action
-
+{instruction_hint}
 After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
 """
 
@@ -217,7 +223,7 @@ Then generate a stunning {platform}-optimized image.
 
 {color_hint}
 Image visual: {image_prompt}
-
+{instruction_hint}
 After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
 """
 

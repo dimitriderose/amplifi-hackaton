@@ -499,6 +499,7 @@ async def stream_generate(
     plan_id: str,
     day_index: int,
     brand_id: str = Query(...),
+    instructions: str | None = Query(None),
 ):
     """SSE endpoint: streams interleaved caption + image generation events."""
 
@@ -555,6 +556,7 @@ async def stream_generate(
             plan_id, day_brief, brand, post_id,
             custom_photo_bytes=custom_photo_bytes,
             custom_photo_mime=custom_photo_mime,
+            instructions=instructions,
         ):
             event_name = event["event"]
             event_data = event["data"]
@@ -599,19 +601,33 @@ async def stream_generate(
 # ── Post Review ───────────────────────────────────────────────
 from backend.agents.review_agent import review_post as _run_review
 
-_PATCHABLE_POST_FIELDS = {"caption", "hashtags"}
+from pydantic import BaseModel
+from datetime import datetime, timezone
+
+
+class PatchPostBody(BaseModel):
+    caption: str | None = None
+    hashtags: list[str] | None = None
 
 
 @app.patch("/api/brands/{brand_id}/posts/{post_id}")
-async def patch_post_endpoint(brand_id: str, post_id: str, data: dict = Body(...)):
+async def patch_post_endpoint(brand_id: str, post_id: str, data: PatchPostBody):
     """Patch individual post fields (caption, hashtags) for inline editing."""
     post = await firestore_client.get_post(brand_id, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
-    allowed = {k: v for k, v in data.items() if k in _PATCHABLE_POST_FIELDS}
+    allowed: dict = {}
+    if data.caption is not None:
+        allowed["caption"] = data.caption
+    if data.hashtags is not None:
+        allowed["hashtags"] = data.hashtags
     if not allowed:
         raise HTTPException(status_code=400, detail="No patchable fields provided")
-    await firestore_client.update_post(brand_id, post_id, {**allowed, "user_edited": True})
+    await firestore_client.update_post(brand_id, post_id, {
+        **allowed,
+        "user_edited": True,
+        "edited_at": datetime.now(timezone.utc).isoformat(),
+    })
     updated = await firestore_client.get_post(brand_id, post_id)
     return {"post": updated}
 

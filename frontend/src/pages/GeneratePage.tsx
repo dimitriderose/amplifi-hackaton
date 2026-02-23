@@ -40,10 +40,10 @@ export default function GeneratePage() {
     navigate(`/dashboard/${brandId}?approved=${postId}`)
   }
 
-  const handleRegenerate = () => {
+  const handleRegenerate = (instructions?: string) => {
     reset()
     if (planId && dayIndex !== undefined && brandId) {
-      setTimeout(() => generate(planId, parseInt(dayIndex, 10), brandId), 100)
+      setTimeout(() => generate(planId, parseInt(dayIndex, 10), brandId, instructions), 100)
     }
   }
 
