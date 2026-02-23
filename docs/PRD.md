@@ -5,7 +5,7 @@
 **Tagline:** Your AI creative director. One brand. Infinite content.
 **Core Technology:** Gemini Interleaved Output (text + image in one stream)
 
-Version 1.0 | February 21, 2026
+Version 1.1 | February 23, 2026 (updated from v1.0 Feb 21)
 Hackathon Deadline: **March 16, 2026 at 5:00 PM PDT**
 Prize Target: $10K (category) + $5K (subcategory)
 
@@ -241,6 +241,56 @@ brands/{brandId}/
 | Description-first onboarding option | **P2 — Nice to Have** | For solopreneur-heavy audiences (coaches, consultants, fractional executives), many users don't have websites. Consider making the business description the primary/default input with "Have a website? Paste it for even better results" as the optional enhancement — inverting the current URL-first flow. A/B test which default converts better. Current flow works for URL-having businesses; inverted flow may convert better for service professionals. |
 | Industry-adaptive demo content | **P3 — Future** | During onboarding analysis, personalize the demo/sample content to match the user's inferred industry. A leadership coach should see sample LinkedIn posts about delegation, not farm-to-table captions about parsnips. Requires generating a brief sample post during the Brand Analyst phase and displaying it on the Brand Profile screen as a "preview of what we'll create." Increases trust that the AI understands the user's specific domain. |
 | Post analytics dashboard | **P3 — Future** | Track engagement metrics after posting. Would require social media API integrations. |
+
+---
+
+# Implementation Status (as of February 23, 2026)
+
+## Feature Delivery Summary
+
+All 7 P0, all 9 P1, and all 12 P2 features are shipped. Both P3 features remain unstarted (as planned — they require social media API integrations and are post-hackathon).
+
+| Priority | Total | Shipped | Remaining |
+|---|---|---|---|
+| **P0 — Must Have** | 7 | 7 | 0 |
+| **P1 — Should Have** | 9 | 9 | 0 |
+| **P2 — Nice to Have** | 12 | 12 | 0 |
+| **P3 — Future** | 2 | 0 | 2 (industry-adaptive demo, analytics dashboard) |
+
+## Persona-Driven UX Improvements (Round 2)
+
+Two PM personas — Maria (37, restaurant owner, Instagram-primary) and Jason (42, leadership coach, LinkedIn-primary) — evaluated the product across two rounds. Round 1 composite score: 8.25/10. Three actionable flags were raised and resolved in Round 2, moving the composite to 9.25/10 (+1.0).
+
+### Flag 1: Per-Platform Demo Voice Data (Jason's #1 flag)
+
+**Problem:** Single Instagram-only demo voice data ("warm, artisanal, food-focused") was irrelevant for B2B users like Jason. Demo button was a global action disconnected from any platform context.
+
+**Solution:** Replaced global demo button with per-platform "try demo" links on each platform card in SocialConnect. Each platform's demo data matches its real-world content style:
+- **LinkedIn:** Authoritative, no emoji, long-form (250-400 words), B2B coaching persona
+- **Instagram:** Warm, artisanal, moderate emoji, lifestyle brand (unchanged)
+- **X:** Punchy, opinionated, hot-take framing, short (under 280 chars)
+
+**Impact:** Jason's score jumped +1.5 (largest single-round improvement). "This is the difference between 'this tool is for restaurants' and 'this tool understands professional thought leadership.'"
+
+### Flag 2: Video Section Collapse for Text-First Platforms (Jason's flag)
+
+**Problem:** LinkedIn and X posts showed a grayed-out video section that added visual noise for text-first creators. Jason gave video 6/10 and flagged "collapse by default for LinkedIn/X."
+
+**Solution:** Text-first platforms (LinkedIn, X, Twitter, Facebook) show a collapsed pill: "Video Clip (not typical for this platform)" with an expand chevron. One click expands to the full video section. State resets per post. Video-first platforms (Instagram, TikTok) remain fully expanded.
+
+**Impact:** "Exactly what I asked for. I don't have to scroll past a grayed-out video section that's irrelevant to my workflow."
+
+### Flag 3: Clipboard-First Export (Maria + Jason)
+
+**Problem:** Maria said "just give me caption to paste" (Export 8.5/10). Jason wanted "CSV export compatible with Buffer" (Export 7.5/10). Both needed a faster path than download-ZIP-unzip-find-file-open-copy.
+
+**Solution:** Added "Copy All" button to PostLibrary header. Copies all filtered captions as a structured clipboard string with per-post headers (`[1] LinkedIn · Day 1`) and `---` separators. Shows "Copied N" confirmation for 1.5s with snapshotted count. ExportPage subtitle updated to lead with "Copy captions to clipboard" as the primary path before mentioning ZIP.
+
+**Impact:** Maria: "This is the fastest path from 'AI generated my content' to 'content is on Instagram.'" Jason: "I copy all 7 captions, paste into Notion, do final edits, schedule in Buffer."
+
+### Remaining Open Flag
+
+**Output quality (both personas):** Cannot be evaluated from code — requires live demo with real content generation. "If the AI writes captions that sound like Verde Kitchen / like something I'd write, this is a 10." Expected to be resolved during deployment testing.
 
 ---
 

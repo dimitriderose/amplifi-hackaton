@@ -4,7 +4,7 @@
 **Category:** ✍️ Creative Storyteller
 **Author:** Software Architecture Team
 **Companion Document:** PRD — Amplifi v1.0
-**Version:** 1.0 | February 21, 2026
+**Version:** 1.1 | February 23, 2026 (updated from v1.0 Feb 21)
 
 ---
 
@@ -2032,6 +2032,9 @@ logger.info("generation_event", extra={
 | Interleaved output (category req) | §6 Deep Dive, responseModalities | ✓ ["TEXT", "IMAGE"] |
 | Automated deployment (bonus) | §8.2 Terraform, §8.3 Cloud Build | ✓ Specified |
 | Public GitHub repo | §9 Repository Structure | ✓ MIT License |
+| Per-platform demo voice data (Round 2) | §16.1 Per-Platform Demo Voice Data | ✓ Implemented |
+| Video collapse for text-first platforms (Round 2) | §16.2 Video Section Collapse | ✓ Implemented |
+| Clipboard-first export — Copy All (Round 2) | §16.3 Clipboard-First Export | ✓ Implemented |
 
 ## 12.1 P2 Architecture Notes (Post-Hackathon)
 
@@ -3243,6 +3246,180 @@ Interleaved output (TEXT + IMAGE) requests are computationally expensive and may
 
 ---
 
+# 16. Persona-Driven UX Improvements (Round 2)
+
+Three frontend changes shipped after PM persona review (Maria — restaurant owner, Jason — leadership coach). Each resolves a specific flag from the Round 1 evaluation. Composite score moved 8.25 → 9.25/10.
+
+## 16.1 Per-Platform Demo Voice Data
+
+**File:** `frontend/src/components/SocialConnect.tsx`
+**Branch:** `feature/platform-voice-demos` (commits `85e5b0a`, `8b86867`)
+
+**Problem:** Single `DEMO_VOICE_ANALYSIS` object contained Instagram-only artisanal food data. A B2B leadership coach (Jason persona) tapping "Try Demo" saw restaurant content — breaking trust that the tool understands professional platforms.
+
+**Implementation:**
+
+Replaced single object with a `Record<string, VoiceAnalysis>`:
+
+```typescript
+const DEMO_VOICE_ANALYSES: Record<string, VoiceAnalysis> = {
+  linkedin: {
+    voice_characteristics: ['Direct and practical', 'Uses specific examples', 'Avoids buzzwords'],
+    common_phrases: ["Here's what I've learned", 'The conversation most leaders avoid'],
+    emoji_usage: 'none',
+    average_post_length: 'long (250–400 words)',
+    successful_patterns: ['Opens with counterintuitive observation', 'Shares a specific failure'],
+    tone_adjectives: ['authoritative', 'candid', 'specific', 'no-nonsense'],
+  },
+  instagram: { /* unchanged artisanal/warm profile */ },
+  x: {
+    voice_characteristics: ['Punchy and opinionated', 'Hot-take framing', 'Thread hooks'],
+    common_phrases: ['Hot take:', 'Unpopular opinion:', 'Nobody talks about this but'],
+    emoji_usage: 'minimal',
+    average_post_length: 'short (under 280 chars)',
+    successful_patterns: ['Single sharp observation', 'Contrarian framing'],
+    tone_adjectives: ['sharp', 'opinionated', 'direct', 'provocative'],
+  },
+}
+```
+
+**UI change:** Removed global "Try with sample voice data" button. Added per-platform "try demo" link inside each `PlatformCard` header (visible when `!connected && onLoadDemo && !expanded`):
+
+```tsx
+onLoadDemo={DEMO_VOICE_ANALYSES[key] ? () => handleConnected(key, DEMO_VOICE_ANALYSES[key]) : undefined}
+```
+
+**Bug fix included:** `hasAnyActive` boolean now covers all four voice-analysis data sources (connected array, session state, `existingVoiceAnalyses` prop, `existingVoiceAnalysis` + platform pair) — previously missed server-stored analyses.
+
+## 16.2 Video Section Collapse for Text-First Platforms
+
+**File:** `frontend/src/components/PostGenerator.tsx`
+**Branch:** `feature/video-collapse` (commits `c2924cb`, `c407a27`, `4006a61`)
+
+**Problem:** LinkedIn and X posts displayed a grayed-out video section that occupied screen real estate without providing value. Jason (text-first LinkedIn creator) gave the video section 6/10.
+
+**Implementation:**
+
+```typescript
+// Module-level constants
+const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
+const TEXT_PLATFORMS = new Set(['linkedin', 'x', 'twitter', 'facebook'])
+
+// Component state
+const [videoExpanded, setVideoExpanded] = useState(false)
+const isTextPlatform = TEXT_PLATFORMS.has(platform)
+```
+
+Render conditions (mutually exclusive and exhaustive when `showVideoSection` is true):
+
+| isTextPlatform | videoExpanded | Renders |
+|---|---|---|
+| false | * | Full expanded video section (unchanged) |
+| true | false | Collapsed pill with expand chevron |
+| true | true | Full expanded section + "collapse" button |
+
+State resets to collapsed on every `postId` change via the existing reset `useEffect`.
+
+**Collapsed pill** (after PM polish):
+```tsx
+<button type="button" onClick={() => setVideoExpanded(true)}
+  style={{ border: `1px solid ${A.border}`, background: A.surfaceAlt, borderRadius: 10 }}
+  onMouseEnter={e => { e.currentTarget.style.background = A.bg }}
+  onMouseLeave={e => { e.currentTarget.style.background = A.surfaceAlt }}>
+  <span style={{ fontSize: 12, color: A.textSoft }}>🎬 Video Clip (not typical for this platform)</span>
+  <span>›</span>
+</button>
+```
+
+**Also added** `x: '✖'` to `PLATFORM_ICONS` to prevent silent fallback to generic `📱` icon if a day brief ever arrives with `platform='x'` (the backend `strategy_agent.py` currently emits `'twitter'`, but `TEXT_PLATFORMS` defensively includes both).
+
+## 16.3 Clipboard-First Export ("Copy All")
+
+**Files:** `frontend/src/components/PostLibrary.tsx`, `frontend/src/pages/ExportPage.tsx`
+**Branch:** `feature/export-clipboard` (commits `3fb7f4a`, `f49c1d2`)
+
+**Problem:** Maria said "just give me caption to paste." Jason wanted a faster path than ZIP download. Per-post copy existed but copying 7 posts required 7 clicks.
+
+**Implementation — PostLibrary.tsx:**
+
+```typescript
+// State + refs
+const [copyAllDone, setCopyAllDone] = React.useState(false)
+const copyAllTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+const copiedCountRef = React.useRef(0)  // snapshot at click time, not re-derived at render
+
+// Unmount cleanup
+React.useEffect(() => {
+  return () => { if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current) }
+}, [])
+
+// Handler
+const handleCopyAll = () => {
+  if (!navigator.clipboard || filtered.length === 0) return
+  const withCaption = filtered.filter(p => p.caption)
+  copiedCountRef.current = withCaption.length
+  const lines = withCaption.map((p, i) => {
+    const tags = (p.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
+    const header = `[${i + 1}] ${p.platform?.charAt(0).toUpperCase() + p.platform?.slice(1) || 'Post'} · Day ${(p.day_index ?? 0) + 1}`
+    return [header, p.caption, tags].filter(Boolean).join('\n\n')
+  })
+  navigator.clipboard.writeText(lines.join('\n\n---\n\n')).then(() => {
+    if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current)
+    setCopyAllDone(true)
+    copyAllTimerRef.current = setTimeout(() => setCopyAllDone(false), 1500)
+  }).catch(() => {})
+}
+```
+
+**Clipboard output format:**
+```
+[1] LinkedIn · Day 1
+Your caption text here
+
+#hashtag1 #hashtag2
+
+---
+
+[2] Instagram · Day 2
+Your caption text here
+
+#hashtag3 #hashtag4
+```
+
+**Key design decisions:**
+- Count is snapshotted into `copiedCountRef` at click time (not re-derived from `filtered` at render) to prevent label drift if polling refresh fires during the 1.5s confirmation flash
+- Caption/hashtag separator uses `\n\n` (matching per-post `PostCard` copy behavior)
+- Timer is cleaned up on unmount via `useEffect` return
+- Button hidden when `filtered.length === 0`
+- Button order: `[Refresh] [Copy All] [Export All]` — lightweight to heavy, left to right
+
+**ExportPage.tsx:** Subtitle updated from "Download individual posts or export an entire plan as a ZIP archive" to "Copy captions to clipboard, download individual posts, or export an entire plan as a ZIP archive" — clipboard-first information hierarchy.
+
+## 16.4 Component Tree Updates
+
+The following additions to §7.1's component tree reflect Round 2 changes:
+
+```
+├── SocialConnect (updated)
+│   └── PlatformCard[]
+│       ├── "try demo" link (NEW — per-platform, visible when !connected && !expanded)
+│       └── DEMO_VOICE_ANALYSES[platform] (NEW — platform-specific voice data)
+│
+├── PostGenerator (updated)
+│   ├── VideoCollapsedPill (NEW — text-first platforms only)
+│   │   └── "🎬 Video Clip (not typical for this platform) ›"
+│   └── VideoExpandedSection (updated — conditional on !isTextPlatform || videoExpanded)
+│       └── "‹ collapse" button (NEW — text platforms only, when expanded)
+│
+└── ExportPage (updated)
+    └── PostLibrary (updated)
+        ├── CopyAllButton (NEW — "📋 Copy All" / "✓ Copied N")
+        └── ExportAllButton (unchanged)
+```
+
+---
+
 *Document created: February 21, 2026*
-*Companion PRD: prd-amplifi.md v1.0*
+*Updated: February 23, 2026 — added §16 (persona-driven UX improvements)*
+*Companion PRD: prd-amplifi.md v1.1*
 *Hackathon deadline: March 16, 2026*

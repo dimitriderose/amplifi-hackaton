@@ -9,11 +9,15 @@ An AI-powered creative director that analyzes your brand and produces complete, 
 Amplifi uses Gemini's interleaved text + image output to generate copy and visuals together in one coherent stream. Paste your website URL (or just describe your business), and get a full week of social media content tailored to your brand, across every platform.
 
 - 🎨 **Brand-aware AI** — extracts your colors, tone, audience, and style automatically
-- 📅 **Full weekly calendar** — 7 days of content with pillar-based strategy
-- 🖼️ **Interleaved generation** — captions and matching images born together
-- 📱 **Multi-platform** — Instagram, LinkedIn, X, TikTok, Facebook
+- 📅 **Full weekly calendar** — 7 days of content with pillar-based strategy and event integration
+- 🖼️ **Interleaved generation** — captions and matching images born together via Gemini
+- 📱 **Multi-platform** — Instagram, LinkedIn, X, TikTok, Facebook with platform-specific formatting
 - 📸 **Bring your own photos** — upload product shots, get tailored captions
-- 🎬 **AI video** — generate Reels/TikTok clips via Veo
+- 🎬 **AI video** — generate Reels/TikTok clips via Veo (collapses for text-first platforms)
+- 🗣️ **Voice analysis** — per-platform demo voice data (LinkedIn B2B, Instagram lifestyle, X punchy) with OAuth-ready social connect
+- 📋 **Clipboard-first export** — "Copy All" bulk captions to clipboard, per-post copy, or full ZIP download
+- 🔍 **Auto-review** — AI checks every post against your brand for tone, platform rules, and engagement potential
+- 🎯 **Platform previews** — live character counts, "see more" fold indicators, and platform-specific formatting
 
 ## How it works
 
@@ -51,8 +55,8 @@ User Browser (React) ←REST + SSE→ Cloud Run (FastAPI)
 
 | Document | Description |
 |---|---|
-| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 9 P1, 12 P2, 2 P3 features |
-| [Technical Design (TDD)](docs/TDD.md) | Implementation spec — 2,290 lines covering all P0/P1 |
+| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 9 P1, 12 P2, 2 P3 features. All P0, P1, and P2 shipped (28/28). |
+| [Technical Design (TDD)](docs/TDD.md) | Implementation spec — 3,200+ lines covering all P0/P1/P2 + persona-driven UX improvements |
 | [UI Mockup](docs/amplifi-ui.jsx) | Interactive React prototype — 6 screens (Landing, Onboard, Brand, Calendar, Content, Dashboard) |
 
 ## Hackathon
