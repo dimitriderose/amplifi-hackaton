@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from google.cloud import firestore
 from google.cloud.firestore_v1.async_client import AsyncClient
@@ -162,14 +162,17 @@ async def get_platform_trends(platform: str, industry: str) -> Optional[dict]:
         return None
     data = snap.to_dict()
     expires_at = data.get("expires_at")
-    if expires_at and datetime.now(timezone.utc) > expires_at:
-        return None
+    if expires_at:
+        # Normalize to timezone-aware in case Firestore returns a naive datetime
+        if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            return None
     return data.get("trends")
 
 
 async def save_platform_trends(platform: str, industry: str, trends: dict) -> None:
     """Cache trend data for platform+industry with a 7-day TTL."""
-    from datetime import timedelta
     db = get_client()
     doc_id = f"{platform}_{industry}".lower().replace(" ", "_")
     now = datetime.now(timezone.utc)
