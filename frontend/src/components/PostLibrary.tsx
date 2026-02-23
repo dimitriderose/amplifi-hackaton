@@ -21,6 +21,16 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set())
   // H-7: Inline export error instead of alert
   const [exportError, setExportError] = React.useState<string | null>(null)
+  // Copy All Captions — clipboard with 1.5s confirmation flash
+  const [copyAllDone, setCopyAllDone] = React.useState(false)
+  const copyAllTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Snapshot count at click time to avoid drift if posts update during the 1.5s flash
+  const copiedCountRef = React.useRef(0)
+
+  // Cleanup timer on unmount
+  React.useEffect(() => {
+    return () => { if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current) }
+  }, [])
 
   const FILTERS: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -32,6 +42,23 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
 
   const visiblePosts = posts.filter(p => !dismissed.has(p.post_id))
   const filtered = filter === 'all' ? visiblePosts : visiblePosts.filter(p => p.status === filter)
+
+  const handleCopyAll = () => {
+    if (!navigator.clipboard || filtered.length === 0) return
+    const withCaption = filtered.filter(p => p.caption)
+    copiedCountRef.current = withCaption.length
+    const lines = withCaption.map((p, i) => {
+      const tags = (p.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
+      const header = `[${i + 1}] ${p.platform ? p.platform.charAt(0).toUpperCase() + p.platform.slice(1) : 'Post'} · Day ${(p.day_index ?? 0) + 1}`
+      return [header, p.caption, tags].filter(Boolean).join('\n\n')
+    })
+    const text = lines.join('\n\n---\n\n')
+    navigator.clipboard.writeText(text).then(() => {
+      if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current)
+      setCopyAllDone(true)
+      copyAllTimerRef.current = setTimeout(() => setCopyAllDone(false), 1500)
+    }).catch(() => {})
+  }
 
   const handleBulkExport = async () => {
     if (!planId) return
@@ -63,6 +90,21 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
             padding: '5px 10px', borderRadius: 6, border: `1px solid ${A.border}`,
             background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
           }}>↻ Refresh</button>
+          {filtered.length > 0 && (
+            <button
+              onClick={handleCopyAll}
+              style={{
+                padding: '5px 12px', borderRadius: 6,
+                border: `1px solid ${copyAllDone ? A.emerald : A.border}`,
+                background: copyAllDone ? A.emeraldLight : 'transparent',
+                color: copyAllDone ? A.emerald : A.textSoft,
+                fontSize: 12, fontWeight: copyAllDone ? 600 : 400, cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              {copyAllDone ? `✓ Copied ${copiedCountRef.current}` : '📋 Copy All'}
+            </button>
+          )}
           {planId && (
             <button
               onClick={handleBulkExport}
