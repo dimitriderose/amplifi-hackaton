@@ -243,6 +243,16 @@ interface Props {
   existingVoicePlatform?: string
 }
 
+// DK-4: Pre-built demo analysis so the voice feature is demonstrable without a real OAuth token
+const DEMO_VOICE_ANALYSIS: VoiceAnalysis = {
+  voice_characteristics: ['Conversational and warm', 'Uses storytelling to connect with audience'],
+  common_phrases: ['Behind the scenes', 'Made with love', 'Fresh from the oven'],
+  emoji_usage: 'moderate',
+  average_post_length: 'medium (100–150 words)',
+  successful_patterns: ['Personal anecdotes', 'Behind-the-scenes content', 'Product launch teasers'],
+  tone_adjectives: ['authentic', 'warm', 'community-driven', 'artisanal'],
+}
+
 export default function SocialConnect({
   brandId,
   connectedPlatforms = [],
@@ -256,6 +266,11 @@ export default function SocialConnect({
   const handleConnected = (platform: string, analysis: VoiceAnalysis) => {
     setConnected(prev => prev.includes(platform) ? prev : [...prev, platform])
     setSessionAnalyses(prev => ({ ...prev, [platform]: analysis }))
+  }
+
+  // DK-4: Load demo Instagram voice analysis without needing a real token
+  const handleLoadDemo = () => {
+    handleConnected('instagram', DEMO_VOICE_ANALYSIS)
   }
 
   // Resolve per-platform analysis: session state wins, then per-platform dict, then single fallback
@@ -294,6 +309,21 @@ export default function SocialConnect({
           />
         ))}
       </div>
+
+      {/* DK-4: Demo button for hackathon/presentation — loads sample voice analysis instantly */}
+      {!hasAnyActive && (
+        <button
+          onClick={handleLoadDemo}
+          style={{
+            marginTop: 10, width: '100%', padding: '8px 12px', borderRadius: 7,
+            border: `1px dashed ${A.border}`, background: 'transparent',
+            color: A.textMuted, fontSize: 11, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}
+        >
+          <span>🧪</span> Try with sample voice data (demo)
+        </button>
+      )}
 
       {hasAnyActive && (
         <div style={{

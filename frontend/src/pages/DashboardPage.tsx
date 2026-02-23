@@ -18,6 +18,16 @@ export default function DashboardPage() {
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
 
+  // H-8: Store planId in sessionStorage so NavBar can include it in the Export link.
+  // Clear on plan removal so stale Export links don't point at the old plan.
+  useEffect(() => {
+    if (plan?.plan_id && brandId) {
+      sessionStorage.setItem(`amplifi_plan_${brandId}`, plan.plan_id)
+    } else if (brandId) {
+      sessionStorage.removeItem(`amplifi_plan_${brandId}`)
+    }
+  }, [plan?.plan_id, brandId])
+
   const approvedParam = searchParams.get('approved')
   const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -25,15 +35,18 @@ export default function DashboardPage() {
     if (approvedParam) {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
       approvedTimerRef.current = setTimeout(() => {
-        const next = new URLSearchParams(searchParams)
-        next.delete('approved')
-        setSearchParams(next, { replace: true })
+        // Use functional updater so searchParams is not a stale-dep trigger
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev)
+          next.delete('approved')
+          return next
+        }, { replace: true })
       }, 4000)
     }
     return () => {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
     }
-  }, [approvedParam, searchParams, setSearchParams])
+  }, [approvedParam, setSearchParams])
 
   if (brandLoading) {
     return (
@@ -46,16 +59,28 @@ export default function DashboardPage() {
   if (brandError) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
-        <p style={{ color: A.coral }}>{brandError}</p>
-        <button
-          onClick={() => navigate('/onboard')}
-          style={{
-            marginTop: 16, padding: '8px 16px', borderRadius: 8,
-            background: A.indigo, color: 'white', border: 'none', cursor: 'pointer',
-          }}
-        >
-          Start Over
-        </button>
+        <p style={{ color: A.coral, marginBottom: 16 }}>{brandError}</p>
+        {/* H-4: Retry option so user doesn't lose their session */}
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '8px 16px', borderRadius: 8,
+              background: A.indigo, color: 'white', border: 'none', cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+          <button
+            onClick={() => navigate('/onboard')}
+            style={{
+              padding: '8px 16px', borderRadius: 8, border: `1px solid ${A.border}`,
+              background: 'transparent', cursor: 'pointer', fontSize: 13, color: A.textSoft,
+            }}
+          >
+            Start Over
+          </button>
+        </div>
       </div>
     )
   }
@@ -118,10 +143,10 @@ export default function DashboardPage() {
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
             <SocialConnect
               brandId={brandId ?? ''}
-              connectedPlatforms={(brand as any).connected_platforms ?? []}
-              existingVoiceAnalyses={(brand as any).social_voice_analyses}
-              existingVoiceAnalysis={(brand as any).social_voice_analysis}
-              existingVoicePlatform={(brand as any).social_voice_platform}
+              connectedPlatforms={brand.connected_platforms ?? []}
+              existingVoiceAnalyses={brand.social_voice_analyses}
+              existingVoiceAnalysis={brand.social_voice_analysis}
+              existingVoicePlatform={brand.social_voice_platform}
             />
           </div>
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
@@ -130,47 +155,53 @@ export default function DashboardPage() {
         </div>
 
         {/* Right column: Content Calendar or generate prompt */}
-        <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-          {plan ? (
-            /* Calendar view */
-            <>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                <button
-                  onClick={clearPlan}
-                  style={{
-                    padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
-                    background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  ↺ New Plan
-                </button>
-              </div>
-              <ContentCalendar
-                plan={{ plan_id: plan.plan_id, days: plan.days }}
-                brandId={brandId}
-                onGeneratePost={(planId, dayIndex) =>
-                  navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
-                }
-                onPhotoUploaded={(dayIndex, photoUrl) =>
-                  setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
-                }
-              />
-            </>
-          ) : (
-            /* No plan yet — show events input + generate CTA */
-            <>
-              {planError && (
-                <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
-                  {planError}
-                </p>
-              )}
-              <EventsInput
-                onGenerate={(events) => generatePlan(7, events || undefined)}
-                generating={generating}
-              />
-            </>
-          )}
-        </div>
+        {/* H-5: Only apply card styles around ContentCalendar (EventsInput has its own card) */}
+        {plan ? (
+          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            {/* Calendar view */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button
+                onClick={() => {
+                  // L-3: Confirm before destroying the active plan
+                  if (window.confirm('This will clear your current plan. Are you sure?')) {
+                    clearPlan()
+                  }
+                }}
+                style={{
+                  padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
+                  background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                ↺ New Plan
+              </button>
+            </div>
+            <ContentCalendar
+              plan={{ plan_id: plan.plan_id, days: plan.days }}
+              brandId={brandId ?? ''}
+              onGeneratePost={(planId, dayIndex) =>
+                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
+              }
+              onPhotoUploaded={(dayIndex, photoUrl) =>
+                setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
+              }
+            />
+          </div>
+        ) : (
+          /* No plan yet — EventsInput has its own card styling, so no outer wrapper needed */
+          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            {planError && (
+              <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
+                {planError}
+              </p>
+            )}
+            {/* DK-1: Pass analysisStatus so EventsInput locks itself while brand is building */}
+            <EventsInput
+              onGenerate={(events) => generatePlan(7, events || undefined)}
+              generating={generating}
+              analysisStatus={brand.analysis_status}
+            />
+          </div>
+        )}
       </div>
 
       {/* Post Library — shown when a plan exists */}

@@ -23,12 +23,16 @@ interface Props {
   post: Post
   brandId: string
   onApproved?: () => void
+  /** DK-5: Called when user dismisses a stuck 'generating' or 'failed' post from the UI */
+  onDismiss?: () => void
 }
 
-export default function PostCard({ post, brandId, onApproved }: Props) {
+export default function PostCard({ post, brandId, onApproved, onDismiss }: Props) {
   const color = STATUS_COLORS[post.status] || A.textMuted
   const label = STATUS_LABELS[post.status] || post.status
   const [copied, setCopied] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [approveError, setApproveError] = useState<string | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isFinal = post.status === 'complete' || post.status === 'approved'
@@ -47,22 +51,26 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
   }
 
   const handleExport = async () => {
+    setExportError(null)
     try {
       const res = await api.exportPost(post.post_id, brandId) as { download_url?: string; caption?: string }
       if (res.download_url) {
         window.open(res.download_url, '_blank')
       }
     } catch (err: any) {
-      alert('Export failed: ' + err.message)
+      // L-5: Inline error instead of alert()
+      setExportError(err.message || 'Export failed')
     }
   }
 
   const handleApprove = async () => {
+    setApproveError(null)
     try {
       await api.approvePost(brandId, post.post_id)
       onApproved?.()
     } catch (err: any) {
-      alert('Approval failed: ' + err.message)
+      // L-5: Inline error instead of alert()
+      setApproveError(err.message || 'Approval failed')
     }
   }
 
@@ -94,6 +102,22 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
         }}>
           {label}
         </span>
+        {/* DK-5: Dismiss button for stuck generating/failed posts */}
+        {(post.status === 'generating' || post.status === 'failed') && onDismiss && (
+          <button
+            onClick={onDismiss}
+            title="Remove from view"
+            style={{
+              position: 'absolute', top: 8, left: 8,
+              width: 20, height: 20, borderRadius: '50%',
+              background: 'rgba(0,0,0,0.45)', border: 'none',
+              color: 'white', fontSize: 12, lineHeight: 1,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -134,6 +158,14 @@ export default function PostCard({ post, brandId, onApproved }: Props) {
               <span style={{ fontSize: 10, color: A.textMuted }}>+{post.hashtags.length - 3}</span>
             )}
           </div>
+        )}
+
+        {/* L-5: Inline errors instead of alert() */}
+        {exportError && (
+          <p style={{ fontSize: 11, color: A.coral, margin: 0 }}>{exportError}</p>
+        )}
+        {approveError && (
+          <p style={{ fontSize: 11, color: A.coral, margin: 0 }}>{approveError}</p>
         )}
 
         {/* Action buttons */}

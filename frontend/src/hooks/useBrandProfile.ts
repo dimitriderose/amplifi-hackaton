@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api/client'
 
+interface SocialVoiceAnalysis {
+  voice_characteristics: string[]
+  common_phrases: string[]
+  emoji_usage: string
+  average_post_length: string
+  successful_patterns: string[]
+  tone_adjectives: string[]
+}
+
 interface BrandProfile {
   brand_id: string
   business_name: string
@@ -15,7 +24,15 @@ interface BrandProfile {
   content_themes: string[]
   competitors: string[]
   analysis_status: string
+  ui_preferences?: { show_competitors?: boolean }
+  // Social voice analysis fields (populated after connecting a social account)
+  connected_platforms?: string[]
+  social_voice_analyses?: Record<string, SocialVoiceAnalysis>
+  social_voice_analysis?: SocialVoiceAnalysis
+  social_voice_platform?: string
 }
+
+export type { BrandProfile, SocialVoiceAnalysis }
 
 export function useBrandProfile(brandId: string | undefined) {
   const [brand, setBrand] = useState<BrandProfile | null>(null)
