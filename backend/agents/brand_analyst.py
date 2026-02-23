@@ -4,15 +4,66 @@ from google import genai
 from google.genai import types
 from backend.tools.web_scraper import fetch_website
 from backend.tools.brand_tools import analyze_brand_colors, extract_brand_voice
-from backend.config import GEMINI_MODEL
+from backend.config import GEMINI_MODEL, GOOGLE_API_KEY
+from backend.services.storage_client import upload_brand_asset
 
 logger = logging.getLogger(__name__)
+
+
+async def _generate_style_reference(brand_id: str, profile: dict) -> str | None:
+    """Generate a visual style reference image for the brand and upload to GCS.
+
+    Returns the gs:// URI on success, None if generation fails.
+    This is best-effort — callers must handle None gracefully.
+    """
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    colors = ", ".join(profile.get("colors", []))
+    tone = profile.get("tone", "professional")
+    industry = profile.get("industry", "general")
+    image_style_directive = profile.get("image_style_directive", "modern, clean")
+
+    prompt = (
+        f"Generate a style reference image for a {industry} brand with these characteristics:\n"
+        f"Colors: {colors}\nTone: {tone}\nStyle directive: {image_style_directive}\n\n"
+        "This is NOT a real post — it's a visual mood board reference showing:\n"
+        "- The brand's color palette applied to a simple abstract composition\n"
+        "- The lighting style (warm/cool/natural)\n"
+        "- The texture and mood (minimal/rich/rustic)\n"
+        "Generate a single cohesive image a designer could use as a reference."
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+                temperature=0.7,
+            ),
+        )
+        if not response.candidates:
+            return None
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                mime = part.inline_data.mime_type or "image/png"
+                ext = mime.split("/")[-1] if "/" in mime else "png"
+                gcs_uri = await upload_brand_asset(
+                    brand_id,
+                    part.inline_data.data,
+                    f"style_reference.{ext}",
+                    mime,
+                )
+                return gcs_uri
+    except Exception as e:
+        logger.warning("Style reference generation failed for brand %s: %s", brand_id, e)
+    return None
 
 
 async def run_brand_analysis(
     description: str,
     website_url: str | None = None,
     uploaded_assets: list[str] | None = None,
+    brand_id: str | None = None,
 ) -> dict:
     """Run the Brand Analyst agent to build a complete brand profile.
 
@@ -127,6 +178,12 @@ Return ONLY a valid JSON object with these exact keys:
         logger.error(f"Brand analysis failed: {e}")
         # Fallback: return minimal profile from description
         profile = _fallback_profile(description, website_url)
+
+    # Generate visual style reference image (best-effort)
+    if brand_id:
+        style_ref_gcs_uri = await _generate_style_reference(brand_id, profile)
+        if style_ref_gcs_uri:
+            profile["style_reference_gcs_uri"] = style_ref_gcs_uri
 
     return profile
 

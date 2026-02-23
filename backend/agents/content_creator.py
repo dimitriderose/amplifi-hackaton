@@ -105,6 +105,7 @@ async def generate_post(
     image_style_directive = brand_profile.get("image_style_directive", "")
     caption_style_directive = brand_profile.get("caption_style_directive", "")
     colors = brand_profile.get("colors", [])
+    style_reference_gcs_uri = brand_profile.get("style_reference_gcs_uri")
 
     # Format-specific instructions for derivative post types
     _DERIVATIVE_INSTRUCTIONS: dict[str, str] = {
@@ -254,13 +255,18 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
     yield {"event": "status", "data": {"message": f"Crafting {platform} post..."}}
 
     color_hint = f"Brand colors: {', '.join(colors[:3])}." if colors else ""
+    style_ref_block = (
+        "VISUAL CONSISTENCY: The provided reference image shows this brand's visual identity — "
+        "color palette, lighting style, and mood. Every image you generate must feel cohesive "
+        "with this reference. Match the warmth, saturation, and composition style exactly.\n"
+    ) if style_reference_gcs_uri else ""
     prompt = f"""You are a world-class social media content creator for {business_name}.
 
 Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
 {image_style_directive}
-{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
+{style_ref_block}{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
 Create a {platform} post for the "{pillar}" content pillar on the theme: "{content_theme}".
 
 Start with this hook: "{caption_hook}"
