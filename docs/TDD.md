@@ -1173,6 +1173,8 @@ class BudgetTracker:
 
 Video generation is a **separate, additive flow** that builds on top of the P0 interleaved image output. It is NOT part of the SSE generation stream. It has its own endpoint, its own UI button, and its own async lifecycle.
 
+**Platform-aware display:** On text-first platforms (LinkedIn, X, Twitter, Facebook), the video section defaults to a collapsed pill ("🎬 Video Clip (not typical for this platform) ›") to reduce visual noise. `TEXT_PLATFORMS = new Set(['linkedin', 'x', 'twitter', 'facebook'])` controls this behavior. `videoExpanded` state (default `false`) toggles between collapsed pill and full section. State resets to collapsed on every `postId` change. Video-first platforms (Instagram, TikTok, Reels) always show the full expanded section.
+
 ### 6.4.1 Architecture Decision
 
 The interleaved output hero image becomes Veo's **first frame**, ensuring visual continuity between the static post and the video clip. This is the key design insight: the image and video share the same visual DNA because one literally starts from the other.
@@ -1513,13 +1515,17 @@ App (React Router)
 │   │       └── GenerateButton → opens PostGenerator
 │   │
 │   └── PostLibrary (grid of all generated posts)
+│       ├── HeaderRow
+│       │   ├── RefreshButton
+│       │   ├── CopyAllButton ("📋 Copy All" / "✓ Copied N" — bulk clipboard export)
+│       │   └── ExportAllButton (ZIP download)
 │       └── PostCard[]
 │           ├── ImageThumbnail
 │           ├── VideoPlayer (if video generated, P1)
 │           ├── CaptionPreview
 │           ├── PlatformBadge
 │           ├── ReviewScore (1-5 stars)
-│           └── ActionButtons (approve, regenerate, download)
+│           └── ActionButtons (approve, regenerate, download, copy caption)
 │
 ├── GeneratePage (/generate/{planId}/{dayIndex})
 │   ├── DayBriefPanel (theme, platform, directions — editable)
@@ -1533,8 +1539,9 @@ App (React Router)
 │   │   ├── HashtagArea (tags appear last)
 │   │   └── GenerationStatus ("Crafting your caption..." → "done")
 │   │
-│   ├── VideoGenerateButton (P1 — appears for reel/story/tiktok content types)
-│   │   ├── GenerateButton ("Generate Video Clip")
+│   ├── VideoSection (P1 — collapsed pill on text-first platforms, expanded on video platforms)
+│   │   ├── CollapsedPill (LinkedIn/X/Facebook: "🎬 Video Clip (not typical for this platform) ›")
+│   │   ├── GenerateButton ("Generate Video Clip" — visible when expanded)
 │   │   ├── ProgressBar (0-100% during async generation)
 │   │   └── VideoPlayer (plays MP4 on completion)
 │   │
@@ -1550,9 +1557,8 @@ App (React Router)
 │       └── CopyCaptionButton
 │
 └── ExportPage (/export/{planId})
-    ├── WeekSummary (7 posts in grid)
-    ├── DownloadAllButton (ZIP)
-    └── IndividualDownloads
+    ├── PageSubtitle ("Copy captions to clipboard, download individual posts, or export as ZIP")
+    └── PostLibrary (reused — with CopyAllButton, filter tabs, PostCard grid)
 ```
 
 ## 7.2 Key UI Interactions
@@ -2032,9 +2038,6 @@ logger.info("generation_event", extra={
 | Interleaved output (category req) | §6 Deep Dive, responseModalities | ✓ ["TEXT", "IMAGE"] |
 | Automated deployment (bonus) | §8.2 Terraform, §8.3 Cloud Build | ✓ Specified |
 | Public GitHub repo | §9 Repository Structure | ✓ MIT License |
-| Per-platform demo voice data (Round 2) | §16.1 Per-Platform Demo Voice Data | ✓ Implemented |
-| Video collapse for text-first platforms (Round 2) | §16.2 Video Section Collapse | ✓ Implemented |
-| Clipboard-first export — Copy All (Round 2) | §16.3 Clipboard-First Export | ✓ Implemented |
 
 ## 12.1 P2 Architecture Notes (Post-Hackathon)
 
@@ -2044,83 +2047,19 @@ These features are documented in the PRD and sequenced by PM sprint priority (se
 
 ### 12.1.1 One-Tap Caption Export (Sprint 4)
 
-**Effort:** 3–4 hours | **Type:** Frontend + one new endpoint
+**Type:** Frontend + one backend endpoint
 
-**Frontend — Copy-to-clipboard button:**
-```typescript
-// Add to ContentDetail and CalendarDayCard components
+**Three export tiers (clipboard-first hierarchy):**
 
-const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-  const [copied, setCopied] = useState(false);
-  
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  
-  return (
-    <button onClick={handleCopy} className="copy-btn">
-      {copied ? "✓ Copied" : "📋 Copy Caption"}
-    </button>
-  );
-};
+1. **Bulk clipboard ("Copy All")** — PostLibrary header button copies all filtered captions as a structured string with `[N] Platform · Day N` headers and `---` separators. Count is snapshotted at click time via `useRef` (not re-derived at render) to prevent label drift during polling refresh. Timer cleaned up on unmount.
 
-// Per-post image download — already supported via GCS signed URL
-// Add explicit download button that triggers browser download
-const DownloadImageButton: React.FC<{ url: string; filename: string }> = ({ url, filename }) => (
-  <a href={url} download={filename} className="download-btn">⬇️ Download Image</a>
-);
-```
+2. **Per-post clipboard** — Each PostCard has a copy button that writes `caption\n\nhashtags` to clipboard with 1.5s confirmation flash.
 
-**Backend — ZIP export endpoint:**
-```python
-@app.post("/api/export/{plan_id}")
-async def export_plan_zip(plan_id: str):
-    """Export full weekly plan as ZIP: all captions + images."""
-    import zipfile, io
-    
-    db = firestore.client()
-    plan_ref = db.collection("plans").document(plan_id)
-    plan = plan_ref.get().to_dict()
-    brand_id = plan["brand_id"]
-    
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, day in enumerate(plan.get("days", [])):
-            day_num = i + 1
-            platform = day.get("platform", "instagram")
-            
-            # Caption as .txt file
-            caption = day.get("caption", "")
-            hashtags = " ".join(day.get("hashtags", []))
-            zf.writestr(f"day{day_num}_{platform}_caption.txt", f"{caption}\n\n{hashtags}")
-            
-            # Image (download from GCS)
-            image_url = day.get("image_url")
-            if image_url:
-                image_bytes = download_from_gcs(image_url)
-                zf.writestr(f"day{day_num}_{platform}_image.png", image_bytes)
-    
-    buffer.seek(0)
-    return StreamingResponse(
-        buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=amplifi_week_{plan_id[:8]}.zip"}
-    )
-```
+3. **ZIP export** — `POST /api/export/{plan_id}` generates a ZIP containing per-day caption `.txt` files and images. Served via `StreamingResponse`.
 
-**Component tree update:**
-```
-├── ContentDetail
-│   ├── CaptionText
-│   ├── CopyButton (NEW — copies caption + hashtags to clipboard)
-│   ├── DownloadImageButton (NEW — browser download of generated image)
-│   └── ActionBar (existing)
-│
-├── CalendarView
-│   └── ExportWeekButton (NEW — triggers ZIP download)
-```
+**ExportPage subtitle** leads with clipboard: "Copy captions to clipboard, download individual posts, or export an entire plan as a ZIP archive."
+
+**PostLibrary header button order:** `[Refresh] [Copy All] [Export All]` — lightweight to heavy, left to right. Copy All hidden when no filtered posts exist.
 
 ---
 
@@ -2574,6 +2513,15 @@ plans/{planId}/days[N]/
 ### 12.1.9 Social Media Voice Analysis (Sprint 6)
 
 **Effort:** 3–5 days | **Type:** OAuth integrations + new input pipeline
+
+**Frontend — Per-platform demo voice data:** The SocialConnect component includes built-in demo voice data (`DEMO_VOICE_ANALYSES: Record<string, VoiceAnalysis>`) so users can preview the voice analysis workflow without connecting a real account. Each platform card has a "try demo" link (visible when `!connected && !expanded`) that loads platform-appropriate sample data:
+- **LinkedIn:** Authoritative B2B coaching voice — no emoji, long-form (250-400 words), tone: candid, specific, no-nonsense
+- **Instagram:** Warm artisanal lifestyle — moderate emoji, medium-form, tone: warm, authentic, enthusiastic
+- **X:** Punchy hot-take style — minimal emoji, short-form (under 280 chars), tone: sharp, opinionated, provocative
+
+Demo data is wired via `onLoadDemo` prop: `onLoadDemo={DEMO_VOICE_ANALYSES[key] ? () => handleConnected(key, DEMO_VOICE_ANALYSES[key]) : undefined}`. The `hasAnyActive` banner check covers all four voice-analysis data sources: connected platforms array, session-local analyses, `existingVoiceAnalyses` prop (server-stored), and `existingVoiceAnalysis` + platform pair.
+
+**Backend — OAuth flow (for real account connection):**
 
 ```python
 # New endpoint for connecting social accounts
@@ -3246,180 +3194,7 @@ Interleaved output (TEXT + IMAGE) requests are computationally expensive and may
 
 ---
 
-# 16. Persona-Driven UX Improvements (Round 2)
-
-Three frontend changes shipped after PM persona review (Maria — restaurant owner, Jason — leadership coach). Each resolves a specific flag from the Round 1 evaluation. Composite score moved 8.25 → 9.25/10.
-
-## 16.1 Per-Platform Demo Voice Data
-
-**File:** `frontend/src/components/SocialConnect.tsx`
-**Branch:** `feature/platform-voice-demos` (commits `85e5b0a`, `8b86867`)
-
-**Problem:** Single `DEMO_VOICE_ANALYSIS` object contained Instagram-only artisanal food data. A B2B leadership coach (Jason persona) tapping "Try Demo" saw restaurant content — breaking trust that the tool understands professional platforms.
-
-**Implementation:**
-
-Replaced single object with a `Record<string, VoiceAnalysis>`:
-
-```typescript
-const DEMO_VOICE_ANALYSES: Record<string, VoiceAnalysis> = {
-  linkedin: {
-    voice_characteristics: ['Direct and practical', 'Uses specific examples', 'Avoids buzzwords'],
-    common_phrases: ["Here's what I've learned", 'The conversation most leaders avoid'],
-    emoji_usage: 'none',
-    average_post_length: 'long (250–400 words)',
-    successful_patterns: ['Opens with counterintuitive observation', 'Shares a specific failure'],
-    tone_adjectives: ['authoritative', 'candid', 'specific', 'no-nonsense'],
-  },
-  instagram: { /* unchanged artisanal/warm profile */ },
-  x: {
-    voice_characteristics: ['Punchy and opinionated', 'Hot-take framing', 'Thread hooks'],
-    common_phrases: ['Hot take:', 'Unpopular opinion:', 'Nobody talks about this but'],
-    emoji_usage: 'minimal',
-    average_post_length: 'short (under 280 chars)',
-    successful_patterns: ['Single sharp observation', 'Contrarian framing'],
-    tone_adjectives: ['sharp', 'opinionated', 'direct', 'provocative'],
-  },
-}
-```
-
-**UI change:** Removed global "Try with sample voice data" button. Added per-platform "try demo" link inside each `PlatformCard` header (visible when `!connected && onLoadDemo && !expanded`):
-
-```tsx
-onLoadDemo={DEMO_VOICE_ANALYSES[key] ? () => handleConnected(key, DEMO_VOICE_ANALYSES[key]) : undefined}
-```
-
-**Bug fix included:** `hasAnyActive` boolean now covers all four voice-analysis data sources (connected array, session state, `existingVoiceAnalyses` prop, `existingVoiceAnalysis` + platform pair) — previously missed server-stored analyses.
-
-## 16.2 Video Section Collapse for Text-First Platforms
-
-**File:** `frontend/src/components/PostGenerator.tsx`
-**Branch:** `feature/video-collapse` (commits `c2924cb`, `c407a27`, `4006a61`)
-
-**Problem:** LinkedIn and X posts displayed a grayed-out video section that occupied screen real estate without providing value. Jason (text-first LinkedIn creator) gave the video section 6/10.
-
-**Implementation:**
-
-```typescript
-// Module-level constants
-const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
-const TEXT_PLATFORMS = new Set(['linkedin', 'x', 'twitter', 'facebook'])
-
-// Component state
-const [videoExpanded, setVideoExpanded] = useState(false)
-const isTextPlatform = TEXT_PLATFORMS.has(platform)
-```
-
-Render conditions (mutually exclusive and exhaustive when `showVideoSection` is true):
-
-| isTextPlatform | videoExpanded | Renders |
-|---|---|---|
-| false | * | Full expanded video section (unchanged) |
-| true | false | Collapsed pill with expand chevron |
-| true | true | Full expanded section + "collapse" button |
-
-State resets to collapsed on every `postId` change via the existing reset `useEffect`.
-
-**Collapsed pill** (after PM polish):
-```tsx
-<button type="button" onClick={() => setVideoExpanded(true)}
-  style={{ border: `1px solid ${A.border}`, background: A.surfaceAlt, borderRadius: 10 }}
-  onMouseEnter={e => { e.currentTarget.style.background = A.bg }}
-  onMouseLeave={e => { e.currentTarget.style.background = A.surfaceAlt }}>
-  <span style={{ fontSize: 12, color: A.textSoft }}>🎬 Video Clip (not typical for this platform)</span>
-  <span>›</span>
-</button>
-```
-
-**Also added** `x: '✖'` to `PLATFORM_ICONS` to prevent silent fallback to generic `📱` icon if a day brief ever arrives with `platform='x'` (the backend `strategy_agent.py` currently emits `'twitter'`, but `TEXT_PLATFORMS` defensively includes both).
-
-## 16.3 Clipboard-First Export ("Copy All")
-
-**Files:** `frontend/src/components/PostLibrary.tsx`, `frontend/src/pages/ExportPage.tsx`
-**Branch:** `feature/export-clipboard` (commits `3fb7f4a`, `f49c1d2`)
-
-**Problem:** Maria said "just give me caption to paste." Jason wanted a faster path than ZIP download. Per-post copy existed but copying 7 posts required 7 clicks.
-
-**Implementation — PostLibrary.tsx:**
-
-```typescript
-// State + refs
-const [copyAllDone, setCopyAllDone] = React.useState(false)
-const copyAllTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-const copiedCountRef = React.useRef(0)  // snapshot at click time, not re-derived at render
-
-// Unmount cleanup
-React.useEffect(() => {
-  return () => { if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current) }
-}, [])
-
-// Handler
-const handleCopyAll = () => {
-  if (!navigator.clipboard || filtered.length === 0) return
-  const withCaption = filtered.filter(p => p.caption)
-  copiedCountRef.current = withCaption.length
-  const lines = withCaption.map((p, i) => {
-    const tags = (p.hashtags || []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' ')
-    const header = `[${i + 1}] ${p.platform?.charAt(0).toUpperCase() + p.platform?.slice(1) || 'Post'} · Day ${(p.day_index ?? 0) + 1}`
-    return [header, p.caption, tags].filter(Boolean).join('\n\n')
-  })
-  navigator.clipboard.writeText(lines.join('\n\n---\n\n')).then(() => {
-    if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current)
-    setCopyAllDone(true)
-    copyAllTimerRef.current = setTimeout(() => setCopyAllDone(false), 1500)
-  }).catch(() => {})
-}
-```
-
-**Clipboard output format:**
-```
-[1] LinkedIn · Day 1
-Your caption text here
-
-#hashtag1 #hashtag2
-
----
-
-[2] Instagram · Day 2
-Your caption text here
-
-#hashtag3 #hashtag4
-```
-
-**Key design decisions:**
-- Count is snapshotted into `copiedCountRef` at click time (not re-derived from `filtered` at render) to prevent label drift if polling refresh fires during the 1.5s confirmation flash
-- Caption/hashtag separator uses `\n\n` (matching per-post `PostCard` copy behavior)
-- Timer is cleaned up on unmount via `useEffect` return
-- Button hidden when `filtered.length === 0`
-- Button order: `[Refresh] [Copy All] [Export All]` — lightweight to heavy, left to right
-
-**ExportPage.tsx:** Subtitle updated from "Download individual posts or export an entire plan as a ZIP archive" to "Copy captions to clipboard, download individual posts, or export an entire plan as a ZIP archive" — clipboard-first information hierarchy.
-
-## 16.4 Component Tree Updates
-
-The following additions to §7.1's component tree reflect Round 2 changes:
-
-```
-├── SocialConnect (updated)
-│   └── PlatformCard[]
-│       ├── "try demo" link (NEW — per-platform, visible when !connected && !expanded)
-│       └── DEMO_VOICE_ANALYSES[platform] (NEW — platform-specific voice data)
-│
-├── PostGenerator (updated)
-│   ├── VideoCollapsedPill (NEW — text-first platforms only)
-│   │   └── "🎬 Video Clip (not typical for this platform) ›"
-│   └── VideoExpandedSection (updated — conditional on !isTextPlatform || videoExpanded)
-│       └── "‹ collapse" button (NEW — text platforms only, when expanded)
-│
-└── ExportPage (updated)
-    └── PostLibrary (updated)
-        ├── CopyAllButton (NEW — "📋 Copy All" / "✓ Copied N")
-        └── ExportAllButton (unchanged)
-```
-
----
-
 *Document created: February 21, 2026*
-*Updated: February 23, 2026 — added §16 (persona-driven UX improvements)*
+*Updated: February 23, 2026*
 *Companion PRD: prd-amplifi.md v1.1*
 *Hackathon deadline: March 16, 2026*
