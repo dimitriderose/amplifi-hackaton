@@ -646,7 +646,8 @@ async def stream_generate(
                 final_image_url = event_data.get("image_url", final_image_url)
                 final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
 
-                # Persist complete post to Firestore
+                # Persist complete post to Firestore — wrapped so a DB error
+                # doesn't kill the SSE stream before the client receives the event
                 update_data: dict = {
                     "status": "complete",
                     "caption": final_caption,
@@ -655,12 +656,16 @@ async def stream_generate(
                 }
                 if final_image_gcs_uri:
                     update_data["image_gcs_uri"] = final_image_gcs_uri
-                await firestore_client.update_post(brand_id, post_id, update_data)
+                try:
+                    await firestore_client.update_post(brand_id, post_id, update_data)
+                except Exception as fs_err:
+                    logger.error("Firestore update failed for post %s: %s", post_id, fs_err)
             elif event_name == "error":
                 # Mark post as failed so it doesn't stay stuck in "generating"
-                await firestore_client.update_post(brand_id, post_id, {
-                    "status": "failed",
-                })
+                try:
+                    await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
+                except Exception as fs_err:
+                    logger.error("Firestore error-update failed for post %s: %s", post_id, fs_err)
 
             yield {
                 "event": event_name,

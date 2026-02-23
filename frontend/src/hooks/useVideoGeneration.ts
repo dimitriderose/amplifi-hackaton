@@ -20,8 +20,15 @@ export function useVideoGeneration(postId: string, brandId: string) {
         const res = (await api.generateVideo(postId, tier, brandId)) as any
         const { job_id, estimated_seconds } = res
         const startTime = Date.now()
+        const MAX_POLL_MS = 25 * 60 * 1000 // 25 minutes
 
         intervalRef.current = setInterval(async () => {
+          if (Date.now() - startTime > MAX_POLL_MS) {
+            clearInterval(intervalRef.current!)
+            setError('Video generation timed out. Please try again.')
+            setStatus('error')
+            return
+          }
           try {
             const job = (await api.getVideoJob(job_id)) as any
             const elapsed = (Date.now() - startTime) / 1000

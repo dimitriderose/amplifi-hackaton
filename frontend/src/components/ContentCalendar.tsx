@@ -71,7 +71,7 @@ export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhoto
     <div>
       {/* Calendar header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>7-Day Content Calendar</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>{plan.days.length}-Day Content Calendar</h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {Object.entries(PILLAR_COLORS).map(([pillar, color]) => (
             <span

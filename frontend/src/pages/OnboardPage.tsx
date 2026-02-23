@@ -41,6 +41,7 @@ export default function OnboardPage() {
   const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
+  const isSubmittingRef = useRef(false)
 
   // Focus URL input when accordion expands
   useEffect(() => {
@@ -60,7 +61,8 @@ export default function OnboardPage() {
   }
 
   const handleSubmit = async () => {
-    if (!canSubmit) return
+    if (!canSubmit || isSubmittingRef.current) return
+    isSubmittingRef.current = true
     setAnalyzing(true)
     setError('')
     setCompletedSteps([])
@@ -93,16 +95,19 @@ export default function OnboardPage() {
       // Wait for animation to mostly finish before navigating
       await new Promise(r => setTimeout(r, steps.length * 800 + 400))
 
-      // Trigger analysis in background (non-blocking — dashboard polls status)
+      // Trigger analysis — fire-and-forget; dashboard polls analysis_status
+      // Log failures so they're visible in the browser console for debugging
       api.analyzeBrand(brand_id, {
         website_url: hasUrl ? url : null,
         description: desc,
-      }).catch(err => console.error('Analysis error:', err))
+      }).catch(err => console.error('Brand analysis error (background):', err))
 
       navigate(`/dashboard/${brand_id}`)
     } catch (err: unknown) {
       setAnalyzing(false)
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      isSubmittingRef.current = false
     }
   }
 
