@@ -125,13 +125,14 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {!connected && onLoadDemo && !expanded && (
             <button
+              type="button"
               onClick={onLoadDemo}
               style={{
-                padding: '0', border: 'none', background: 'transparent',
+                padding: '2px 4px', border: 'none', background: 'transparent',
                 color: A.indigo, fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
               }}
             >
-              demo
+              try demo
             </button>
           )}
           <button
@@ -308,7 +309,11 @@ export default function SocialConnect({
     return undefined
   }
 
-  const hasAnyActive = connected.length > 0 || Object.keys(sessionAnalyses).length > 0
+  const hasAnyActive =
+    connected.length > 0 ||
+    Object.keys(sessionAnalyses).length > 0 ||
+    (existingVoiceAnalyses != null && Object.keys(existingVoiceAnalyses).length > 0) ||
+    (existingVoiceAnalysis != null && existingVoicePlatform != null)
 
   return (
     <div>
