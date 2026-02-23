@@ -55,7 +55,7 @@ function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: stri
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <input
         autoFocus
         type="text"
@@ -391,12 +391,12 @@ export default function PostGenerator({ state, dayBrief, brandId, onApprove, onR
 
           {/* Action buttons */}
           {status === 'complete' && postId && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
               {onApprove && (
                 <button
                   onClick={() => onApprove(postId)}
                   style={{
-                    flex: 1, padding: '10px', borderRadius: 8, border: 'none',
+                    width: '100%', padding: '10px', borderRadius: 8, border: 'none',
                     background: `linear-gradient(135deg, ${A.emerald}, #059669)`,
                     color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                   }}

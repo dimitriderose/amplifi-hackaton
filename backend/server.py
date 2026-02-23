@@ -601,11 +601,10 @@ async def stream_generate(
 # ── Post Review ───────────────────────────────────────────────
 from backend.agents.review_agent import review_post as _run_review
 
-from pydantic import BaseModel
 from datetime import datetime, timezone
 
 
-class PatchPostBody(BaseModel):
+class PatchPostBody(_PydanticBaseModel):
     caption: str | None = None
     hashtags: list[str] | None = None
 
