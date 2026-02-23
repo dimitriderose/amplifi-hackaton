@@ -4,6 +4,7 @@ import logging
 from google import genai
 from google.genai import types
 from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
+from backend.services import firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,64 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 PLATFORMS = ["instagram", "linkedin", "twitter", "facebook"]
 PILLARS = ["education", "inspiration", "promotion", "behind_the_scenes", "user_generated"]
 DERIVATIVE_TYPES = ["original", "carousel", "thread_hook", "blog_snippet", "story"]
+
+
+async def _research_platform_trends(platform: str, industry: str) -> dict | None:
+    """Fetch current platform+industry trends via Google Search grounding.
+
+    Results are cached in Firestore for 7 days.
+    Returns None if research fails — callers treat it as optional enhancement.
+    """
+    # Check cache first
+    try:
+        cached = await firestore_client.get_platform_trends(platform, industry)
+        if cached:
+            logger.info("Platform trends cache hit: %s / %s", platform, industry)
+            return cached
+    except Exception as e:
+        logger.warning("Trend cache read error: %s", e)
+
+    # Fetch from Gemini with Google Search grounding
+    try:
+        prompt = (
+            f"Research the current trending content patterns on {platform} "
+            f"for the {industry} industry. What's working right now (this week/month)?\n"
+            "- Trending formats (carousel, short video, text post, etc.)\n"
+            "- Trending topics or hooks\n"
+            "- Algorithm preferences (what's being boosted?)\n"
+            "- Best posting time recommendations\n\n"
+            'Return ONLY a valid JSON object with these keys: '
+            '{"trending_formats": [...], "trending_hooks": [...], '
+            '"algorithm_notes": "...", "best_posting_times": [...]}'
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        raw = response.text.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        trends = json.loads(raw.strip())
+
+        # Save to cache (best-effort)
+        try:
+            await firestore_client.save_platform_trends(platform, industry, trends)
+        except Exception as ce:
+            logger.warning("Trend cache write error: %s", ce)
+
+        return trends
+    except Exception as e:
+        logger.warning("Platform trend research failed (%s/%s): %s", platform, industry, e)
+        return None
 
 
 async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, business_events: str | None = None) -> list[dict]:
@@ -26,13 +85,29 @@ async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, bu
     Returns:
         List of day brief dicts, each describing one day's content.
     """
+    # Fetch platform trend intelligence (best-effort, non-blocking)
+    industry = brand_profile.get("industry", "")
+    primary_platform = PLATFORMS[0]  # Instagram as primary trend lookup
+    trends = await _research_platform_trends(primary_platform, industry)
+    trends_context = ""
+    if trends:
+        trends_context = f"""
+CURRENT PLATFORM TRENDS ({primary_platform.upper()} · {industry}):
+- Trending formats: {', '.join(trends.get('trending_formats', [])[:4])}
+- Trending hooks: {', '.join(trends.get('trending_hooks', [])[:4])}
+- Algorithm notes: {trends.get('algorithm_notes', 'N/A')}
+- Best posting times: {', '.join(trends.get('best_posting_times', [])[:3])}
+
+Incorporate these trends where they fit the brand. Don't force them — only use what is authentic to this brand.
+"""
+
     prompt = f"""You are a social media strategy expert and creative director.
 
 Your job is to generate a {num_days}-day content calendar for the following brand.
 
 BRAND PROFILE:
 {json.dumps(brand_profile, indent=2, default=str)}
-
+{trends_context}
 BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile."}
 
 Generate exactly {num_days} day briefs. Each brief covers one day of social media content.

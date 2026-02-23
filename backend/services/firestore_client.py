@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from google.cloud import firestore
 from google.cloud.firestore_v1.async_client import AsyncClient
@@ -149,3 +149,35 @@ async def save_review(brand_id: str, post_id: str, review: dict) -> None:
                  "review": review,
                  "updated_at": datetime.now(timezone.utc),
              }))
+
+
+# ── Platform trends cache ──────────────────────────────────────
+
+async def get_platform_trends(platform: str, industry: str) -> Optional[dict]:
+    """Return cached trend data for platform+industry if not expired (7-day TTL)."""
+    db = get_client()
+    doc_id = f"{platform}_{industry}".lower().replace(" ", "_")
+    snap = await db.collection("platform_trends").document(doc_id).get()
+    if not snap.exists:
+        return None
+    data = snap.to_dict()
+    expires_at = data.get("expires_at")
+    if expires_at:
+        # Normalize to timezone-aware in case Firestore returns a naive datetime
+        if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            return None
+    return data.get("trends")
+
+
+async def save_platform_trends(platform: str, industry: str, trends: dict) -> None:
+    """Cache trend data for platform+industry with a 7-day TTL."""
+    db = get_client()
+    doc_id = f"{platform}_{industry}".lower().replace(" ", "_")
+    now = datetime.now(timezone.utc)
+    await db.collection("platform_trends").document(doc_id).set({
+        "trends": trends,
+        "fetched_at": now,
+        "expires_at": now + timedelta(days=7),
+    })
