@@ -13,6 +13,53 @@ from backend.services.storage_client import upload_image_to_gcs
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
+# Platform-specific formatting guides injected into every generation prompt
+PLATFORM_PROMPTS: dict[str, str] = {
+    "instagram": (
+        "PLATFORM FORMAT: Instagram caption.\n"
+        "- Hook in first line (appears above fold)\n"
+        "- 2-3 short paragraphs with line breaks for readability\n"
+        "- Call to action (comment, save, share)\n"
+        "- 20-30 relevant hashtags at the end, separated from body\n"
+        "- Emoji use: moderate, on-brand\n"
+        "Max: 2200 characters"
+    ),
+    "linkedin": (
+        "PLATFORM FORMAT: LinkedIn post.\n"
+        "- Strong opening hook — first 140 chars appear above \"see more\", make them count\n"
+        "- Professional but personable tone\n"
+        "- 3-5 short paragraphs with line breaks\n"
+        "- End with a question or CTA to drive comments\n"
+        "- 3-5 hashtags maximum (LinkedIn penalises over-hashtagging)\n"
+        "- Emoji: 1-2 per post max, never decorative\n"
+        "Max: 3000 characters"
+    ),
+    "twitter": (
+        "PLATFORM FORMAT: X (Twitter) post.\n"
+        "- Concise, punchy, conversational\n"
+        "- One clear idea per post\n"
+        "- Thread format if content needs more than 280 chars (indicate with \U0001f9f5)\n"
+        "- 1-3 hashtags integrated naturally into text (not appended as a block)\n"
+        "Max: 280 characters per tweet"
+    ),
+    "tiktok": (
+        "PLATFORM FORMAT: TikTok caption.\n"
+        "- Ultra-casual, trend-aware voice\n"
+        "- Hook immediately — first 3 words matter most\n"
+        "- Mix brand hashtags with trending tags\n"
+        "- CTA: 'Follow for more' or 'Save this for later'\n"
+        "Max: 2200 characters"
+    ),
+    "facebook": (
+        "PLATFORM FORMAT: Facebook post.\n"
+        "- Conversational, community-oriented tone\n"
+        "- Ask questions to drive comments\n"
+        "- Longer form acceptable; storytelling works well\n"
+        "- 1-3 hashtags or none\n"
+        "- Emoji use: moderate"
+    ),
+}
+
 
 async def generate_post(
     plan_id: str,
@@ -94,6 +141,7 @@ async def generate_post(
         ),
     }
     derivative_instruction = _DERIVATIVE_INSTRUCTIONS.get(derivative_type, "")
+    platform_format = PLATFORM_PROMPTS.get(platform, "")
     instruction_hint = (
         f"\n\nAdditional instructions for this generation: {instructions.strip()}"
         if instructions and instructions.strip()
@@ -109,7 +157,7 @@ async def generate_post(
 Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
-{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}
+{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
 Analyze this photo and write a {platform} post caption that:
 - Complements and describes what's in the photo
 - Fits the "{content_theme}" theme for the "{pillar}" content pillar
@@ -212,7 +260,7 @@ Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
 {image_style_directive}
-{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}
+{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
 Create a {platform} post for the "{pillar}" content pillar on the theme: "{content_theme}".
 
 Start with this hook: "{caption_hook}"
