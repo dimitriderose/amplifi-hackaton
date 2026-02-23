@@ -26,6 +26,8 @@ const PLATFORM_ICONS: Record<string, string> = {
 }
 
 const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
+// Text-first platforms where video section defaults to collapsed to reduce visual noise
+const TEXT_PLATFORMS = new Set(['linkedin', 'x', 'twitter', 'facebook'])
 
 // RegenerateButton with optional instructions input
 function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: string) => void }) {
@@ -155,6 +157,8 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
   const [captionSaveError, setCaptionSaveError] = useState<string | null>(null)
   // M-3: Caption-only mode state lifted up to actually hide the image panel
   const [captionOnly, setCaptionOnly] = useState(false)
+  // Video section collapsed by default on text-first platforms (LinkedIn, X, etc.)
+  const [videoExpanded, setVideoExpanded] = useState(false)
 
   // Refs for focus management and race-condition guard
   const cancelledRef = useRef(false)
@@ -171,6 +175,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
     setCaptionSaveError(null)
     setCaptionSaving(false)
     setCaptionOnly(false)
+    setVideoExpanded(false)
     cancelledRef.current = false
   }, [postId])
 
@@ -245,6 +250,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
   const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
   const platform = dayBrief?.platform?.toLowerCase() ?? ''
   const isVideoPlatform = VIDEO_PLATFORMS.has(platform)
+  const isTextPlatform = TEXT_PLATFORMS.has(platform)
 
   const showVideoSection = status === 'complete' && postId && brandId
 
@@ -459,17 +465,47 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
             </div>
           )}
 
-          {/* H-6: Video section — shown for all platforms once complete; disabled for non-video platforms */}
-          {showVideoSection && (
+          {/* H-6: Video section — collapsed for text-first platforms (LinkedIn/X), full for video platforms */}
+          {showVideoSection && isTextPlatform && !videoExpanded && (
+            <button
+              type="button"
+              onClick={() => setVideoExpanded(true)}
+              style={{
+                marginTop: 4, width: '100%', padding: '8px 14px', borderRadius: 10,
+                border: `1px solid ${A.borderLight}`, background: 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ fontSize: 11, color: A.textMuted }}>🎬 Video Clip (not typical for this platform)</span>
+              <span style={{ fontSize: 11, color: A.textMuted }}>›</span>
+            </button>
+          )}
+
+          {showVideoSection && (!isTextPlatform || videoExpanded) && (
             <div style={{
               marginTop: 4, padding: '12px 14px', borderRadius: 10,
               border: `1px solid ${isVideoPlatform ? A.border : A.borderLight}`,
               background: isVideoPlatform ? A.surfaceAlt : A.bg,
               opacity: isVideoPlatform ? 1 : 0.55,
             }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: '0 0 6px' }}>
-                🎬 Video Clip (Veo 3)
-              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: 0 }}>
+                  🎬 Video Clip (Veo 3)
+                </p>
+                {isTextPlatform && videoExpanded && (
+                  <button
+                    type="button"
+                    onClick={() => setVideoExpanded(false)}
+                    style={{
+                      border: 'none', background: 'transparent', color: A.textMuted,
+                      fontSize: 11, cursor: 'pointer', padding: 0,
+                    }}
+                  >
+                    ‹ collapse
+                  </button>
+                )}
+              </div>
 
               {!isVideoPlatform ? (
                 <p style={{ fontSize: 11, color: A.textMuted, margin: 0 }}>
