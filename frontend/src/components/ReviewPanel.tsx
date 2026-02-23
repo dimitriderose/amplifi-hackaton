@@ -16,8 +16,8 @@ interface ReviewResult {
   improvements: string[]
   approved: boolean
   revised_caption: string | null
-  engagement_scores: EngagementScores
-  engagement_prediction: 'low' | 'medium' | 'high' | 'viral'
+  engagement_scores?: EngagementScores
+  engagement_prediction?: 'low' | 'medium' | 'high' | 'viral'
 }
 
 interface Props {
@@ -180,7 +180,7 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
           </div>
 
           {/* Engagement prediction */}
-          {review.engagement_scores && (
+          {review.engagement_scores && review.engagement_prediction && (
             <div style={{
               padding: '12px 16px', borderRadius: 10,
               background: A.surfaceAlt, border: `1px solid ${A.border}`,
