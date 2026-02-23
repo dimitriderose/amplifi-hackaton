@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
@@ -58,6 +58,12 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [approved, setApproved] = useState(false)
+
+  // DK-3: Auto-trigger review on mount so user doesn't have to click a button
+  useEffect(() => {
+    if (postId && brandId) runReview()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postId, brandId])
 
   const runReview = async () => {
     setLoading(true)

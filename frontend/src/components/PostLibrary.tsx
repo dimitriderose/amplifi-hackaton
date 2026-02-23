@@ -15,6 +15,10 @@ export default function PostLibrary({ brandId, planId }: Props) {
   const { posts, loading, error, refresh } = usePostLibrary(brandId, planId)
   const [filter, setFilter] = React.useState<Filter>('all')
   const [exporting, setExporting] = React.useState(false)
+  // DK-5: Track locally dismissed post IDs (stuck generating/failed) — no server call needed
+  const [dismissed, setDismissed] = React.useState<Set<string>>(new Set())
+  // H-7: Inline export error instead of alert
+  const [exportError, setExportError] = React.useState<string | null>(null)
 
   const FILTERS: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -24,15 +28,17 @@ export default function PostLibrary({ brandId, planId }: Props) {
     { key: 'failed', label: 'Failed' },
   ]
 
-  const filtered = filter === 'all' ? posts : posts.filter(p => p.status === filter)
+  const visiblePosts = posts.filter(p => !dismissed.has(p.post_id))
+  const filtered = filter === 'all' ? visiblePosts : visiblePosts.filter(p => p.status === filter)
 
   const handleBulkExport = async () => {
     if (!planId) return
     setExporting(true)
+    setExportError(null)
     try {
       await api.exportPlan(planId, brandId)
     } catch (err: any) {
-      alert('Export failed: ' + err.message)
+      setExportError(err.message || 'Export failed')
     } finally {
       setExporting(false)
     }
@@ -44,9 +50,9 @@ export default function PostLibrary({ brandId, planId }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>
           Post Library
-          {posts.length > 0 && (
+          {visiblePosts.length > 0 && (
             <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: A.textMuted }}>
-              {posts.length} posts
+              {visiblePosts.length} posts
             </span>
           )}
         </h3>
@@ -71,6 +77,13 @@ export default function PostLibrary({ brandId, planId }: Props) {
         </div>
       </div>
 
+      {/* L-5: Inline export error */}
+      {exportError && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: A.coral + '15', color: A.coral, fontSize: 12 }}>
+          {exportError}
+        </div>
+      )}
+
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
         {FILTERS.map(f => (
@@ -86,9 +99,9 @@ export default function PostLibrary({ brandId, planId }: Props) {
             }}
           >
             {f.label}
-            {f.key !== 'all' && posts.filter(p => p.status === f.key).length > 0 && (
+            {f.key !== 'all' && visiblePosts.filter(p => p.status === f.key).length > 0 && (
               <span style={{ marginLeft: 4, opacity: 0.7 }}>
-                ({posts.filter(p => p.status === f.key).length})
+                ({visiblePosts.filter(p => p.status === f.key).length})
               </span>
             )}
           </button>
@@ -111,7 +124,7 @@ export default function PostLibrary({ brandId, planId }: Props) {
           padding: 40, textAlign: 'center', background: A.surfaceAlt,
           borderRadius: 10, color: A.textMuted, fontSize: 13,
         }}>
-          {posts.length === 0
+          {visiblePosts.length === 0
             ? 'No posts yet — generate some from the calendar above!'
             : `No ${filter} posts`}
         </div>
@@ -130,6 +143,11 @@ export default function PostLibrary({ brandId, planId }: Props) {
               post={post}
               brandId={brandId}
               onApproved={refresh}
+              onDismiss={
+                post.status === 'generating' || post.status === 'failed'
+                  ? () => setDismissed(prev => new Set([...prev, post.post_id]))
+                  : undefined
+              }
             />
           ))}
         </div>
