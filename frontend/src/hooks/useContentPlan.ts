@@ -4,10 +4,19 @@ import { api } from '../api/client'
 interface Plan {
   plan_id: string
   days: any[]
+  num_days?: number
+  status?: string
+  created_at?: string
 }
 
 function normalizePlan(raw: any): Plan {
-  return { plan_id: raw.plan_id, days: raw.days ?? [] }
+  return {
+    plan_id: raw.plan_id,
+    days: raw.days ?? [],
+    num_days: raw.num_days,
+    status: raw.status,
+    created_at: raw.created_at,
+  }
 }
 
 export function useContentPlan(brandId: string) {
@@ -25,7 +34,9 @@ export function useContentPlan(brandId: string) {
         const plans: any[] = res.plans || []
         if (plans.length > 0) setPlan(normalizePlan(plans[0]))
       })
-      .catch(() => { /* silently ignore — user can generate a new plan */ })
+      .catch((err: any) => {
+        setError(err.message || 'Failed to load your saved plan. You can generate a new one below.')
+      })
       .finally(() => setLoading(false))
   }, [brandId])
 
