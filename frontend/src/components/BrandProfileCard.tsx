@@ -20,12 +20,14 @@ interface BrandProfile {
 
 interface Props {
   brand: BrandProfile
-  onUpdate: (data: Partial<BrandProfile>) => void
+  onUpdate: (data: Partial<BrandProfile>) => void | Promise<void>
 }
 
 export default function BrandProfileCard({ brand, onUpdate }: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(brand)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [showCompetitors, setShowCompetitors] = useState(
     brand.ui_preferences?.show_competitors ?? true
   )
@@ -42,16 +44,24 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
     onUpdate({ ui_preferences: { show_competitors: next } })
   }
 
-  const handleSave = () => {
-    onUpdate({
-      industry: draft.industry,
-      tone: draft.tone,
-      target_audience: draft.target_audience,
-      visual_style: draft.visual_style,
-      image_style_directive: draft.image_style_directive,
-      caption_style_directive: draft.caption_style_directive,
-    })
-    setEditing(false)
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      await onUpdate({
+        industry: draft.industry,
+        tone: draft.tone,
+        target_audience: draft.target_audience,
+        visual_style: draft.visual_style,
+        image_style_directive: draft.image_style_directive,
+        caption_style_directive: draft.caption_style_directive,
+      })
+      setEditing(false)
+    } catch (err: any) {
+      setSaveError(err.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (brand.analysis_status === 'analyzing') {
@@ -234,15 +244,24 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
       </div>
 
       {editing && (
-        <button
-          onClick={handleSave}
-          style={{
-            marginTop: 16, padding: '10px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: A.indigo, color: 'white', fontSize: 14, fontWeight: 600,
-          }}
-        >
-          Save Changes
-        </button>
+        <div style={{ marginTop: 16 }}>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              background: saving ? A.surfaceAlt : A.indigo,
+              color: saving ? A.textMuted : 'white', fontSize: 14, fontWeight: 600,
+            }}
+          >
+            {/* M-5: Show saving state with feedback */}
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+          {saveError && (
+            <p style={{ fontSize: 12, color: A.coral, marginTop: 6 }}>{saveError}</p>
+          )}
+        </div>
       )}
     </div>
   )

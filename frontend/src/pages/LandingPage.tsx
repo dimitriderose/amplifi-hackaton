@@ -5,7 +5,8 @@ const FEATURES = [
   {
     icon: '🔍',
     title: 'Brand Analysis',
-    desc: 'Paste your URL. We extract your colors, tone, visual style, and audience automatically.',
+    // L-1: URL field is optional/collapsible — primary action is describing your business
+    desc: 'Describe your business in a few sentences. Optionally add your website URL for even deeper analysis.',
   },
   {
     icon: '📅',
@@ -397,7 +398,7 @@ export default function LandingPage() {
           maxWidth: 400,
           margin: '0 auto 32px',
         }}>
-          No sign-up, no credit card. Paste your URL and watch the magic.
+          No sign-up, no credit card. Describe your business and watch the magic.
         </p>
         <button
           onClick={() => navigate('/onboard')}

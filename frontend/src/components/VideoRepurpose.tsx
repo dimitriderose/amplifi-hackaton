@@ -42,17 +42,25 @@ export default function VideoRepurpose({ brandId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Clean up polling interval on unmount
+  const storageKey = `amplifi_vrjob_${brandId}`
+
+  // M-7: Restore in-flight job from sessionStorage on mount (survives navigation)
   useEffect(() => {
+    const savedJobId = sessionStorage.getItem(storageKey)
+    if (savedJobId) {
+      setJob({ job_id: savedJobId, status: 'processing', clips: [] })
+      startPolling(savedJobId)
+    }
     return () => {
       if (pollRef.current) {
         clearInterval(pollRef.current)
         pollRef.current = null
       }
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startPolling = (jobId: string) => {
+    sessionStorage.setItem(storageKey, jobId)
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
       try {
@@ -61,6 +69,7 @@ export default function VideoRepurpose({ brandId }: Props) {
         if (j.status === 'complete' || j.status === 'failed') {
           clearInterval(pollRef.current!)
           pollRef.current = null
+          sessionStorage.removeItem(storageKey)
         }
       } catch {
         // transient poll error — keep polling
@@ -223,7 +232,7 @@ export default function VideoRepurpose({ brandId }: Props) {
             </p>
           )}
           <button
-            onClick={() => { setJob(null); setError('') }}
+            onClick={() => { setJob(null); setError(''); sessionStorage.removeItem(storageKey) }}
             style={{
               padding: '6px 14px', borderRadius: 6, border: `1px solid ${A.coral}60`,
               background: 'white', color: A.coral, fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -306,7 +315,7 @@ export default function VideoRepurpose({ brandId }: Props) {
           </div>
 
           <button
-            onClick={() => { setJob(null); setError('') }}
+            onClick={() => { setJob(null); setError(''); sessionStorage.removeItem(storageKey) }}
             style={{
               marginTop: 12, padding: '7px 14px', borderRadius: 6,
               border: `1px solid ${A.border}`, background: 'transparent',

@@ -234,6 +234,16 @@ export default function VoiceCoach({ brandId, brandName }: Props) {
         </div>
       )}
 
+      {/* L-2: Descriptive label shown only in idle state so users know what it does */}
+      {status === 'idle' && (
+        <p style={{
+          fontSize: 10, color: A.textMuted, margin: 0,
+          textAlign: 'center', lineHeight: 1.3,
+        }}>
+          Talk to your AI<br />brand strategist
+        </p>
+      )}
+
       {/* Floating pill button — always visible */}
       <VoicePill
         status={status}

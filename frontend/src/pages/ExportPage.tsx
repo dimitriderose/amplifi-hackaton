@@ -20,6 +20,7 @@ export default function ExportPage() {
     <div style={{
       maxWidth: 1100, margin: '0 auto', padding: '32px 24px',
     }}>
+      {/* M-8: Differentiate export page from dashboard with clear workflow header */}
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: A.text, margin: 0, marginBottom: 4 }}>
           Export Posts
@@ -29,11 +30,30 @@ export default function ExportPage() {
         </p>
       </div>
 
+      {planId && (
+        <div style={{
+          marginBottom: 20, padding: '12px 16px', borderRadius: 10,
+          background: `linear-gradient(135deg, ${A.indigo}10, ${A.violet}08)`,
+          border: `1px solid ${A.indigo}20`,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 20 }}>📦</span>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 600, color: A.text, margin: 0 }}>
+              Plan ZIP export available
+            </p>
+            <p style={{ fontSize: 12, color: A.textSoft, margin: 0 }}>
+              Use "↓ Export All" to download all approved posts as a single ZIP with captions and images.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div style={{
         padding: 24, borderRadius: 12,
         background: A.surface, border: `1px solid ${A.border}`,
       }}>
-        <PostLibrary brandId={brandId} planId={planId} />
+        <PostLibrary brandId={brandId} planId={planId} defaultFilter="approved" />
       </div>
     </div>
   )
