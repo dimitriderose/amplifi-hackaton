@@ -33,7 +33,7 @@ export default function OnboardPage() {
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [desc, setDesc] = useState('')
-  const [noWebsite, setNoWebsite] = useState(false)
+  const [urlExpanded, setUrlExpanded] = useState(false)
   const [uploads, setUploads] = useState<UploadedFile[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [completedSteps, setCompletedSteps] = useState<AnalysisStep[]>([])
@@ -41,8 +41,9 @@ export default function OnboardPage() {
   const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const steps = noWebsite ? NO_WEB_STEPS : URL_STEPS
-  const canSubmit = desc.length >= 20 && (noWebsite || url.trim().length > 0)
+  const hasUrl = url.trim().length > 0
+  const steps = hasUrl ? URL_STEPS : NO_WEB_STEPS
+  const canSubmit = desc.length >= 20
 
   const handleFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -70,7 +71,7 @@ export default function OnboardPage() {
     try {
       // Create brand record
       const { brand_id } = await api.createBrand({
-        website_url: noWebsite ? null : url,
+        website_url: hasUrl ? url : null,
         description: desc,
       }) as { brand_id: string }
 
@@ -88,7 +89,7 @@ export default function OnboardPage() {
 
       // Trigger analysis in background (non-blocking — dashboard polls status)
       api.analyzeBrand(brand_id, {
-        website_url: noWebsite ? null : url,
+        website_url: hasUrl ? url : null,
         description: desc,
       }).catch(err => console.error('Analysis error:', err))
 
@@ -111,7 +112,7 @@ export default function OnboardPage() {
               Building your brand profile
             </h2>
             <p style={{ fontSize: 13, color: A.textSoft }}>
-              {noWebsite ? 'Crafting your brand identity...' : `Analyzing ${url}...`}
+              {hasUrl ? `Analyzing ${url}...` : 'Crafting your brand identity...'}
             </p>
           </div>
 
@@ -165,49 +166,7 @@ export default function OnboardPage() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* No-website toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={() => setNoWebsite(!noWebsite)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                borderRadius: 20, border: `1px solid ${noWebsite ? A.indigo : A.border}`,
-                background: noWebsite ? A.indigoLight : 'transparent',
-                color: noWebsite ? A.indigo : A.textSoft,
-                fontSize: 13, cursor: 'pointer', fontWeight: noWebsite ? 500 : 400,
-              }}
-            >
-              <span>{noWebsite ? '✓' : '○'}</span>
-              I don't have a website
-            </button>
-            {noWebsite && (
-              <span style={{ fontSize: 12, color: A.textMuted }}>
-                No problem — description only works great
-              </span>
-            )}
-          </div>
-
-          {/* URL input */}
-          {!noWebsite && (
-            <div>
-              <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
-                Website URL
-              </label>
-              <input
-                type="url"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://yourbusiness.com"
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 8,
-                  border: `1px solid ${A.border}`, fontSize: 14, color: A.text,
-                  background: A.surface, outline: 'none',
-                }}
-              />
-            </div>
-          )}
-
-          {/* Description */}
+          {/* Description — primary input */}
           <div>
             <label style={{ fontSize: 13, fontWeight: 500, color: A.text, display: 'block', marginBottom: 6 }}>
               Describe your business
@@ -220,6 +179,7 @@ export default function OnboardPage() {
               onChange={e => setDesc(e.target.value)}
               placeholder="e.g. I run a family-owned Italian bakery in Austin. We specialize in sourdough and seasonal pastries, and our customers are local food enthusiasts who value craftsmanship."
               rows={4}
+              autoFocus
               style={{
                 width: '100%', padding: '10px 14px', borderRadius: 8,
                 border: `1px solid ${desc.length >= 20 ? A.emerald : A.border}`,
@@ -287,6 +247,50 @@ export default function OnboardPage() {
             )}
           </div>
 
+          {/* Website URL — collapsible enhancement */}
+          <div style={{
+            borderRadius: 8, border: `1px solid ${A.border}`,
+            overflow: 'hidden',
+          }}>
+            <button
+              onClick={() => setUrlExpanded(v => !v)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 14px', background: urlExpanded ? A.indigoLight : A.surfaceAlt,
+                border: 'none', cursor: 'pointer', color: urlExpanded ? A.indigo : A.textSoft,
+                fontSize: 13, fontWeight: urlExpanded ? 500 : 400,
+                transition: 'background 0.2s, color 0.2s',
+              }}
+            >
+              <span>🌐 Have a website? Paste it for even better results</span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>{urlExpanded ? '▲' : '▼'}</span>
+            </button>
+
+            {urlExpanded && (
+              <div style={{ padding: '12px 14px', borderTop: `1px solid ${A.border}` }}>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={e => setUrl(e.target.value)}
+                  placeholder="https://yourbusiness.com"
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 8,
+                    border: `1px solid ${hasUrl ? A.indigo : A.border}`,
+                    fontSize: 14, color: A.text,
+                    background: A.surface, outline: 'none',
+                    transition: 'border-color 0.2s',
+                  }}
+                />
+                {hasUrl && (
+                  <p style={{ fontSize: 12, color: A.indigo, marginTop: 6 }}>
+                    ✓ We'll crawl your site for colors, tone, and competitors
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Error */}
           {error && (
             <div style={{
@@ -311,7 +315,7 @@ export default function OnboardPage() {
               fontSize: 15, fontWeight: 600, transition: 'all 0.2s',
             }}
           >
-            {noWebsite ? 'Build My Brand Profile →' : 'Analyze My Brand →'}
+            {hasUrl ? 'Analyze My Brand →' : 'Build My Brand Profile →'}
           </button>
         </div>
       </div>
