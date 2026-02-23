@@ -69,7 +69,10 @@ async def upload_brand_asset(brand_id: str, file_bytes: bytes,
 
 async def get_signed_url(gcs_uri: str) -> str:
     """Convert a gs:// URI to a 1-hour signed URL for frontend serving."""
-    blob_path = gcs_uri.replace(f"gs://{GCS_BUCKET_NAME}/", "")
+    prefix = f"gs://{GCS_BUCKET_NAME}/"
+    if not gcs_uri.startswith(prefix):
+        raise ValueError(f"Invalid GCS URI for bucket {GCS_BUCKET_NAME!r}: {gcs_uri!r}")
+    blob_path = gcs_uri[len(prefix):]
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
     loop = asyncio.get_running_loop()

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from google import genai
@@ -33,7 +34,8 @@ async def _generate_style_reference(brand_id: str, profile: dict) -> str | None:
     )
 
     try:
-        response = client.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -79,7 +81,7 @@ async def run_brand_analysis(
 
     Returns: Complete brand profile dict
     """
-    client = genai.Client()
+    client = genai.Client(api_key=GOOGLE_API_KEY)
 
     # Step 1: Gather website data if URL provided
     website_data = {}
@@ -179,7 +181,8 @@ Return ONLY a valid JSON object with these exact keys:
 """
 
     try:
-        response = client.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -188,13 +191,7 @@ Return ONLY a valid JSON object with these exact keys:
             ),
         )
 
-        raw = response.text.strip()
-        # Strip markdown code blocks if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        profile = json.loads(raw)
+        profile = json.loads(response.text.strip())
 
     except Exception as e:
         logger.error(f"Brand analysis failed: {e}")

@@ -15,6 +15,9 @@ from backend.services.storage_client import upload_video_to_gcs
 
 logger = logging.getLogger(__name__)
 
+# Veo polling ceiling: 20 minutes
+_VEO_POLL_TIMEOUT_S = 20 * 60
+
 # Platforms that use 9:16 (portrait) aspect ratio
 _PORTRAIT_PLATFORMS = {"instagram", "tiktok", "reels", "story", "stories"}
 
@@ -30,9 +33,9 @@ def _get_model_and_aspect(platform: str, tier: str) -> tuple[str, str]:
 
 
 def _build_prompt(caption: str, brand_profile: dict, platform: str) -> str:
-    brand_name = brand_profile.get("brand_name", "")
-    tone = brand_profile.get("tone_of_voice", "professional and engaging")
-    niche = brand_profile.get("niche", "")
+    brand_name = brand_profile.get("business_name", "")
+    tone = brand_profile.get("tone", "professional and engaging")
+    niche = brand_profile.get("industry", "")
 
     parts = [
         f"Create a dynamic, eye-catching social media video clip for {platform}.",
@@ -106,8 +109,15 @@ async def generate_video_clip(
 
     logger.info("Veo operation started, polling for completion...")
 
-    # Poll until the operation is complete
+    # Poll until the operation is complete, with a hard timeout ceiling
+    import time as _time
+    poll_start = _time.monotonic()
     while not operation.done:
+        if _time.monotonic() - poll_start > _VEO_POLL_TIMEOUT_S:
+            raise TimeoutError(
+                f"Veo video generation timed out after {_VEO_POLL_TIMEOUT_S}s "
+                f"for post {post_id}"
+            )
         await asyncio.sleep(10)
         operation = await loop.run_in_executor(
             None,
