@@ -74,4 +74,10 @@ export const api = {
   generateVideo: (postId: string, tier = 'fast', brandId = '') =>
     request(`/api/posts/${postId}/generate-video?tier=${tier}&brand_id=${brandId}`, { method: 'POST' }),
   getVideoJob: (jobId: string) => request(`/api/video-jobs/${jobId}`),
+
+  connectSocial: (brandId: string, platform: string, oauthToken: string) =>
+    request(`/api/brands/${brandId}/connect-social`, {
+      method: 'POST',
+      body: JSON.stringify({ platform, oauth_token: oauthToken }),
+    }),
 }
