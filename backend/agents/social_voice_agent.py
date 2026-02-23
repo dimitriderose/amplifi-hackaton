@@ -1,0 +1,217 @@
+import asyncio
+import json
+import logging
+
+import httpx
+from google import genai
+from google.genai import types
+from backend.config import GEMINI_MODEL, GOOGLE_API_KEY
+
+logger = logging.getLogger(__name__)
+
+SUPPORTED_PLATFORMS = {"linkedin", "instagram", "twitter"}
+
+
+# ── Platform post fetchers ─────────────────────────────────────────────────────
+
+async def _fetch_linkedin_posts(oauth_token: str, limit: int = 50) -> list[dict]:
+    """Fetch recent posts from LinkedIn using a user OAuth 2.0 access token.
+
+    Requires scopes: r_liteprofile, r_member_social (or w_member_social on newer apps).
+    """
+    headers = {
+        "Authorization": f"Bearer {oauth_token}",
+        "X-Restli-Protocol-Version": "2.0.0",
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Step 1: resolve the authenticated person's URN
+        me = await client.get("https://api.linkedin.com/v2/me", headers=headers)
+        me.raise_for_status()
+        person_id = me.json().get("id", "")
+        if not person_id:
+            raise ValueError("Could not retrieve LinkedIn person ID from token")
+
+        author_urn = f"urn:li:person:{person_id}"
+
+        # Step 2: fetch UGC posts authored by this person
+        posts_resp = await client.get(
+            "https://api.linkedin.com/v2/ugcPosts",
+            params={
+                "q": "authors",
+                "authors": f"List({author_urn})",
+                "count": limit,
+                "sortBy": "LAST_MODIFIED",
+            },
+            headers=headers,
+        )
+        posts_resp.raise_for_status()
+
+    texts = []
+    for el in posts_resp.json().get("elements", []):
+        text = (
+            el.get("specificContent", {})
+            .get("com.linkedin.ugc.ShareContent", {})
+            .get("shareCommentary", {})
+            .get("text", "")
+        )
+        if text:
+            texts.append({"text": text})
+    return texts
+
+
+async def _fetch_instagram_posts(oauth_token: str, limit: int = 50) -> list[dict]:
+    """Fetch recent posts from Instagram using a user access token (Basic Display API
+    or Meta Graph API with instagram_basic + pages_show_list scopes).
+    """
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Step 1: get the authenticated user's ID
+        me = await client.get(
+            "https://graph.instagram.com/me",
+            params={"fields": "id,username", "access_token": oauth_token},
+        )
+        me.raise_for_status()
+        user_id = me.json().get("id", "")
+        if not user_id:
+            raise ValueError("Could not retrieve Instagram user ID from token")
+
+        # Step 2: fetch recent media with captions
+        media = await client.get(
+            f"https://graph.instagram.com/{user_id}/media",
+            params={
+                "fields": "id,caption,media_type,timestamp",
+                "limit": limit,
+                "access_token": oauth_token,
+            },
+        )
+        media.raise_for_status()
+
+    return [
+        {"text": item["caption"]}
+        for item in media.json().get("data", [])
+        if item.get("caption")
+    ]
+
+
+async def _fetch_twitter_posts(oauth_token: str, limit: int = 100) -> list[dict]:
+    """Fetch recent tweets using an X (Twitter) OAuth 2.0 user access token.
+
+    Requires scopes: tweet.read, users.read.
+    The token must be a user-context OAuth 2.0 Bearer token (not app-only).
+    """
+    headers = {"Authorization": f"Bearer {oauth_token}"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Step 1: get the authenticated user's numeric ID
+        me = await client.get(
+            "https://api.twitter.com/2/users/me",
+            params={"user.fields": "id"},
+            headers=headers,
+        )
+        me.raise_for_status()
+        user_id = me.json().get("data", {}).get("id", "")
+        if not user_id:
+            raise ValueError("Could not retrieve Twitter user ID from token")
+
+        # Step 2: fetch recent tweets, excluding retweets and replies
+        tweets = await client.get(
+            f"https://api.twitter.com/2/users/{user_id}/tweets",
+            params={
+                "max_results": min(limit, 100),
+                "tweet.fields": "text,created_at",
+                "exclude": "retweets,replies",
+            },
+            headers=headers,
+        )
+        tweets.raise_for_status()
+
+    return [
+        {"text": t["text"]}
+        for t in tweets.json().get("data", [])
+        if t.get("text")
+    ]
+
+
+_FETCH_FNS = {
+    "linkedin": _fetch_linkedin_posts,
+    "instagram": _fetch_instagram_posts,
+    "twitter": _fetch_twitter_posts,
+}
+
+
+# ── Gemini voice analysis ──────────────────────────────────────────────────────
+
+async def _analyze_social_voice(posts: list[dict]) -> dict:
+    """Use Gemini to extract writing voice patterns from a list of posts."""
+    post_texts = "\n---\n".join(p["text"] for p in posts[:30])
+
+    prompt = f"""Analyze these social media posts and extract the author's authentic writing voice.
+
+POSTS:
+{post_texts}
+
+Return ONLY a valid JSON object with these exact keys:
+{{
+  "voice_characteristics": ["list of 3-6 specific traits about writing style and structure"],
+  "common_phrases": ["list of 2-5 frequently used phrases or sentence starters"],
+  "emoji_usage": "heavy|moderate|minimal|none",
+  "average_post_length": "short|medium|long",
+  "successful_patterns": ["list of 2-4 structural or stylistic patterns that likely drive engagement"],
+  "tone_adjectives": ["list of 3-5 adjectives like warm, authoritative, playful, direct"]
+}}"""
+
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.3,
+        ),
+    )
+    return json.loads(response.text.strip())
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+async def connect_platform(platform: str, oauth_token: str) -> dict:
+    """Fetch posts from a social platform and return a Gemini-generated voice analysis.
+
+    Args:
+        platform: One of "linkedin", "instagram", "twitter".
+        oauth_token: A valid OAuth 2.0 user access token for that platform.
+
+    Returns:
+        Voice analysis dict with keys: voice_characteristics, common_phrases,
+        emoji_usage, average_post_length, successful_patterns, tone_adjectives.
+
+    Raises:
+        ValueError: Unsupported platform, bad token, or no posts found.
+        httpx.HTTPStatusError: Upstream API rejected the token or returned an error.
+    """
+    platform = platform.lower()
+    if platform not in SUPPORTED_PLATFORMS:
+        raise ValueError(
+            f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(SUPPORTED_PLATFORMS))}"
+        )
+
+    fetch_fn = _FETCH_FNS[platform]
+    try:
+        posts = await fetch_fn(oauth_token)
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        if status == 401:
+            raise ValueError(f"Invalid or expired {platform} access token. Please reconnect.") from e
+        if status == 403:
+            raise ValueError(
+                f"Insufficient permissions for {platform}. "
+                "Make sure you granted read access to your posts."
+            ) from e
+        raise
+
+    if not posts:
+        raise ValueError(
+            f"No posts found on {platform}. Make sure your account has public posts."
+        )
+
+    logger.info("Analyzing voice from %d %s posts", len(posts), platform)
+    return await _analyze_social_voice(posts)

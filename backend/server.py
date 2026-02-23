@@ -149,6 +149,57 @@ async def upload_brand_asset_endpoint(
     return {"uploaded": uploaded}
 
 
+# ── Social Voice Analysis ──────────────────────────────────────
+
+@app.post("/api/brands/{brand_id}/connect-social")
+async def connect_social_account(
+    brand_id: str,
+    platform: str = Body(...),
+    oauth_token: str = Body(...),
+):
+    """Connect a social account, analyze the user's writing voice, and persist it.
+
+    Accepts a platform OAuth 2.0 user access token. Fetches recent posts via
+    the platform's API, runs Gemini voice analysis, and stores the result on
+    the brand profile under `social_voice_analysis`.
+
+    Request body (JSON):
+      { "platform": "linkedin|instagram|twitter", "oauth_token": "..." }
+    """
+    from backend.agents.social_voice_agent import connect_platform
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    try:
+        voice_analysis = await connect_platform(platform, oauth_token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(
+            "Social voice analysis failed for brand %s platform %s: %s",
+            brand_id, platform, e,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not fetch posts from {platform}. Check your token and try again.",
+        )
+
+    # Merge into brand profile
+    connected = list(brand.get("connected_platforms", []))
+    if platform not in connected:
+        connected.append(platform)
+
+    await firestore_client.update_brand(brand_id, {
+        "social_voice_analysis": voice_analysis,
+        "social_voice_platform": platform,
+        "connected_platforms": connected,
+    })
+
+    return {"platform": platform, "voice_analysis": voice_analysis}
+
+
 # ── Posts ─────────────────────────────────────────────────────
 
 @app.get("/api/posts")

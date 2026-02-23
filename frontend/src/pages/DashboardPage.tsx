@@ -8,6 +8,7 @@ import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
 import EventsInput from '../components/EventsInput'
 import VoiceCoach from '../components/VoiceCoach'
+import SocialConnect from '../components/SocialConnect'
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
@@ -110,8 +111,18 @@ export default function DashboardPage() {
 
       {/* 1:2 grid layout — left: brand card, right: calendar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, alignItems: 'start' }}>
-        {/* Left column: Brand Profile Card */}
-        <BrandProfileCard brand={brand} onUpdate={updateBrand} />
+        {/* Left column: Brand Profile Card + Social Connect */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <BrandProfileCard brand={brand} onUpdate={updateBrand} />
+          <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            <SocialConnect
+              brandId={brandId ?? ''}
+              connectedPlatforms={(brand as any).connected_platforms ?? []}
+              existingVoiceAnalysis={(brand as any).social_voice_analysis}
+              existingVoicePlatform={(brand as any).social_voice_platform}
+            />
+          </div>
+        </div>
 
         {/* Right column: Content Calendar or generate prompt */}
         <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>

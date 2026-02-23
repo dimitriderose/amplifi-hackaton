@@ -107,6 +107,26 @@ async def generate_post(
     colors = brand_profile.get("colors", [])
     style_reference_gcs_uri = brand_profile.get("style_reference_gcs_uri")
 
+    # Social voice block — injected when the user has connected a social account
+    _sva = brand_profile.get("social_voice_analysis") or {}
+    _sva_chars = _sva.get("voice_characteristics", [])
+    _sva_phrases = _sva.get("common_phrases", [])
+    _sva_tone = _sva.get("tone_adjectives", [])
+    if _sva_chars or _sva_phrases:
+        _sva_lines = ["EXISTING SOCIAL VOICE (match this style closely):"]
+        if _sva_chars:
+            _sva_lines.append(f"- Voice characteristics: {', '.join(_sva_chars)}")
+        if _sva_phrases:
+            _sva_lines.append(f"- Common phrases: {', '.join(_sva_phrases)}")
+        if _sva_tone:
+            _sva_lines.append(f"- Tone adjectives: {', '.join(_sva_tone)}")
+        _sva_lines.append(
+            "IMPORTANT: Generated captions should sound like this person's existing voice, not replace it."
+        )
+        social_voice_block = "\n".join(_sva_lines) + "\n"
+    else:
+        social_voice_block = ""
+
     # Format-specific instructions for derivative post types
     _DERIVATIVE_INSTRUCTIONS: dict[str, str] = {
         "carousel": (
@@ -158,7 +178,7 @@ async def generate_post(
 Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
-{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
+{social_voice_block}{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
 Analyze this photo and write a {platform} post caption that:
 - Complements and describes what's in the photo
 - Fits the "{content_theme}" theme for the "{pillar}" content pillar
@@ -265,7 +285,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
 Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
-{image_style_directive}
+{social_voice_block}{image_style_directive}
 {style_ref_block}{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
 Create a {platform} post for the "{pillar}" content pillar on the theme: "{content_theme}".
 
