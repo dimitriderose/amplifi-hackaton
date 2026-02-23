@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
@@ -60,8 +60,15 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
   const [approved, setApproved] = useState(false)
   // L-6: copy-to-clipboard state for revised caption
   const [captionCopied, setCaptionCopied] = useState(false)
+  const captionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const runReview = async () => {
+    // Clear any in-flight copy timer so a re-review doesn't inherit stale "Copied" state
+    if (captionCopyTimerRef.current) {
+      clearTimeout(captionCopyTimerRef.current)
+      captionCopyTimerRef.current = null
+    }
+    setCaptionCopied(false)
     setLoading(true)
     setError('')
     try {
@@ -262,8 +269,9 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
                 <button
                   onClick={() => {
                     navigator.clipboard?.writeText(review.revised_caption!).then(() => {
+                      if (captionCopyTimerRef.current) clearTimeout(captionCopyTimerRef.current)
                       setCaptionCopied(true)
-                      setTimeout(() => setCaptionCopied(false), 1500)
+                      captionCopyTimerRef.current = setTimeout(() => setCaptionCopied(false), 1500)
                     }).catch(() => {})
                   }}
                   style={{

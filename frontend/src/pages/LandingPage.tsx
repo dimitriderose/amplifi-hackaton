@@ -39,7 +39,8 @@ const STEPS = [
   {
     n: '01',
     title: 'Describe your brand',
-    desc: 'Paste your website URL or describe your business. The Brand Analyst builds your complete profile in 30 seconds.',
+    // L-1: URL is optional/collapsible — description is the primary action
+    desc: 'Describe your business in a few sentences. Optionally add your website URL for deeper analysis. The Brand Analyst builds your complete profile in 30 seconds.',
   },
   {
     n: '02',

@@ -44,21 +44,7 @@ export default function VideoRepurpose({ brandId }: Props) {
 
   const storageKey = `amplifi_vrjob_${brandId}`
 
-  // M-7: Restore in-flight job from sessionStorage on mount (survives navigation)
-  useEffect(() => {
-    const savedJobId = sessionStorage.getItem(storageKey)
-    if (savedJobId) {
-      setJob({ job_id: savedJobId, status: 'processing', clips: [] })
-      startPolling(savedJobId)
-    }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
+  // startPolling is defined before the mount effect that calls it for readability
   const startPolling = (jobId: string) => {
     sessionStorage.setItem(storageKey, jobId)
     if (pollRef.current) clearInterval(pollRef.current)
@@ -76,6 +62,23 @@ export default function VideoRepurpose({ brandId }: Props) {
       }
     }, 5000)
   }
+
+  // M-7: Restore in-flight job from sessionStorage on mount (survives navigation).
+  // brandId is stable for the component lifetime (routing unmounts on brand change),
+  // so the empty dep array is intentional — storageKey and startPolling are stable closures.
+  useEffect(() => {
+    const savedJobId = sessionStorage.getItem(storageKey)
+    if (savedJobId) {
+      setJob({ job_id: savedJobId, status: 'processing', clips: [] })
+      startPolling(savedJobId)
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFile = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()

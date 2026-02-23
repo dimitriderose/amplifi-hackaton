@@ -101,7 +101,7 @@ export default function BrandProfileCard({ brand, onUpdate }: Props) {
           </span>
         </div>
         <button
-          onClick={() => { setDraft(brand); setEditing(!editing) }}
+          onClick={() => { setDraft(brand); setSaveError(''); setEditing(!editing) }}
           style={{
             padding: '6px 14px', borderRadius: 6, border: `1px solid ${A.border}`,
             background: 'transparent', cursor: 'pointer', fontSize: 13, color: A.textSoft,
