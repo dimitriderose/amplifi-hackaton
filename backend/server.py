@@ -76,6 +76,7 @@ async def analyze_brand(brand_id: str, data: BrandProfileCreate):
         profile = await run_brand_analysis(
             description=data.description,
             website_url=data.website_url,
+            brand_id=brand_id,
         )
 
         # Merge AI results into Firestore document
