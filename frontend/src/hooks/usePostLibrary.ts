@@ -35,5 +35,13 @@ export function usePostLibrary(brandId: string, planId?: string) {
 
   useEffect(() => { fetch() }, [fetch])
 
+  // H-7: Auto-refresh every 8 seconds when any post is still generating
+  useEffect(() => {
+    const hasGenerating = posts.some(p => p.status === 'generating')
+    if (!hasGenerating) return
+    const interval = setInterval(fetch, 8000)
+    return () => clearInterval(interval)
+  }, [posts, fetch])
+
   return { posts, loading, error, refresh: fetch }
 }

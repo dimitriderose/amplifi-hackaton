@@ -53,7 +53,14 @@ export default function NavBar() {
         ))}
         {activeBrandId && (
           <button
-            onClick={() => navigate(`/export/${activeBrandId}`)}
+            onClick={() => {
+              // H-8: Include plan_id from sessionStorage so ExportPage loads the right plan ZIP
+              const planId = sessionStorage.getItem(`amplifi_plan_${activeBrandId}`)
+              const url = planId
+                ? `/export/${activeBrandId}?plan_id=${planId}`
+                : `/export/${activeBrandId}`
+              navigate(url)
+            }}
             style={{
               padding: '5px 12px', borderRadius: 6,
               background: location.pathname.startsWith('/export/') ? A.indigoLight : 'transparent',
