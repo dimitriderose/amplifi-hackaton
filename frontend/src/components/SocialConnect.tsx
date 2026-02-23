@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
 
+// Module-level keyframe — avoids duplicate injection on remount
+const SPIN_STYLE = `@keyframes sc-spin { to { transform: rotate(360deg); } }`
+
 interface VoiceAnalysis {
   voice_characteristics: string[]
   common_phrases: string[]
@@ -40,14 +43,14 @@ const PLATFORMS: Record<string, PlatformConfig> = {
     helpText: 'Get a token from Meta for Developers → Graph API Explorer → select your Instagram app',
     helpUrl: 'https://developers.facebook.com/tools/explorer/',
   },
-  twitter: {
+  x: {
     name: 'X (Twitter)',
     icon: '✖',
     color: '#000000',
     tokenLabel: 'X OAuth 2.0 User Access Token',
     tokenPlaceholder: 'AAAA...',
     helpText: 'Get a token from X Developer Portal → Your App → Keys and Tokens → OAuth 2.0 User Access Token',
-    helpUrl: 'https://developer.twitter.com/en/portal/dashboard',
+    helpUrl: 'https://developer.x.com/en/portal/dashboard',
   },
 }
 
@@ -162,10 +165,14 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
       {expanded && (
         <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${A.border}` }}>
           <div style={{ paddingTop: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, display: 'block', marginBottom: 6 }}>
+            <label
+              htmlFor={`token-${platformKey}`}
+              style={{ fontSize: 12, fontWeight: 500, color: A.textSoft, display: 'block', marginBottom: 6 }}
+            >
               {config.tokenLabel}
             </label>
             <input
+              id={`token-${platformKey}`}
               type="password"
               value={token}
               onChange={e => setToken(e.target.value)}
@@ -229,6 +236,9 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
 interface Props {
   brandId: string
   connectedPlatforms?: string[]
+  /** Per-platform voice analyses keyed by platform name (preferred) */
+  existingVoiceAnalyses?: Record<string, VoiceAnalysis>
+  /** Fallback: single latest analysis (older brands) */
   existingVoiceAnalysis?: VoiceAnalysis
   existingVoicePlatform?: string
 }
@@ -236,27 +246,31 @@ interface Props {
 export default function SocialConnect({
   brandId,
   connectedPlatforms = [],
+  existingVoiceAnalyses,
   existingVoiceAnalysis,
   existingVoicePlatform,
 }: Props) {
   const [connected, setConnected] = useState<string[]>(connectedPlatforms)
-  const [latestAnalysis, setLatestAnalysis] = useState<{
-    platform: string
-    analysis: VoiceAnalysis
-  } | null>(
-    existingVoiceAnalysis && existingVoicePlatform
-      ? { platform: existingVoicePlatform, analysis: existingVoiceAnalysis }
-      : null
-  )
+  const [sessionAnalyses, setSessionAnalyses] = useState<Record<string, VoiceAnalysis>>({})
 
   const handleConnected = (platform: string, analysis: VoiceAnalysis) => {
     setConnected(prev => prev.includes(platform) ? prev : [...prev, platform])
-    setLatestAnalysis({ platform, analysis })
+    setSessionAnalyses(prev => ({ ...prev, [platform]: analysis }))
   }
+
+  // Resolve per-platform analysis: session state wins, then per-platform dict, then single fallback
+  const getAnalysisForPlatform = (key: string): VoiceAnalysis | undefined => {
+    if (sessionAnalyses[key]) return sessionAnalyses[key]
+    if (existingVoiceAnalyses?.[key]) return existingVoiceAnalyses[key]
+    if (existingVoiceAnalysis && existingVoicePlatform === key) return existingVoiceAnalysis
+    return undefined
+  }
+
+  const hasAnyActive = connected.length > 0 || Object.keys(sessionAnalyses).length > 0
 
   return (
     <div>
-      <style>{`@keyframes sc-spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{SPIN_STYLE}</style>
 
       <div style={{ marginBottom: 14 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: A.text, margin: '0 0 4px' }}>
@@ -275,21 +289,19 @@ export default function SocialConnect({
             config={config}
             brandId={brandId}
             isConnected={connected.includes(key)}
-            existingAnalysis={
-              latestAnalysis?.platform === key ? latestAnalysis.analysis : undefined
-            }
+            existingAnalysis={getAnalysisForPlatform(key)}
             onConnected={handleConnected}
           />
         ))}
       </div>
 
-      {latestAnalysis && (
+      {hasAnyActive && (
         <div style={{
           marginTop: 12, padding: '10px 12px', borderRadius: 8,
           background: A.indigoLight, border: `1px solid ${A.indigo}20`,
           fontSize: 12, color: A.indigo, lineHeight: 1.5,
         }}>
-          ✓ Voice analysis active — captions will now match your {PLATFORMS[latestAnalysis.platform]?.name} style.
+          ✓ Voice analysis active — captions will match your connected account style.
         </div>
       )}
     </div>

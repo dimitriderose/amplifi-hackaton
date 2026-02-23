@@ -9,8 +9,6 @@ from backend.config import GEMINI_MODEL, GOOGLE_API_KEY
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_PLATFORMS = {"linkedin", "instagram", "twitter"}
-
 
 # ── Platform post fetchers ─────────────────────────────────────────────────────
 
@@ -45,9 +43,10 @@ async def _fetch_linkedin_posts(oauth_token: str, limit: int = 50) -> list[dict]
             headers=headers,
         )
         posts_resp.raise_for_status()
+        elements = posts_resp.json().get("elements", [])
 
     texts = []
-    for el in posts_resp.json().get("elements", []):
+    for el in elements:
         text = (
             el.get("specificContent", {})
             .get("com.linkedin.ugc.ShareContent", {})
@@ -84,15 +83,12 @@ async def _fetch_instagram_posts(oauth_token: str, limit: int = 50) -> list[dict
             },
         )
         media.raise_for_status()
+        items = media.json().get("data", [])
 
-    return [
-        {"text": item["caption"]}
-        for item in media.json().get("data", [])
-        if item.get("caption")
-    ]
+    return [{"text": item["caption"]} for item in items if item.get("caption")]
 
 
-async def _fetch_twitter_posts(oauth_token: str, limit: int = 100) -> list[dict]:
+async def _fetch_x_posts(oauth_token: str, limit: int = 100) -> list[dict]:
     """Fetch recent tweets using an X (Twitter) OAuth 2.0 user access token.
 
     Requires scopes: tweet.read, users.read.
@@ -109,7 +105,7 @@ async def _fetch_twitter_posts(oauth_token: str, limit: int = 100) -> list[dict]
         me.raise_for_status()
         user_id = me.json().get("data", {}).get("id", "")
         if not user_id:
-            raise ValueError("Could not retrieve Twitter user ID from token")
+            raise ValueError("Could not retrieve X user ID from token")
 
         # Step 2: fetch recent tweets, excluding retweets and replies
         tweets = await client.get(
@@ -122,18 +118,16 @@ async def _fetch_twitter_posts(oauth_token: str, limit: int = 100) -> list[dict]
             headers=headers,
         )
         tweets.raise_for_status()
+        items = tweets.json().get("data", [])
 
-    return [
-        {"text": t["text"]}
-        for t in tweets.json().get("data", [])
-        if t.get("text")
-    ]
+    return [{"text": t["text"]} for t in items if t.get("text")]
 
 
-_FETCH_FNS = {
+# Single source of truth — validation and dispatch both use this dict
+_FETCH_FNS: dict[str, object] = {
     "linkedin": _fetch_linkedin_posts,
     "instagram": _fetch_instagram_posts,
-    "twitter": _fetch_twitter_posts,
+    "x": _fetch_x_posts,
 }
 
 
@@ -168,7 +162,17 @@ Return ONLY a valid JSON object with these exact keys:
             temperature=0.3,
         ),
     )
-    return json.loads(response.text.strip())
+    try:
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw.strip())
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning("Voice analysis JSON parse failed: %s | raw: %.200s", e, response.text)
+        raise ValueError("Voice analysis returned an unexpected response. Please try again.") from e
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -177,7 +181,7 @@ async def connect_platform(platform: str, oauth_token: str) -> dict:
     """Fetch posts from a social platform and return a Gemini-generated voice analysis.
 
     Args:
-        platform: One of "linkedin", "instagram", "twitter".
+        platform: One of "linkedin", "instagram", "x".
         oauth_token: A valid OAuth 2.0 user access token for that platform.
 
     Returns:
@@ -185,26 +189,37 @@ async def connect_platform(platform: str, oauth_token: str) -> dict:
         emoji_usage, average_post_length, successful_patterns, tone_adjectives.
 
     Raises:
-        ValueError: Unsupported platform, bad token, or no posts found.
-        httpx.HTTPStatusError: Upstream API rejected the token or returned an error.
+        ValueError: Unsupported platform, bad/expired token, insufficient permissions,
+                    rate-limited, timeout, no posts found, or unparseable AI response.
+        httpx.HTTPStatusError: Unexpected upstream API error (status not handled above).
     """
     platform = platform.lower()
-    if platform not in SUPPORTED_PLATFORMS:
+    if platform not in _FETCH_FNS:
         raise ValueError(
-            f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(SUPPORTED_PLATFORMS))}"
+            f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(_FETCH_FNS))}"
         )
 
     fetch_fn = _FETCH_FNS[platform]
     try:
-        posts = await fetch_fn(oauth_token)
+        posts = await fetch_fn(oauth_token)  # type: ignore[operator]
+    except httpx.TimeoutException:
+        raise ValueError(
+            f"Request to {platform} timed out. The platform API may be slow — please try again."
+        )
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status == 401:
-            raise ValueError(f"Invalid or expired {platform} access token. Please reconnect.") from e
+            raise ValueError(
+                f"Invalid or expired {platform} access token. Please reconnect."
+            ) from e
         if status == 403:
             raise ValueError(
                 f"Insufficient permissions for {platform}. "
                 "Make sure you granted read access to your posts."
+            ) from e
+        if status == 429:
+            raise ValueError(
+                f"{platform} rate limit reached. Please wait a few minutes and try again."
             ) from e
         raise
 

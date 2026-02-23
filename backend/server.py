@@ -73,10 +73,15 @@ async def analyze_brand(brand_id: str, data: BrandProfileCreate):
     await firestore_client.update_brand(brand_id, {"analysis_status": "analyzing"})
 
     try:
+        # Pass any existing social voice so re-analysis preserves connected voice data
+        existing_brand = await firestore_client.get_brand(brand_id)
+        existing_voice = existing_brand.get("social_voice_analysis") if existing_brand else None
+
         profile = await run_brand_analysis(
             description=data.description,
             website_url=data.website_url,
             brand_id=brand_id,
+            social_voice_analysis=existing_voice,
         )
 
         # Merge AI results into Firestore document
@@ -161,12 +166,21 @@ async def connect_social_account(
 
     Accepts a platform OAuth 2.0 user access token. Fetches recent posts via
     the platform's API, runs Gemini voice analysis, and stores the result on
-    the brand profile under `social_voice_analysis`.
+    the brand profile.
 
     Request body (JSON):
-      { "platform": "linkedin|instagram|twitter", "oauth_token": "..." }
+      { "platform": "linkedin|instagram|x", "oauth_token": "..." }
+
+    Stored fields:
+      social_voice_analyses: dict[platform → analysis]  — all connected platforms
+      social_voice_analysis:  dict                       — latest analysis (for injection)
+      social_voice_platform:  str                        — platform of latest analysis
+      connected_platforms:    list[str]                  — all connected platform keys
     """
     from backend.agents.social_voice_agent import connect_platform
+
+    if not oauth_token or not oauth_token.strip():
+        raise HTTPException(status_code=400, detail="oauth_token must not be empty")
 
     brand = await firestore_client.get_brand(brand_id)
     if not brand:
@@ -186,13 +200,17 @@ async def connect_social_account(
             detail=f"Could not fetch posts from {platform}. Check your token and try again.",
         )
 
-    # Merge into brand profile
+    # Merge into brand profile — store per-platform dict + latest shortcut
     connected = list(brand.get("connected_platforms", []))
     if platform not in connected:
         connected.append(platform)
 
+    existing_analyses = dict(brand.get("social_voice_analyses", {}))
+    existing_analyses[platform] = voice_analysis
+
     await firestore_client.update_brand(brand_id, {
-        "social_voice_analysis": voice_analysis,
+        "social_voice_analyses": existing_analyses,   # all platforms
+        "social_voice_analysis": voice_analysis,       # latest (used by content creator)
         "social_voice_platform": platform,
         "connected_platforms": connected,
     })

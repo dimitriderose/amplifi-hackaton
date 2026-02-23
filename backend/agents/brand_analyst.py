@@ -64,6 +64,7 @@ async def run_brand_analysis(
     website_url: str | None = None,
     uploaded_assets: list[str] | None = None,
     brand_id: str | None = None,
+    social_voice_analysis: dict | None = None,
 ) -> dict:
     """Run the Brand Analyst agent to build a complete brand profile.
 
@@ -71,6 +72,10 @@ async def run_brand_analysis(
         description: Free-text business description (min 20 chars, required)
         website_url: Optional website URL to scrape
         uploaded_assets: Optional list of GCS URIs for uploaded brand assets
+        brand_id: Optional brand ID — used for style reference image upload
+        social_voice_analysis: Optional existing social voice data; when present,
+            the analyst uses it to inform tone and caption_style_directive so
+            re-analysis doesn't override a voice the user has already connected.
 
     Returns: Complete brand profile dict
     """
@@ -101,10 +106,27 @@ WEBSITE DATA:
 - Detected brand voice signals: {', '.join(voice_analysis.get('detected_tones', []))}
 """
 
+    # Inject existing social voice so re-analysis preserves the user's connected voice
+    social_voice_context = ""
+    if social_voice_analysis:
+        chars = social_voice_analysis.get("voice_characteristics", [])
+        phrases = social_voice_analysis.get("common_phrases", [])
+        patterns = social_voice_analysis.get("successful_patterns", [])
+        if chars or phrases:
+            social_voice_context = f"""
+EXISTING SOCIAL MEDIA VOICE (already analyzed from connected account):
+- Voice characteristics: {', '.join(chars)}
+- Common phrases: {', '.join(phrases)}
+- Successful patterns: {', '.join(patterns)}
+
+IMPORTANT: When setting TONE and CAPTION_STYLE_DIRECTIVE, ensure they are consistent with
+and build upon this existing voice, not replace it. The goal is refinement, not reinvention.
+"""
+
     prompt = f"""You are a brand strategist analyzing a business to build a comprehensive brand profile for social media content creation.
 
 BUSINESS DESCRIPTION: {description}
-{website_context}
+{website_context}{social_voice_context}
 
 Infer the business type and tailor your analysis:
 - local_business: local/physical businesses (restaurants, salons, gyms, shops)
