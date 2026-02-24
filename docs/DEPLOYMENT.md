@@ -9,6 +9,7 @@
 | npm | 10+ | Frontend package manager |
 | Google Cloud SDK (`gcloud`) | Latest | GCP services + deployment |
 | Docker | 24+ | Container builds (production) |
+| Terraform | 1.5+ | Infrastructure as code (optional, see Part 5) |
 | ffmpeg | 6+ | Video processing (installed in Docker, needed locally for video features) |
 | Git | 2.x | Source control |
 
@@ -157,7 +158,7 @@ Browser :5173 ──Vite proxy──→ FastAPI :8080
 
 ---
 
-## Part 2: Production Deployment (Cloud Run)
+## Part 2: Production Deployment (Cloud Run) — Manual
 
 ### 2.1 Architecture
 
@@ -360,12 +361,129 @@ amplifi-hackaton/
 │   ├── tsconfig.json                 # TypeScript config
 │   ├── vite.config.ts                # Proxy /api → :8080
 │   └── index.html
+├── terraform/                        # Infrastructure as Code (Part 5)
+│   ├── main.tf
+│   ├── variables.tf
+│   └── terraform.tfvars.example
 └── docs/
     ├── PRD.md
     ├── TDD.md
+    ├── DEPLOYMENT.md                 # This file
+    ├── architecture.mermaid
     ├── amplifi-ui.jsx
     └── playtest-personas.md
 ```
+
+---
+
+## Part 5: Automated Deployment (Terraform)
+
+> **Hackathon bonus:** This section demonstrates automated cloud deployment using infrastructure-as-code.
+
+Instead of running the manual `gcloud` commands in Part 2, you can provision everything with a single `terraform apply`. The Terraform config in `terraform/` creates:
+
+- All required GCP API enablements
+- Cloud Firestore database
+- Cloud Storage bucket with CORS policy
+- Artifact Registry repository
+- Cloud Run service with 300s SSE timeout
+- Public IAM policy (unauthenticated access)
+
+### 5.1 Prerequisites
+
+Install Terraform (v1.5+):
+
+```bash
+# macOS
+brew install terraform
+
+# Linux
+sudo apt-get install -y terraform
+
+# Or download from https://developer.hashicorp.com/terraform/downloads
+```
+
+Authenticate with GCP:
+
+```bash
+gcloud auth application-default login
+```
+
+### 5.2 Configure Variables
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars`:
+
+```hcl
+project_id     = "your-gcp-project-id"
+region         = "us-central1"
+gemini_api_key = "your-gemini-api-key"
+```
+
+> **Never commit `terraform.tfvars`** — it contains your API key. It's already in `.gitignore`.
+
+### 5.3 Build and Push the Docker Image
+
+Terraform provisions the infrastructure but doesn't build your Docker image. Build and push it first:
+
+```bash
+# From repo root
+export PROJECT_ID=your-gcp-project-id
+export IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest
+
+# Build and push (includes frontend build inside Docker)
+gcloud builds submit --tag $IMAGE --timeout=900
+```
+
+### 5.4 Deploy Everything
+
+```bash
+cd terraform
+terraform init
+terraform plan     # Review what will be created
+terraform apply    # Provision all resources
+```
+
+Terraform outputs your Cloud Run URL:
+
+```
+Outputs:
+
+service_url        = "https://amplifi-abc123-uc.a.run.app"
+image_url          = "us-central1-docker.pkg.dev/your-project/amplifi/amplifi:latest"
+bucket_name        = "your-project-amplifi-assets"
+firestore_database = "(default)"
+```
+
+### 5.5 Post-Deploy: Set CORS
+
+After the first deploy, update `CORS_ORIGINS` with the Cloud Run URL from the output:
+
+```bash
+gcloud run services update amplifi \
+  --region us-central1 \
+  --set-env-vars="CORS_ORIGINS=https://amplifi-abc123-uc.a.run.app"
+```
+
+The GCS bucket CORS is already configured by Terraform (wildcard origin — tighten to your Cloud Run URL in `main.tf` for production).
+
+### 5.6 Tear Down (if needed)
+
+```bash
+terraform destroy   # Removes all provisioned resources
+```
+
+### 5.7 What's in `terraform/`
+
+| File | Purpose |
+|------|---------|
+| `main.tf` | All resource definitions (APIs, Firestore, GCS bucket, Artifact Registry, Cloud Run, IAM) |
+| `variables.tf` | Input variables (project_id, region, gemini_api_key) |
+| `terraform.tfvars.example` | Template for your secret values |
 
 ---
 
@@ -376,12 +494,14 @@ amplifi-hackaton/
 | `CORS error` in browser | `CORS_ORIGINS` doesn't include your frontend URL | Update `CORS_ORIGINS` env var (comma-separated) |
 | SSE stream hangs / times out | Cloud Run default timeout too short | Deploy with `--timeout 300` |
 | `ModuleNotFoundError: google.adk` | Missing ADK dependency | `pip install google-adk==0.5.0` |
-| Images not loading from GCS | Bucket CORS not configured | Set GCS CORS policy (see §2.6) |
+| Images not loading from GCS | Bucket CORS not configured | Set GCS CORS policy (see §2.6) or use Terraform (auto-configured) |
 | `tsc -b` fails during Docker build | TypeScript compilation errors | Run `cd frontend && npm run build` locally first to catch errors |
 | `ffmpeg not found` locally | ffmpeg not installed on host | `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) — only needed for video features |
 | Brand analysis returns empty | URL not crawlable / description too short | Use "describe your business" with 2-3 sentences minimum |
 | Budget exceeded error | Session hit $100 cap | Budget resets per session; reduce image count or use caption-only mode |
 | `npm ci` fails in Docker | `package-lock.json` out of sync | Run `cd frontend && npm install` locally to regenerate lockfile, commit |
+| `terraform plan` fails with auth error | Not authenticated with GCP | Run `gcloud auth application-default login` |
+| `terraform apply` — image not found | Docker image not pushed yet | Build and push the image first (see §5.3), then `terraform apply` |
 
 ---
 
@@ -399,3 +519,4 @@ amplifi-hackaton/
 | Agent framework | Direct Gemini API calls | Google ADK pipeline |
 | External storage | Firestore only | Firestore + Cloud Storage |
 | Dockerfile scope | Backend only | Full-stack (Node build + Python) |
+| Terraform extras | Firestore + Cloud Run | Firestore + GCS bucket + Cloud Run |
