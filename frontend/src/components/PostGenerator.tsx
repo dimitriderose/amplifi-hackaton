@@ -166,7 +166,9 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
   const captionRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { status, statusMessage, captionChunks, caption, hashtags, imageUrl, postId, error } = state
+  const { status, statusMessage, captionChunks, caption, hashtags, imageUrl, imageUrls, postId, error } = state
+  const [carouselIndex, setCarouselIndex] = useState(0)
+  const isCarousel = imageUrls.length > 1
 
   // Reset editing state when postId changes (new generation or day switch)
   useEffect(() => {
@@ -177,6 +179,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
     setCaptionSaving(false)
     setCaptionOnly(false)
     setVideoExpanded(false)
+    setCarouselIndex(0)
     cancelledRef.current = false
   }, [postId])
 
@@ -256,7 +259,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
   const showVideoSection = status === 'complete' && postId && brandId
 
   const { status: videoStatus, videoUrl, progress, error: videoError, startGeneration } =
-    useVideoGeneration(postId ?? '', brandId ?? '')
+    useVideoGeneration(postId ?? '', brandId ?? '', state.videoUrl)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -586,7 +589,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
           )}
         </div>
 
-        {/* Right: Image — M-3: hidden when captionOnly is active */}
+        {/* Right: Image / Carousel — M-3: hidden when captionOnly is active */}
         {!captionOnly && (
           <div style={{
             borderRadius: 12, overflow: 'hidden',
@@ -595,11 +598,65 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
             position: 'relative',
           }}>
             {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt="Generated post image"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
+              <>
+                <img
+                  src={isCarousel ? imageUrls[carouselIndex] : imageUrl}
+                  alt={isCarousel ? `Slide ${carouselIndex + 1}` : 'Generated post image'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                {/* Carousel nav arrows */}
+                {isCarousel && (
+                  <>
+                    {carouselIndex > 0 && (
+                      <button
+                        onClick={() => setCarouselIndex(i => i - 1)}
+                        style={{
+                          position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                          width: 32, height: 32, borderRadius: '50%', border: 'none',
+                          background: 'rgba(0,0,0,0.5)', color: 'white', fontSize: 16,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >‹</button>
+                    )}
+                    {carouselIndex < imageUrls.length - 1 && (
+                      <button
+                        onClick={() => setCarouselIndex(i => i + 1)}
+                        style={{
+                          position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                          width: 32, height: 32, borderRadius: '50%', border: 'none',
+                          background: 'rgba(0,0,0,0.5)', color: 'white', fontSize: 16,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >›</button>
+                    )}
+                    {/* Dot indicators */}
+                    <div style={{
+                      position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
+                      display: 'flex', gap: 6,
+                    }}>
+                      {imageUrls.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setCarouselIndex(i)}
+                          style={{
+                            width: 8, height: 8, borderRadius: '50%', border: 'none', padding: 0,
+                            background: i === carouselIndex ? 'white' : 'rgba(255,255,255,0.5)',
+                            cursor: 'pointer', transition: 'background 0.2s',
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {/* Slide counter badge */}
+                    <span style={{
+                      position: 'absolute', top: 10, right: 10,
+                      padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                      background: 'rgba(0,0,0,0.5)', color: 'white',
+                    }}>
+                      {carouselIndex + 1}/{imageUrls.length}
+                    </span>
+                  </>
+                )}
+              </>
             ) : (
               <div style={{ textAlign: 'center', padding: 20 }}>
                 {status === 'generating' ? (

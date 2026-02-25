@@ -139,6 +139,11 @@ async def get_post(brand_id: str, post_id: str) -> Optional[dict]:
                    .collection("posts").document(post_id).get())
     return doc.to_dict() if doc.exists else None
 
+async def delete_post(brand_id: str, post_id: str) -> None:
+    db = get_client()
+    await (db.collection("brands").document(brand_id)
+             .collection("posts").document(post_id).delete())
+
 async def update_post(brand_id: str, post_id: str, data: dict) -> None:
     db = get_client()
     await (db.collection("brands").document(brand_id)

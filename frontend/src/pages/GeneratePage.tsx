@@ -59,6 +59,8 @@ export default function GeneratePage() {
             caption: post.caption || '',
             hashtags: post.hashtags || [],
             imageUrl: post.image_url || null,
+            imageUrls: post.image_urls || [],
+            videoUrl: post.video?.url || null,
           })
         })
         .catch(() => {})

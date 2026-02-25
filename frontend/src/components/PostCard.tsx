@@ -55,12 +55,8 @@ export default function PostCard({ post, brandId, onApproved, onDismiss, onView 
   const handleExport = async () => {
     setExportError(null)
     try {
-      const res = await api.exportPost(post.post_id, brandId) as { download_url?: string; caption?: string }
-      if (res.download_url) {
-        window.open(res.download_url, '_blank')
-      }
+      await api.exportPost(post.post_id, brandId)
     } catch (err: any) {
-      // L-5: Inline error instead of alert()
       setExportError(err.message || 'Export failed')
     }
   }

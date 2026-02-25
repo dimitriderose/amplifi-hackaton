@@ -48,7 +48,24 @@ export const api = {
     request(`/api/brands/${brandId}/posts/${postId}/review${force ? '?force=true' : ''}`, { method: 'POST' }),
   approvePost: (brandId: string, postId: string) =>
     request(`/api/brands/${brandId}/posts/${postId}/approve`, { method: 'POST' }),
-  exportPost: (postId: string, brandId: string) => request(`/api/posts/${postId}/export?brand_id=${brandId}`),
+  exportPost: (postId: string, brandId: string) =>
+    fetch(`/api/posts/${postId}/export?brand_id=${encodeURIComponent(brandId)}`)
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ error: r.statusText }))
+          throw new Error(err.detail || err.error || `HTTP ${r.status}`)
+        }
+        const blob = await r.blob()
+        const disposition = r.headers.get('Content-Disposition') || ''
+        const match = disposition.match(/filename=(.+)/)
+        const filename = match ? match[1] : `amplifi_post_${postId}.zip`
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(url)
+      }),
   exportPlan: (planId: string, brandId: string) =>
     fetch(`/api/export/${planId}?brand_id=${encodeURIComponent(brandId)}`, { method: 'POST' })
       .then(async r => {

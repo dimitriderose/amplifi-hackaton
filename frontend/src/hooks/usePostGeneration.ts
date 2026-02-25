@@ -9,6 +9,8 @@ export interface GenerationState {
   caption: string            // final complete caption
   hashtags: string[]
   imageUrl: string | null
+  imageUrls: string[]        // carousel: all slide URLs
+  videoUrl: string | null
   postId: string | null
   error: string | null
 }
@@ -21,6 +23,8 @@ export function usePostGeneration() {
     caption: '',
     hashtags: [],
     imageUrl: null,
+    imageUrls: [],
+    videoUrl: null,
     postId: null,
     error: null,
   })
@@ -40,6 +44,8 @@ export function usePostGeneration() {
       caption: '',
       hashtags: [],
       imageUrl: null,
+      imageUrls: [],
+      videoUrl: null,
       postId: null,
       error: null,
     })
@@ -73,7 +79,11 @@ export function usePostGeneration() {
 
     es.addEventListener('image', (e: MessageEvent) => {
       const data = JSON.parse(e.data)
-      setState(prev => ({ ...prev, imageUrl: data.url }))
+      setState(prev => ({
+        ...prev,
+        imageUrl: prev.imageUrl || data.url,  // first image becomes primary
+        imageUrls: [...prev.imageUrls, data.url],
+      }))
     })
 
     es.addEventListener('complete', (e: MessageEvent) => {
@@ -85,6 +95,7 @@ export function usePostGeneration() {
         caption: data.caption || prev.caption,
         hashtags: data.hashtags || prev.hashtags,
         imageUrl: data.image_url || prev.imageUrl,
+        imageUrls: data.image_urls?.length ? data.image_urls : prev.imageUrls,
       }))
       es.close()
     })
@@ -114,6 +125,8 @@ export function usePostGeneration() {
       caption: '',
       hashtags: [],
       imageUrl: null,
+      imageUrls: [],
+      videoUrl: null,
       postId: null,
       error: null,
     })
@@ -125,6 +138,8 @@ export function usePostGeneration() {
     caption: string
     hashtags: string[]
     imageUrl: string | null
+    imageUrls?: string[]
+    videoUrl?: string | null
   }) => {
     setState({
       status: 'complete',
@@ -133,6 +148,8 @@ export function usePostGeneration() {
       caption: post.caption,
       hashtags: post.hashtags,
       imageUrl: post.imageUrl,
+      imageUrls: post.imageUrls || (post.imageUrl ? [post.imageUrl] : []),
+      videoUrl: post.videoUrl ?? null,
       postId: post.postId,
       error: null,
     })

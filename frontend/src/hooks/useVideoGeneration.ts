@@ -3,9 +3,9 @@ import { api } from '../api/client'
 
 type VideoStatus = 'idle' | 'generating' | 'complete' | 'error'
 
-export function useVideoGeneration(postId: string, brandId: string) {
-  const [status, setStatus] = useState<VideoStatus>('idle')
-  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+export function useVideoGeneration(postId: string, brandId: string, existingVideoUrl?: string | null) {
+  const [status, setStatus] = useState<VideoStatus>(existingVideoUrl ? 'complete' : 'idle')
+  const [videoUrl, setVideoUrl] = useState<string | null>(existingVideoUrl ?? null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -55,6 +55,21 @@ export function useVideoGeneration(postId: string, brandId: string) {
     },
     [postId, brandId]
   )
+
+  // Reset state when postId or existingVideoUrl changes (navigating between posts)
+  useEffect(() => {
+    if (existingVideoUrl) {
+      setStatus('complete')
+      setVideoUrl(existingVideoUrl)
+      setProgress(100)
+      setError('')
+    } else {
+      setStatus('idle')
+      setVideoUrl(null)
+      setProgress(0)
+      setError('')
+    }
+  }, [postId, existingVideoUrl])
 
   // Clear interval on unmount to prevent memory leaks
   useEffect(() => {

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from backend.config import CORS_ORIGINS
+from backend.config import CORS_ORIGINS, GCS_BUCKET_NAME
 from backend.models.brand import BrandProfileCreate, BrandProfile, BrandProfileUpdate
 from backend.services import firestore_client
 from backend.services.storage_client import (
@@ -298,42 +298,59 @@ async def export_post(
     post_id: str,
     brand_id: str = Query(..., description="Brand ID that owns the post"),
 ):
-    """Return post metadata plus a download URL.
-
-    If the post has an ``image_gcs_uri`` (a ``gs://`` URI stored at upload
-    time), it is converted to a short-lived signed URL and returned as
-    ``download_url``.  The raw ``image_gcs_uri`` is never exposed to callers.
-    """
+    """Download a single post as a ZIP (image + caption.txt)."""
     post = await firestore_client.get_post(brand_id, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    image_gcs_uri: str | None = post.get("image_gcs_uri")
-    download_url: str | None = None
-    image_url: str | None = None
+    platform: str = post.get("platform", "post")
+    caption: str = post.get("caption", "")
+    hashtags: list[str] = post.get("hashtags", [])
+    day_index = post.get("day_index", 0)
+    base_name = f"{platform}_day{day_index + 1}"
 
-    if image_gcs_uri:
+    # Helper to download a blob from GCS by gs:// URI
+    async def _dl(uri: str | None) -> bytes | None:
+        if not uri:
+            return None
+        prefix = f"gs://{GCS_BUCKET_NAME}/"
+        if not uri.startswith(prefix):
+            return None
         try:
-            signed = await get_signed_url(image_gcs_uri)
-            download_url = signed
-            image_url = signed
+            blob = get_bucket().blob(uri[len(prefix):])
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, blob.download_as_bytes)
         except Exception as exc:
-            logger.warning("Could not sign GCS URI %s: %s", image_gcs_uri, exc)
-    else:
-        # Fall back to the first element of image_urls if present
-        urls: list = post.get("image_urls", [])
-        if urls:
-            image_url = urls[0]
-            download_url = image_url
+            logger.warning("Could not download %s for post %s: %s", uri, post_id, exc)
+            return None
 
-    return {
-        "post_id": post_id,
-        "platform": post.get("platform"),
-        "caption": post.get("caption", ""),
-        "hashtags": post.get("hashtags", []),
-        "image_url": image_url,
-        "download_url": download_url,
-    }
+    # Download image + video in parallel
+    img_bytes, vid_bytes = await asyncio.gather(
+        _dl(post.get("image_gcs_uri")),
+        _dl((post.get("video") or {}).get("video_gcs_uri")),
+    )
+
+    # Build ZIP
+    zip_buffer = io.BytesIO()
+    archive_root = f"amplifi_{base_name}"
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if img_bytes:
+            ext = "png" if img_bytes[:4] == b"\x89PNG" else "jpg"
+            zf.writestr(f"{archive_root}/{base_name}.{ext}", img_bytes)
+        if vid_bytes:
+            zf.writestr(f"{archive_root}/{base_name}.mp4", vid_bytes)
+        hashtag_block = "\n".join(f"#{tag.lstrip('#')}" for tag in hashtags)
+        caption_text = caption
+        if hashtag_block:
+            caption_text = f"{caption}\n\n{hashtag_block}"
+        zf.writestr(f"{archive_root}/{base_name}_caption.txt", caption_text.encode("utf-8"))
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={archive_root}.zip"},
+    )
 
 
 @app.post("/api/export/{plan_id}")
@@ -367,40 +384,50 @@ async def export_plan_zip(
     if not posts:
         raise HTTPException(status_code=404, detail="No posts found for this plan")
 
-    # ── Resolve signed URLs for every post that has an image ──
-    async def _resolve_image_url(post: dict) -> str | None:
+    # ── Download image bytes directly from GCS ──────────────────
+    async def _download_post_image(post: dict) -> bytes | None:
         gcs_uri: str | None = post.get("image_gcs_uri")
-        if gcs_uri:
-            try:
-                return await get_signed_url(gcs_uri)
-            except Exception as exc:
-                logger.warning(
-                    "Could not sign GCS URI %s for post %s: %s",
-                    gcs_uri,
-                    post.get("post_id"),
-                    exc,
-                )
-                return None
-        # Fall back to the first element of image_urls
-        urls: list = post.get("image_urls", [])
-        return urls[0] if urls else None
-
-    signed_urls: list[str | None] = await asyncio.gather(
-        *[_resolve_image_url(p) for p in posts]
-    )
-
-    # ── Download image bytes in parallel (skip posts without images) ──
-    async def _download_image(url: str | None) -> bytes | None:
-        if not url:
+        if not gcs_uri:
             return None
+        prefix = f"gs://{GCS_BUCKET_NAME}/"
+        if not gcs_uri.startswith(prefix):
+            return None
+        blob_path = gcs_uri[len(prefix):]
         try:
-            return await download_from_gcs(url)
+            bucket = get_bucket()
+            blob = bucket.blob(blob_path)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, blob.download_as_bytes)
         except Exception as exc:
-            logger.warning("Could not download image from %s: %s", url, exc)
+            logger.warning("Could not download image for post %s: %s", post.get("post_id"), exc)
+            return None
+
+    # ── Download video bytes directly from GCS ─────────────────
+    async def _download_post_video(post: dict) -> bytes | None:
+        video = post.get("video")
+        if not video:
+            return None
+        gcs_uri: str | None = video.get("video_gcs_uri")
+        if not gcs_uri:
+            return None
+        prefix = f"gs://{GCS_BUCKET_NAME}/"
+        if not gcs_uri.startswith(prefix):
+            return None
+        blob_path = gcs_uri[len(prefix):]
+        try:
+            bucket = get_bucket()
+            blob = bucket.blob(blob_path)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, blob.download_as_bytes)
+        except Exception as exc:
+            logger.warning("Could not download video for post %s: %s", post.get("post_id"), exc)
             return None
 
     image_bytes_list: list[bytes | None] = await asyncio.gather(
-        *[_download_image(u) for u in signed_urls]
+        *[_download_post_image(p) for p in posts]
+    )
+    video_bytes_list: list[bytes | None] = await asyncio.gather(
+        *[_download_post_video(p) for p in posts]
     )
 
     # ── Build ZIP in memory ───────────────────────────────────
@@ -411,8 +438,8 @@ async def export_plan_zip(
     plan_metadata: list[dict] = []
 
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for index, (post, img_bytes, img_url) in enumerate(
-            zip(posts, image_bytes_list, signed_urls)
+        for index, (post, img_bytes, vid_bytes) in enumerate(
+            zip(posts, image_bytes_list, video_bytes_list)
         ):
             platform: str = post.get("platform", "post")
             caption: str = post.get("caption", "")
@@ -424,6 +451,10 @@ async def export_plan_zip(
                 ext = "png" if img_bytes[:4] == b"\x89PNG" else "jpg"
                 zf.writestr(f"{archive_root}/{base_name}.{ext}", img_bytes)
 
+            # Video file
+            if vid_bytes:
+                zf.writestr(f"{archive_root}/{base_name}.mp4", vid_bytes)
+
             # Caption + hashtags text file
             hashtag_block = "\n".join(f"#{tag.lstrip('#')}" for tag in hashtags)
             caption_text = caption
@@ -434,11 +465,11 @@ async def export_plan_zip(
                 caption_text.encode("utf-8"),
             )
 
-            # Collect metadata (safe copy — omit internal GCS URI)
+            # Collect metadata (safe copy — omit internal GCS URIs)
             post_meta = {
-                k: v for k, v in post.items() if k != "image_gcs_uri"
+                k: v for k, v in post.items()
+                if k not in ("image_gcs_uri", "image_gcs_uris")
             }
-            post_meta["image_url"] = img_url
             plan_metadata.append(post_meta)
 
         # content_plan.json
@@ -664,6 +695,15 @@ async def stream_generate(
             logger.warning("Could not download custom photo for day %s: %s", day_index, e)
             custom_photo_bytes = None  # fall back to normal generation
 
+    # Delete any existing post for this plan+day (regeneration replaces, not duplicates)
+    existing_posts = await firestore_client.list_posts(brand_id, plan_id)
+    for ep in existing_posts:
+        if ep.get("day_index") == day_index:
+            try:
+                await firestore_client.delete_post(brand_id, ep["post_id"])
+            except Exception:
+                pass  # best-effort cleanup
+
     # Create a pending post record in Firestore.
     # save_post(brand_id, plan_id, data) generates and returns its own post_id.
     post_id = await firestore_client.save_post(brand_id, plan_id, {
@@ -718,6 +758,13 @@ async def stream_generate(
                     }
                     if final_image_gcs_uri:
                         update_data["image_gcs_uri"] = final_image_gcs_uri
+                    # Carousel: store all slide URLs
+                    carousel_urls = event_data.get("image_urls", [])
+                    carousel_gcs = event_data.get("image_gcs_uris", [])
+                    if carousel_urls:
+                        update_data["image_urls"] = carousel_urls
+                    if carousel_gcs:
+                        update_data["image_gcs_uris"] = carousel_gcs
                     try:
                         await firestore_client.update_post(brand_id, post_id, update_data)
                     except Exception as fs_err:
