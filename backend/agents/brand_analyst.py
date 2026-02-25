@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import httpx
 from google import genai
 from google.genai import types
 from backend.tools.web_scraper import fetch_website
@@ -204,7 +205,52 @@ Return ONLY a valid JSON object with these exact keys:
         if style_ref_gcs_uri:
             profile["style_reference_gcs_uri"] = style_ref_gcs_uri
 
+    # Download logo from website if detected and no user-uploaded logo exists
+    scraped_logo_url = website_data.get("logo_url") if website_data else None
+    if scraped_logo_url and brand_id:
+        try:
+            logo_gcs_uri = await _download_website_logo(brand_id, scraped_logo_url)
+            if logo_gcs_uri:
+                profile["logo_url"] = logo_gcs_uri
+                logger.info("Saved website logo for brand %s: %s", brand_id, logo_gcs_uri)
+        except Exception as e:
+            logger.warning("Failed to download website logo: %s", e)
+
     return profile
+
+
+async def _download_website_logo(brand_id: str, logo_url: str) -> str | None:
+    """Download a logo image from a URL and upload to GCS. Returns GCS URI or None."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            resp = await client.get(logo_url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; AmplifiBot/1.0)"
+            })
+            resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        if not content_type.startswith("image/"):
+            logger.warning("Logo URL returned non-image content-type: %s", content_type)
+            return None
+
+        logo_bytes = resp.content
+        if len(logo_bytes) < 200:  # too small to be a real logo
+            return None
+
+        # Determine filename from content type
+        ext = "png"
+        if "jpeg" in content_type or "jpg" in content_type:
+            ext = "jpg"
+        elif "svg" in content_type:
+            ext = "svg"
+        elif "webp" in content_type:
+            ext = "webp"
+
+        gcs_uri = await upload_brand_asset(brand_id, logo_bytes, f"logo.{ext}", content_type)
+        return gcs_uri
+    except Exception as e:
+        logger.warning("Logo download failed from %s: %s", logo_url, e)
+        return None
 
 
 def _fallback_profile(description: str, website_url: str | None) -> dict:

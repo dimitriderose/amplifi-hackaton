@@ -13,6 +13,7 @@ from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
 from backend.services import budget_tracker as bt
 from backend.services.storage_client import upload_image_to_gcs
+from backend.services.brand_assets import get_brand_reference_images
 
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GOOGLE_API_KEY)
@@ -420,11 +421,28 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
     image_gcs_uri = None
     parsed_hashtags = None
 
+    # Build multimodal contents: text prompt + brand reference images
+    contents: list = [prompt]
+    try:
+        brand_refs = await get_brand_reference_images(brand_profile, max_images=3)
+        if brand_refs:
+            contents.append(
+                "\nThe following images are brand reference assets (logo, product photos, "
+                "style references). Use them to ensure the generated image is visually "
+                "consistent with this brand's identity. Do NOT reproduce logos or text — "
+                "use them only as visual style and color references."
+            )
+            for ref_bytes, ref_mime in brand_refs:
+                contents.append(types.Part.from_bytes(data=ref_bytes, mime_type=ref_mime))
+            logger.info("Passing %d brand reference images to Gemini", len(brand_refs))
+    except Exception as e:
+        logger.warning("Failed to load brand reference images: %s", e)
+
     try:
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=GEMINI_IMAGE_MODEL,
-            contents=prompt,
+            contents=contents,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
                 temperature=0.9,

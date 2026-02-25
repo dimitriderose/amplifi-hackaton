@@ -2,16 +2,18 @@ import httpx
 from bs4 import BeautifulSoup
 import re
 from typing import Optional
+from urllib.parse import urljoin
 
 async def fetch_website(url: str) -> dict:
     """Fetch and parse a website for brand analysis.
 
-    Returns title, description, text content, colors found, images, and nav items.
+    Returns title, description, text content, colors found, images, nav items,
+    and logo_url (best-effort logo detection).
     """
     if not url.startswith(("http://", "https://")):
         return {
             "title": "", "description": "", "text_content": "Invalid URL scheme — only http/https allowed.",
-            "colors_found": [], "images": [], "nav_items": [], "error": "Invalid URL scheme",
+            "colors_found": [], "images": [], "nav_items": [], "logo_url": None, "error": "Invalid URL scheme",
         }
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
@@ -22,12 +24,15 @@ async def fetch_website(url: str) -> dict:
     except Exception as e:
         return {
             "title": "", "description": "", "text_content": f"Could not fetch website: {e}",
-            "colors_found": [], "images": [], "nav_items": [], "error": str(e)
+            "colors_found": [], "images": [], "nav_items": [], "logo_url": None, "error": str(e)
         }
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    # Parse with full HTML (before decomposing header/nav) for logo detection
+    full_soup = BeautifulSoup(response.text, "html.parser")
+    logo_url = _extract_logo_url(full_soup, url)
 
-    # Remove noise
+    # Now remove noise for text extraction
+    soup = BeautifulSoup(response.text, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
 
@@ -52,7 +57,43 @@ async def fetch_website(url: str) -> dict:
         "colors_found": colors[:15],
         "images": images[:20],
         "nav_items": nav_items,
+        "logo_url": logo_url,
     }
+
+
+def _extract_logo_url(soup: BeautifulSoup, base_url: str) -> Optional[str]:
+    """Best-effort logo detection from HTML.
+
+    Checks (in priority order):
+    1. <img> with class/id/alt containing 'logo'
+    2. <link rel="icon"> or <link rel="apple-touch-icon"> (high-res favicon)
+    3. Open Graph image (<meta property="og:image">)
+    """
+    # 1. <img> tags with logo in class, id, or alt
+    for img in soup.find_all("img", src=True):
+        attrs_text = " ".join([
+            " ".join(img.get("class", [])),
+            img.get("id", ""),
+            img.get("alt", ""),
+            img.get("src", ""),
+        ]).lower()
+        if "logo" in attrs_text:
+            src = img["src"]
+            if src and not src.startswith("data:"):
+                return urljoin(base_url, src)
+
+    # 2. Apple touch icon (usually high-res, good logo stand-in)
+    for link in soup.find_all("link", rel=True):
+        rels = [r.lower() for r in link.get("rel", [])]
+        if "apple-touch-icon" in rels and link.get("href"):
+            return urljoin(base_url, link["href"])
+
+    # 3. Open Graph image
+    og_img = soup.find("meta", property="og:image")
+    if og_img and og_img.get("content"):
+        return urljoin(base_url, og_img["content"])
+
+    return None
 
 
 def extract_css_colors(html: str) -> list[str]:
