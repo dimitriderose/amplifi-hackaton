@@ -1108,15 +1108,19 @@ async def get_video_repurpose_job(job_id: str, brand_id: str = Query(...)):
 # ── Voice Coaching (Gemini Live API) ──────────────────────────
 
 @app.websocket("/api/brands/{brand_id}/voice-coaching")
-async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
+async def voice_coaching_ws(websocket: WebSocket, brand_id: str, context: str = ""):
     """Bidirectional voice coaching via Gemini Live API.
 
     Frontend sends PCM audio (16kHz, 16-bit, mono) as binary WebSocket frames.
     Backend proxies to Gemini Live and returns PCM audio responses (24kHz).
 
+    Query params:
+      context — optional conversation history from previous sessions for continuity
+
     Control messages sent to frontend:
       { "type": "connected" }            — session ready
       { "type": "transcript", "text" }  — AI text transcript (when available)
+      { "type": "session_ended" }       — Gemini session ended naturally
       { "type": "error", "message" }    — fatal error
     """
     await websocket.accept()
@@ -1127,6 +1131,14 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
         return
 
     system_prompt = build_coaching_prompt(brand)
+    if context:
+        system_prompt += (
+            "\n\nCONVERSATION CONTINUITY:\n"
+            "This is a continuation of a previous session. Here is what was discussed:\n"
+            f"{context}\n"
+            "Continue naturally from where the conversation left off. "
+            "Do NOT re-introduce yourself — just pick up the thread."
+        )
     config = _gtypes.LiveConnectConfig(
         response_modalities=["AUDIO"],
         system_instruction=_gtypes.Content(
@@ -1164,8 +1176,8 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
                                     ]
                                 )
                             )
-                except WebSocketDisconnect:
-                    pass  # normal client close — let the task return
+                except (WebSocketDisconnect, RuntimeError):
+                    pass  # normal client close or stale socket — let the task return
                 except Exception:
                     logger.exception("recv_from_frontend error for brand %s", brand_id)
                     raise
@@ -1197,10 +1209,20 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
                                     return
                             text = getattr(part, "text", None)
                             if text:
+                                # Check if the AI signalled end of conversation
+                                clean_text = text.replace("[END_SESSION]", "").strip()
                                 try:
-                                    await websocket.send_json(
-                                        {"type": "transcript", "text": text}
-                                    )
+                                    if clean_text:
+                                        await websocket.send_json(
+                                            {"type": "transcript", "text": clean_text}
+                                        )
+                                    if "[END_SESSION]" in text:
+                                        logger.info("AI ended voice session for brand %s", brand_id)
+                                        await websocket.send_json({
+                                            "type": "session_complete",
+                                            "message": "Great chatting with you! Click Voice Coach anytime to pick up where we left off.",
+                                        })
+                                        return  # exit recv_from_gemini → triggers cleanup
                                 except Exception:
                                     return
                 except asyncio.CancelledError:
@@ -1224,6 +1246,16 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str):
                     [fe_task, gm_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+                # If Gemini finished (not the frontend), notify client gracefully
+                if gm_task in done and fe_task not in done:
+                    logger.info("Gemini Live session ended for brand %s", brand_id)
+                    try:
+                        await websocket.send_json({
+                            "type": "session_ended",
+                            "message": "Voice coaching session complete. Click Voice Coach to start a new session.",
+                        })
+                    except Exception:
+                        pass
             finally:
                 for task in (fe_task, gm_task):
                     if not task.done():

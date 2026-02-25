@@ -51,6 +51,9 @@ class PCMProcessor extends AudioWorkletProcessor {
 registerProcessor('pcm-processor', PCMProcessor)
 `
 
+// Max reconnect attempts before giving up
+const MAX_RECONNECTS = 5
+
 export function useVoiceCoach(): UseVoiceCoachResult {
   const [status, setStatus] = useState<VoiceCoachStatus>('idle')
   const [isAISpeaking, setIsAISpeaking] = useState(false)
@@ -62,23 +65,26 @@ export function useVoiceCoach(): UseVoiceCoachResult {
   const playbackCtxRef = useRef<AudioContext | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const playNextTimeRef = useRef<number>(0)
-  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)  // CRIT-5
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const aiSpeakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Track whether session ended gracefully (prevents onclose from showing error)
+  const gracefulEndRef = useRef(false)
   // CRIT-4: synchronous guard to prevent double-tap launching two sessions
   const isStartingRef = useRef(false)
+  // Conversation history for multi-turn continuity
+  const conversationHistoryRef = useRef<string[]>([])
+  const brandIdRef = useRef<string>('')
+  const reconnectCountRef = useRef(0)
+  // Flag to distinguish user-initiated stop from auto-reconnect teardown
+  const userStoppedRef = useRef(false)
 
-  const stopSession = useCallback(() => {
-    // Null out the WS ref first so the onclose handler knows this is user-initiated
+  // Tear down WebSocket + audio only (keep mic stream for reconnect)
+  const teardownConnection = useCallback(() => {
     const ws = wsRef.current
     wsRef.current = null
     if (ws) ws.close()
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
-    }
-    // CRIT-5: disconnect source node explicitly so mic indicator clears immediately
     if (sourceNodeRef.current) {
       sourceNodeRef.current.disconnect()
       sourceNodeRef.current = null
@@ -100,24 +106,158 @@ export function useVoiceCoach(): UseVoiceCoachResult {
       aiSpeakingTimerRef.current = null
     }
     playNextTimeRef.current = 0
-    isStartingRef.current = false
     setIsAISpeaking(false)
-    setTranscript(null)
-    setStatus('idle')
   }, [])
 
+  // Full teardown: connection + mic stream + reset all state
+  const stopSession = useCallback(() => {
+    userStoppedRef.current = true
+    teardownConnection()
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+
+    isStartingRef.current = false
+    gracefulEndRef.current = false
+    reconnectCountRef.current = 0
+    conversationHistoryRef.current = []
+    brandIdRef.current = ''
+    setTranscript(null)
+    setStatus('idle')
+  }, [teardownConnection])
+
+  // Wire up a WebSocket to a given mic stream + audio contexts
+  const connectWebSocket = useCallback((
+    brandId: string,
+    stream: MediaStream,
+    contextStr: string,
+  ) => {
+    gracefulEndRef.current = false
+    userStoppedRef.current = false
+
+    // Fresh audio contexts for each connection
+    const captureCtx = new AudioContext()
+    captureCtxRef.current = captureCtx
+    const playbackCtx = new AudioContext({ sampleRate: 24000 })
+    playbackCtxRef.current = playbackCtx
+    playNextTimeRef.current = playbackCtx.currentTime
+
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const contextParam = contextStr ? `?context=${encodeURIComponent(contextStr)}` : ''
+    const wsUrl = `${proto}://${window.location.host}/api/brands/${brandId}/voice-coaching${contextParam}`
+    const ws = new WebSocket(wsUrl)
+    ws.binaryType = 'arraybuffer'
+    wsRef.current = ws
+
+    ws.onerror = () => {
+      stopSession()
+      setError('Connection failed. Check that the backend is running.')
+      setStatus('error')
+    }
+
+    ws.onclose = () => {
+      if (gracefulEndRef.current || userStoppedRef.current) {
+        return
+      }
+      if (wsRef.current !== null) {
+        stopSession()
+        setError('Session ended unexpectedly.')
+        setStatus('error')
+      }
+    }
+
+    ws.onmessage = async (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        const pCtx = playbackCtxRef.current
+        if (pCtx && pCtx.state !== 'closed') {
+          schedulePCMChunk(event.data, pCtx, playNextTimeRef)
+        }
+        setIsAISpeaking(true)
+        if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current)
+        aiSpeakingTimerRef.current = setTimeout(() => setIsAISpeaking(false), 1200)
+      } else {
+        try {
+          const msg = JSON.parse(event.data)
+          if (msg.type === 'connected') {
+            setStatus('active')
+            try {
+              await startMicCapture(captureCtx, stream, ws, workletNodeRef, sourceNodeRef)
+            } catch (err: any) {
+              setError(`Microphone setup failed: ${err.message}`)
+              setStatus('error')
+              stopSession()
+            }
+          } else if (msg.type === 'turn_complete') {
+            if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current)
+            setIsAISpeaking(false)
+          } else if (msg.type === 'transcript') {
+            const text = msg.text ?? ''
+            if (text) {
+              conversationHistoryRef.current.push(`AI: ${text}`)
+            }
+            setTranscript(text || null)
+          } else if (msg.type === 'session_ended') {
+            // Gemini session ended naturally — auto-reconnect
+            gracefulEndRef.current = true
+            teardownConnection()
+
+            if (userStoppedRef.current) return
+
+            if (reconnectCountRef.current >= MAX_RECONNECTS) {
+              setTranscript('Session limit reached. Click Voice Coach to start a new conversation.')
+              setStatus('idle')
+              if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop())
+                streamRef.current = null
+              }
+              isStartingRef.current = false
+              return
+            }
+
+            reconnectCountRef.current++
+            setStatus('connecting')
+            setTranscript('Continuing conversation...')
+
+            // Brief pause then reconnect with conversation history
+            setTimeout(() => {
+              if (userStoppedRef.current || !streamRef.current) return
+              const history = conversationHistoryRef.current.slice(-10).join('\n')
+              connectWebSocket(brandId, streamRef.current!, history)
+            }, 500)
+          } else if (msg.type === 'session_complete') {
+            // AI decided to end the conversation (user said goodbye etc.)
+            gracefulEndRef.current = true
+            stopSession()
+            setTranscript(msg.message || 'Session complete.')
+          } else if (msg.type === 'error') {
+            setError(msg.message || 'Voice session error')
+            setStatus('error')
+            stopSession()
+          }
+        } catch {
+          // ignore malformed control messages
+        }
+      }
+    }
+  }, [teardownConnection, stopSession])
+
   const startSession = useCallback(async (brandId: string) => {
-    // CRIT-4: use a ref guard (not state) to prevent double-tap races
     if (isStartingRef.current) return
     if (status !== 'idle' && status !== 'error') return
     isStartingRef.current = true
+    userStoppedRef.current = false
 
     setError(null)
     setTranscript(null)
     setStatus('connecting')
 
-    // 1. Request microphone — do NOT constrain sampleRate (MINOR-4:
-    //    getUserMedia sampleRate is advisory and misleading; AudioContext handles resampling)
+    // Reset conversation state for fresh session
+    conversationHistoryRef.current = []
+    reconnectCountRef.current = 0
+    brandIdRef.current = brandId
+
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -139,84 +279,8 @@ export function useVoiceCoach(): UseVoiceCoachResult {
     }
     streamRef.current = stream
 
-    // 2. Capture AudioContext at native device rate — worklet resamples to 16kHz
-    const captureCtx = new AudioContext()
-    captureCtxRef.current = captureCtx
-
-    // 3. Playback AudioContext at 24kHz (Gemini Live output rate)
-    const playbackCtx = new AudioContext({ sampleRate: 24000 })
-    playbackCtxRef.current = playbackCtx
-    playNextTimeRef.current = playbackCtx.currentTime
-
-    // 4. Open WebSocket to backend
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const wsUrl = `${proto}://${window.location.host}/api/brands/${brandId}/voice-coaching`
-    const ws = new WebSocket(wsUrl)
-    ws.binaryType = 'arraybuffer'
-    wsRef.current = ws
-
-    ws.onerror = () => {
-      // stopSession first (resets to idle), then override with error state.
-      // React 18 batching ensures the last setStatus wins.
-      stopSession()
-      setError('Connection failed. Check that the backend is running.')
-      setStatus('error')
-    }
-
-    // MINOR-3: unexpected server-side close must clean up fully via stopSession
-    ws.onclose = () => {
-      if (wsRef.current !== null) {
-        // wsRef is still set → this was NOT user-initiated → clean up everything
-        stopSession()
-        setError('Session ended unexpectedly.')
-        setStatus('error')
-      }
-      // If wsRef is null, stopSession() already ran (user clicked Stop)
-    }
-
-    ws.onmessage = async (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        // Binary PCM audio from Gemini (24kHz, 16-bit mono)
-        // MINOR-1: guard against playback after context has been closed
-        const pCtx = playbackCtxRef.current
-        if (pCtx && pCtx.state !== 'closed') {
-          schedulePCMChunk(event.data, pCtx, playNextTimeRef)
-        }
-
-        // PM-CRIT-1: 1200ms debounce (was 500ms) to prevent orb flicker mid-sentence
-        setIsAISpeaking(true)
-        if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current)
-        aiSpeakingTimerRef.current = setTimeout(() => setIsAISpeaking(false), 1200)
-      } else {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'connected') {
-            setStatus('active')
-            // CRIT-3: catch startMicCapture failures so the session surfaces an error
-            try {
-              await startMicCapture(captureCtx, stream, ws, workletNodeRef, sourceNodeRef)
-            } catch (err: any) {
-              setError(`Microphone setup failed: ${err.message}`)
-              setStatus('error')
-              stopSession()
-            }
-          } else if (msg.type === 'turn_complete') {
-            // MINOR-2: backend now forwards turn_complete; clear speaking immediately
-            if (aiSpeakingTimerRef.current) clearTimeout(aiSpeakingTimerRef.current)
-            setIsAISpeaking(false)
-          } else if (msg.type === 'transcript') {
-            setTranscript(msg.text ?? null)
-          } else if (msg.type === 'error') {
-            setError(msg.message || 'Voice session error')
-            setStatus('error')
-            stopSession()
-          }
-        } catch {
-          // ignore malformed control messages
-        }
-      }
-    }
-  }, [status, stopSession])
+    connectWebSocket(brandId, stream, '')
+  }, [status, connectWebSocket])
 
   return { status, isAISpeaking, transcript, error, startSession, stopSession }
 }
@@ -228,7 +292,7 @@ async function startMicCapture(
   stream: MediaStream,
   ws: WebSocket,
   workletNodeRef: MutableRefObject<AudioWorkletNode | null>,
-  sourceNodeRef: MutableRefObject<MediaStreamAudioSourceNode | null>,  // CRIT-5
+  sourceNodeRef: MutableRefObject<MediaStreamAudioSourceNode | null>,
 ) {
   const blob = new Blob([WORKLET_SRC], { type: 'application/javascript' })
   const blobUrl = URL.createObjectURL(blob)
@@ -240,7 +304,7 @@ async function startMicCapture(
   }
 
   const source = ctx.createMediaStreamSource(stream)
-  sourceNodeRef.current = source  // CRIT-5: store so stopSession can disconnect it
+  sourceNodeRef.current = source
 
   const worklet = new AudioWorkletNode(ctx, 'pcm-processor')
   workletNodeRef.current = worklet
@@ -275,10 +339,9 @@ function schedulePCMChunk(
   source.buffer = audioBuffer
   source.connect(ctx.destination)
 
-  // Queue-schedule to prevent gaps; reset if we've fallen too far behind
   const now = ctx.currentTime
   if (nextTimeRef.current < now) {
-    nextTimeRef.current = now + 0.05  // small jitter buffer
+    nextTimeRef.current = now + 0.05
   }
   source.start(nextTimeRef.current)
   nextTimeRef.current += audioBuffer.duration
