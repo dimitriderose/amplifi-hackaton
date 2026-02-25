@@ -1,9 +1,13 @@
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from google.cloud import firestore
 from google.cloud.firestore_v1.async_client import AsyncClient
+from google.cloud.firestore_v1.base_query import FieldFilter
 from backend.config import GCP_PROJECT_ID
+
+logger = logging.getLogger(__name__)
 
 _client: Optional[AsyncClient] = None
 
@@ -33,6 +37,40 @@ async def get_brand(brand_id: str) -> Optional[dict]:
     db = get_client()
     doc = await db.collection("brands").document(brand_id).get()
     return doc.to_dict() if doc.exists else None
+
+async def list_brands_by_owner(owner_uid: str) -> list:
+    """Return all brands owned by a given anonymous UID, newest first."""
+    db = get_client()
+    try:
+        docs = await (
+            db.collection("brands")
+            .where(filter=FieldFilter("owner_uid", "==", owner_uid))
+            .get()
+        )
+        brands = [d.to_dict() for d in docs]
+        brands.sort(key=lambda b: b.get("created_at", ""), reverse=True)
+        return brands
+    except Exception as e:
+        logger.error("list_brands_by_owner failed: %s", e)
+        return []
+
+
+async def claim_brand(brand_id: str, owner_uid: str) -> bool:
+    """Assign an owner to an unclaimed brand. Returns True if claimed."""
+    db = get_client()
+    doc_ref = db.collection("brands").document(brand_id)
+    doc = await doc_ref.get()
+    if not doc.exists:
+        return False
+    data = doc.to_dict()
+    if data.get("owner_uid"):
+        return data["owner_uid"] == owner_uid
+    await doc_ref.update({
+        "owner_uid": owner_uid,
+        "updated_at": datetime.now(timezone.utc),
+    })
+    return True
+
 
 async def update_brand(brand_id: str, data: dict) -> None:
     db = get_client()

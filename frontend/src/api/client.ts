@@ -11,8 +11,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listBrands: (ownerUid: string) =>
+    request<{ brands: Record<string, unknown>[] }>(`/api/brands?owner_uid=${encodeURIComponent(ownerUid)}`),
   createBrand: (data: object) =>
     request('/api/brands', { method: 'POST', body: JSON.stringify(data) }),
+  claimBrand: (brandId: string, ownerUid: string) =>
+    request(`/api/brands/${brandId}/claim`, {
+      method: 'PATCH',
+      body: JSON.stringify({ owner_uid: ownerUid }),
+    }),
   analyzeBrand: (brandId: string, data: object) =>
     request(`/api/brands/${brandId}/analyze`, { method: 'POST', body: JSON.stringify(data) }),
   getBrand: (brandId: string) => request(`/api/brands/${brandId}`),

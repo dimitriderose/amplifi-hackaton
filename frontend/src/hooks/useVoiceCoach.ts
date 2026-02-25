@@ -156,9 +156,11 @@ export function useVoiceCoach(): UseVoiceCoachResult {
     wsRef.current = ws
 
     ws.onerror = () => {
+      // stopSession first (resets to idle), then override with error state.
+      // React 18 batching ensures the last setStatus wins.
+      stopSession()
       setError('Connection failed. Check that the backend is running.')
       setStatus('error')
-      stopSession()
     }
 
     // MINOR-3: unexpected server-side close must clean up fully via stopSession
@@ -166,6 +168,8 @@ export function useVoiceCoach(): UseVoiceCoachResult {
       if (wsRef.current !== null) {
         // wsRef is still set → this was NOT user-initiated → clean up everything
         stopSession()
+        setError('Session ended unexpectedly.')
+        setStatus('error')
       }
       // If wsRef is null, stopSession() already ran (user clicked Stop)
     }

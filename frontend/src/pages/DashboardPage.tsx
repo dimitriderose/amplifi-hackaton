@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { A } from '../theme'
 import { useBrandProfile } from '../hooks/useBrandProfile'
 import { useContentPlan } from '../hooks/useContentPlan'
+import { usePostLibrary } from '../hooks/usePostLibrary'
 import BrandProfileCard from '../components/BrandProfileCard'
 import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
@@ -11,15 +12,24 @@ import VoiceCoach from '../components/VoiceCoach'
 import SocialConnect from '../components/SocialConnect'
 import VideoRepurpose from '../components/VideoRepurpose'
 
+type Tab = 'calendar' | 'posts' | 'export'
+
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: 'calendar', label: 'Calendar', icon: '📅' },
+  { key: 'posts', label: 'Posts', icon: '📝' },
+  { key: 'export', label: 'Export', icon: '📦' },
+]
+
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
+  const { posts: calendarPosts } = usePostLibrary(brandId ?? '', plan?.plan_id)
+  const [activeTab, setActiveTab] = useState<Tab>('calendar')
 
   // H-8: Store planId in sessionStorage so NavBar can include it in the Export link.
-  // Clear on plan removal so stale Export links don't point at the old plan.
   useEffect(() => {
     if (plan?.plan_id && brandId) {
       sessionStorage.setItem(`amplifi_plan_${brandId}`, plan.plan_id)
@@ -28,6 +38,18 @@ export default function DashboardPage() {
     }
   }, [plan?.plan_id, brandId])
 
+  // Persist brandId to localStorage so grandfathering can claim it on next visit
+  useEffect(() => {
+    if (!brandId) return
+    try {
+      const stored: string[] = JSON.parse(localStorage.getItem('amplifi_brand_ids') || '[]')
+      if (!stored.includes(brandId)) {
+        stored.push(brandId)
+        localStorage.setItem('amplifi_brand_ids', JSON.stringify(stored))
+      }
+    } catch { /* localStorage unavailable */ }
+  }, [brandId])
+
   const approvedParam = searchParams.get('approved')
   const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -35,7 +57,6 @@ export default function DashboardPage() {
     if (approvedParam) {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
       approvedTimerRef.current = setTimeout(() => {
-        // Use functional updater so searchParams is not a stale-dep trigger
         setSearchParams(prev => {
           const next = new URLSearchParams(prev)
           next.delete('approved')
@@ -60,7 +81,6 @@ export default function DashboardPage() {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
         <p style={{ color: A.coral, marginBottom: 16 }}>{brandError}</p>
-        {/* H-4: Retry option so user doesn't lose their session */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
           <button
             onClick={() => window.location.reload()}
@@ -97,7 +117,7 @@ export default function DashboardPage() {
           color: A.emerald, fontSize: 13, fontWeight: 500,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <span>Post approved and ready for export ✓</span>
+          <span>Post approved and ready for export</span>
           <button
             onClick={() => {
               const next = new URLSearchParams(searchParams)
@@ -135,9 +155,9 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* 1:2 grid layout — left: brand card, right: calendar */}
+      {/* 1:2 grid layout — left: brand card, right: tabbed content */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, alignItems: 'start' }}>
-        {/* Left column: Brand Profile Card + Social Connect */}
+        {/* Left column: Brand Profile Card + Social Connect + Video Repurpose */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <BrandProfileCard brand={brand} onUpdate={updateBrand} />
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
@@ -154,65 +174,145 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Right column: Content Calendar or generate prompt */}
-        {/* H-5: Only apply card styles around ContentCalendar (EventsInput has its own card) */}
-        {plan ? (
-          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-            {/* Calendar view */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        {/* Right column: Tab bar + tab content */}
+        <div>
+          {/* Tab bar */}
+          <div style={{
+            display: 'flex', gap: 2,
+            marginBottom: 16,
+            background: A.surfaceAlt,
+            borderRadius: 10,
+            padding: 3,
+          }}>
+            {TABS.map(tab => (
               <button
-                onClick={() => {
-                  // L-3: Confirm before destroying the active plan
-                  if (window.confirm('This will clear your current plan. Are you sure?')) {
-                    clearPlan()
-                  }
-                }}
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
                 style={{
-                  padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
-                  background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: activeTab === tab.key ? 600 : 400,
+                  background: activeTab === tab.key ? A.surface : 'transparent',
+                  color: activeTab === tab.key ? A.text : A.textSoft,
+                  boxShadow: activeTab === tab.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
                 }}
               >
-                ↺ New Plan
+                <span style={{ fontSize: 14 }}>{tab.icon}</span>
+                {tab.label}
               </button>
-            </div>
-            <ContentCalendar
-              plan={{ plan_id: plan.plan_id, days: plan.days }}
-              brandId={brandId ?? ''}
-              onGeneratePost={(planId, dayIndex) =>
-                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
-              }
-              onPhotoUploaded={(dayIndex, photoUrl) =>
-                setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
-              }
-            />
+            ))}
           </div>
-        ) : (
-          /* No plan yet — EventsInput has its own card styling, so no outer wrapper needed */
-          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-            {planError && (
-              <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
-                {planError}
-              </p>
-            )}
-            {/* DK-1: Pass analysisStatus so EventsInput locks itself while brand is building */}
-            <EventsInput
-              onGenerate={(events) => generatePlan(7, events || undefined)}
-              generating={generating}
-              analysisStatus={brand.analysis_status}
-            />
-          </div>
-        )}
-      </div>
 
-      {/* Post Library — shown when a plan exists */}
-      {plan && brandId && (
-        <div style={{
-          marginTop: 32, padding: 24, borderRadius: 12,
-          background: A.surface, border: `1px solid ${A.border}`,
-        }}>
-          <PostLibrary brandId={brandId} planId={plan.plan_id} />
+          {/* ── Calendar Tab ─────────────────────────────────── */}
+          {activeTab === 'calendar' && (
+            plan ? (
+              <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('This will clear your current plan. Are you sure?')) {
+                        clearPlan()
+                      }
+                    }}
+                    style={{
+                      padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
+                      background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    New Plan
+                  </button>
+                </div>
+                <ContentCalendar
+                  plan={{ plan_id: plan.plan_id, days: plan.days }}
+                  brandId={brandId ?? ''}
+                  posts={calendarPosts}
+                  onGeneratePost={(planId, dayIndex) =>
+                    navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
+                  }
+                  onViewPost={(planId, dayIndex, postId) =>
+                    navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}&post_id=${postId}`)
+                  }
+                  onPhotoUploaded={(dayIndex, photoUrl) =>
+                    setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
+                  }
+                />
+              </div>
+            ) : (
+              <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+                {planError && (
+                  <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
+                    {planError}
+                  </p>
+                )}
+                <EventsInput
+                  onGenerate={(events) => generatePlan(7, events || undefined)}
+                  generating={generating}
+                  analysisStatus={brand.analysis_status}
+                />
+              </div>
+            )
+          )}
+
+          {/* ── Posts Tab ─────────────────────────────────────── */}
+          {activeTab === 'posts' && (
+            <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+              {plan && brandId ? (
+                <PostLibrary brandId={brandId} planId={plan.plan_id} />
+              ) : (
+                <div style={{
+                  padding: 40, textAlign: 'center',
+                  color: A.textMuted, fontSize: 13,
+                }}>
+                  Generate a content plan first to see your posts here.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Export Tab ────────────────────────────────────── */}
+          {activeTab === 'export' && (
+            <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+              {plan && brandId ? (
+                <>
+                  <div style={{
+                    marginBottom: 16, padding: '12px 16px', borderRadius: 10,
+                    background: `linear-gradient(135deg, ${A.indigo}10, ${A.violet}08)`,
+                    border: `1px solid ${A.indigo}20`,
+                    display: 'flex', alignItems: 'center', gap: 12,
+                  }}>
+                    <span style={{ fontSize: 20 }}>📦</span>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: A.text, margin: 0 }}>
+                        Plan ZIP export available
+                      </p>
+                      <p style={{ fontSize: 12, color: A.textSoft, margin: 0 }}>
+                        Use "Export All" to download all approved posts as a ZIP with captions and images.
+                      </p>
+                    </div>
+                  </div>
+                  <PostLibrary brandId={brandId} planId={plan.plan_id} defaultFilter="approved" />
+                </>
+              ) : (
+                <div style={{
+                  padding: 40, textAlign: 'center',
+                  color: A.textMuted, fontSize: 13,
+                }}>
+                  Generate a content plan first to export your posts.
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Voice Brand Coach — floating button, fixed position */}
       {brandId && (

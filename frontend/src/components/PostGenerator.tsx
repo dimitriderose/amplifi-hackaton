@@ -494,7 +494,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: A.textSoft, margin: 0 }}>
-                  🎬 Video Clip (Veo 3)
+                  🎬 Video Clip (Veo 3.1)
                 </p>
                 {isTextPlatform && videoExpanded && (
                   <button
@@ -541,14 +541,30 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
                   </div>
                 </div>
               ) : videoStatus === 'complete' && videoUrl ? (
-                <video
-                  src={videoUrl}
-                  controls
-                  autoPlay
-                  muted
-                  loop
-                  style={{ width: '100%', borderRadius: 8, marginTop: 4 }}
-                />
+                <div>
+                  <video
+                    src={videoUrl}
+                    poster={imageUrl || undefined}
+                    controls
+                    autoPlay
+                    muted
+                    loop
+                    style={{ width: '100%', borderRadius: 8, marginTop: 4 }}
+                  />
+                  <a
+                    href={videoUrl}
+                    download={`amplifi-video-${postId}.mp4`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      marginTop: 8, padding: '5px 12px', borderRadius: 6,
+                      border: `1px solid ${A.border}`, background: A.surfaceAlt,
+                      color: A.textSoft, fontSize: 11, textDecoration: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ↓ Download Video
+                  </a>
+                </div>
               ) : videoStatus === 'error' ? (
                 <div>
                   <p style={{ fontSize: 11, color: A.coral, margin: '0 0 6px' }}>

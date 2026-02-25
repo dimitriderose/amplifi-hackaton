@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
+import type { Post } from '../hooks/usePostLibrary'
 
 const PILLAR_COLORS: Record<string, string> = {
   education: A.indigo,
@@ -24,6 +25,20 @@ const DERIVATIVE_LABELS: Record<string, string> = {
   story: 'Story',
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  approved: A.emerald,
+  complete: A.indigo,
+  generating: A.amber,
+  failed: A.coral,
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  approved: 'Approved',
+  complete: 'Ready',
+  generating: 'Generating',
+  failed: 'Failed',
+}
+
 // Colors for series groups (distinct from pillar colors)
 const SERIES_PALETTE = ['#f97316', '#06b6d4', '#ec4899', '#a78bfa']
 
@@ -45,14 +60,27 @@ export interface DayBrief {
 interface Props {
   plan: { plan_id: string; days: DayBrief[] }
   brandId?: string
+  posts?: Post[]
   onGeneratePost?: (planId: string, dayIndex: number) => void
+  onViewPost?: (planId: string, dayIndex: number, postId: string) => void
   onPhotoUploaded?: (dayIndex: number, photoUrl: string | null) => void
 }
 
-export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhotoUploaded }: Props) {
+export default function ContentCalendar({ plan, brandId, posts, onGeneratePost, onViewPost, onPhotoUploaded }: Props) {
   const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-  // Compute which pillar_ids form repurposing series (appear on more than one day)
+  // Map posts by day_index — use the latest post per day
+  const postsByDay: Record<number, Post> = {}
+  if (posts) {
+    for (const post of posts) {
+      const existing = postsByDay[post.day_index]
+      if (!existing || (post.created_at && existing.created_at && post.created_at > existing.created_at)) {
+        postsByDay[post.day_index] = post
+      }
+    }
+  }
+
+  // Compute which pillar_ids form repurposing series
   const pillarIdCounts: Record<string, number> = {}
   for (const day of plan.days) {
     if (day.pillar_id) {
@@ -95,6 +123,7 @@ export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhoto
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
         {plan.days.map((day, i) => {
           const seriesColor = day.pillar_id ? seriesColorMap[day.pillar_id] : undefined
+          const dayPost = postsByDay[day.day_index ?? i]
           return (
             <DayCard
               key={day.day_index ?? i}
@@ -103,7 +132,12 @@ export default function ContentCalendar({ plan, brandId, onGeneratePost, onPhoto
               brandId={brandId}
               planId={plan.plan_id}
               seriesColor={seriesColor}
+              post={dayPost}
               onGenerate={() => onGeneratePost?.(plan.plan_id, day.day_index ?? i)}
+              onViewPost={dayPost && onViewPost
+                ? () => onViewPost(plan.plan_id, day.day_index ?? i, dayPost.post_id)
+                : undefined
+              }
               onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day.day_index ?? i, photoUrl)}
             />
           )
@@ -119,11 +153,13 @@ interface DayCardProps {
   brandId?: string
   planId?: string
   seriesColor?: string
+  post?: Post
   onGenerate: () => void
+  onViewPost?: () => void
   onPhotoUploaded: (photoUrl: string | null) => void
 }
 
-function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPhotoUploaded }: DayCardProps) {
+function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate, onViewPost, onPhotoUploaded }: DayCardProps) {
   const pillarColor = PILLAR_COLORS[day.pillar] || A.indigo
   const platformIcon = PLATFORM_ICONS[day.platform] || '📱'
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -133,6 +169,9 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
   const dayIndex = day.day_index
   const isDerivative = day.derivative_type && day.derivative_type !== 'original'
   const derivativeLabel = day.derivative_type ? DERIVATIVE_LABELS[day.derivative_type] : null
+
+  const isGenerated = post && (post.status === 'complete' || post.status === 'approved')
+  const isGenerating = post?.status === 'generating'
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -169,15 +208,17 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
     }
   }
 
+  // Review score from the post
+  const reviewScore = (post as any)?.review?.score as number | undefined
+
   return (
     <div
       style={{
         borderRadius: 10,
         background: A.surface,
-        border: `1px solid ${A.border}`,
+        border: `1px solid ${isGenerated ? A.emerald + '44' : A.border}`,
         boxShadow: seriesColor ? `inset 3px 0 0 0 ${seriesColor}` : undefined,
         overflow: 'hidden',
-        cursor: 'pointer',
         transition: 'transform 0.15s, box-shadow 0.15s',
       }}
       onMouseEnter={e => {
@@ -194,13 +235,43 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
       {/* Pillar color bar */}
       <div style={{ height: 3, background: pillarColor }} />
 
-      {/* Custom photo thumbnail */}
-      {day.custom_photo_url && (
+      {/* Generated post thumbnail + status bar */}
+      {isGenerated && post?.image_url ? (
+        <div>
+          <img
+            src={post.image_url}
+            alt="Generated post"
+            style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
+          />
+          {/* Status + score bar below image */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '4px 8px',
+            background: (STATUS_COLORS[post.status] || A.textMuted) + '15',
+            borderBottom: `2px solid ${STATUS_COLORS[post.status] || A.textMuted}`,
+          }}>
+            <span style={{
+              fontSize: 10, fontWeight: 600,
+              color: STATUS_COLORS[post.status] || A.textMuted,
+            }}>
+              {STATUS_LABELS[post.status] || post.status}
+            </span>
+            {reviewScore !== undefined && (
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: reviewScore >= 8 ? A.emerald : reviewScore >= 6 ? A.amber : A.coral,
+              }}>
+                {reviewScore}/10
+              </span>
+            )}
+          </div>
+        </div>
+      ) : day.custom_photo_url && !isGenerating ? (
         <div style={{ position: 'relative' }}>
           <img
             src={day.custom_photo_url}
             alt="Custom photo"
-            style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block' }}
+            style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
           />
           <button
             onClick={handleRemovePhoto}
@@ -220,10 +291,25 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
             fontSize: 9, color: 'white', fontWeight: 600,
             background: 'rgba(0,0,0,0.5)', padding: '1px 5px', borderRadius: 4,
           }}>
-            📷 Your photo
+            Your photo
           </div>
         </div>
-      )}
+      ) : isGenerating ? (
+        <div style={{
+          width: '100%', aspectRatio: '4 / 3',
+          background: `linear-gradient(135deg, ${A.surfaceAlt}, ${A.indigoLight})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 4,
+        }}>
+          <span style={{
+            display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
+            border: `2px solid ${A.amber}`, borderTopColor: 'transparent',
+            animation: 'cc-spin 0.8s linear infinite',
+          }} />
+          <span style={{ fontSize: 10, color: A.amber, fontWeight: 500 }}>Generating...</span>
+          <style>{`@keyframes cc-spin { to { transform: rotate(360deg) } }`}</style>
+        </div>
+      ) : null}
 
       <div style={{ padding: '10px 10px 12px' }}>
         {/* Day + platform */}
@@ -250,27 +336,7 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
           {day.pillar?.replace(/_/g, ' ')}
         </div>
 
-        {/* Repurpose badge — only shown when the series grouping is confirmed by seriesColor */}
-        {isDerivative && derivativeLabel && seriesColor && (
-          <div style={{
-            fontSize: 9,
-            fontWeight: 600,
-            padding: '2px 6px',
-            borderRadius: 4,
-            background: (seriesColor || A.textMuted) + '18',
-            color: seriesColor || A.textMuted,
-            border: `1px solid ${(seriesColor || A.textMuted)}30`,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            marginBottom: 6,
-            marginLeft: 4,
-            textTransform: 'uppercase',
-            letterSpacing: 0.4,
-          }}>
-            ♻ {derivativeLabel}
-          </div>
-        )}
+        {/* Repurpose series indicator (left border only, no label — format not actually generated) */}
 
         {/* Event anchor badge */}
         {day.event_anchor && (
@@ -280,11 +346,11 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
             border: `1px solid ${A.amber}30`,
             display: 'inline-block', marginBottom: 6,
           }}>
-            📅 {day.event_anchor}
+            {day.event_anchor}
           </div>
         )}
 
-        {/* Theme */}
+        {/* Theme — 2 lines max */}
         <p
           style={{
             fontSize: 11,
@@ -294,60 +360,60 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
             fontWeight: 500,
             overflow: 'hidden',
             display: '-webkit-box',
-            WebkitLineClamp: 3,
+            WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
           } as React.CSSProperties}
         >
           {day.content_theme}
         </p>
 
-        {/* Hook preview — hidden when photo thumbnail already fills the card */}
-        {!day.custom_photo_url && (
-          <p
-            style={{
-              fontSize: 10,
-              color: A.textMuted,
-              lineHeight: 1.4,
-              marginBottom: 10,
-              overflow: 'hidden',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            } as React.CSSProperties}
-          >
-            "{day.caption_hook}"
-          </p>
-        )}
-
         {/* Upload error */}
         {photoError && (
           <p style={{ fontSize: 10, color: A.coral, margin: '0 0 6px' }}>{photoError}</p>
         )}
 
-        {/* Generate button */}
-        <button
-          onClick={e => {
-            e.stopPropagation()
-            onGenerate()
-          }}
-          style={{
-            width: '100%',
-            padding: '6px 0',
-            borderRadius: 6,
-            border: 'none',
-            background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-            color: 'white',
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: 'pointer',
-            marginBottom: brandId ? 6 : 0,
-          }}
-        >
-          {day.custom_photo_url ? 'Generate with my photo ✨' : 'Generate ✨'}
-        </button>
+        {/* Primary action: Generate (ungenerated) or View Post (generated) */}
+        {!isGenerated && !isGenerating && (
+          <button
+            onClick={onGenerate}
+            style={{
+              width: '100%',
+              padding: '6px 0',
+              borderRadius: 6,
+              border: 'none',
+              background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              marginBottom: brandId && !day.custom_photo_url ? 6 : 0,
+            }}
+          >
+            {day.custom_photo_url ? 'Generate with photo' : 'Generate'}
+          </button>
+        )}
 
-        {/* BYOP: add / change photo */}
-        {brandId && (
+        {isGenerated && onViewPost && (
+          <button
+            onClick={onViewPost}
+            style={{
+              width: '100%',
+              padding: '6px 0',
+              borderRadius: 6,
+              border: `1px solid ${A.indigo}30`,
+              background: A.indigoLight,
+              color: A.indigo,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            View Post →
+          </button>
+        )}
+
+        {/* BYOP: add photo — only for ungenerated days without a photo yet */}
+        {brandId && !isGenerated && !isGenerating && !day.custom_photo_url && (
           <>
             <input
               ref={fileInputRef}
@@ -357,10 +423,7 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
               onChange={handleFileChange}
             />
             <button
-              onClick={e => {
-                e.stopPropagation()
-                fileInputRef.current?.click()
-              }}
+              onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               style={{
                 width: '100%',
@@ -373,7 +436,7 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, onGenerate, onPho
                 cursor: uploading ? 'not-allowed' : 'pointer',
               }}
             >
-              {uploading ? 'Uploading…' : day.custom_photo_url ? '📷 Change photo' : '📷 Add photo'}
+              {uploading ? 'Uploading...' : 'Add photo'}
             </button>
           </>
         )}

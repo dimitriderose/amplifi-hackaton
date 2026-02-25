@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { api } from '../api/client'
+import { getUid } from '../api/firebase'
 
 interface UploadedFile {
   name: string
@@ -77,11 +78,20 @@ export default function OnboardPage() {
     })
 
     try {
-      // Create brand record
+      // Create brand record — attach anonymous UID if available
+      const uid = getUid()
       const { brand_id } = await api.createBrand({
         website_url: hasUrl ? url : null,
         description: desc,
+        ...(uid ? { owner_uid: uid } : {}),
       }) as { brand_id: string }
+
+      // Persist brandId so grandfathering can claim it on next visit
+      try {
+        const stored: string[] = JSON.parse(localStorage.getItem('amplifi_brand_ids') || '[]')
+        if (!stored.includes(brand_id)) stored.push(brand_id)
+        localStorage.setItem('amplifi_brand_ids', JSON.stringify(stored))
+      } catch { /* localStorage unavailable */ }
 
       // Upload brand assets if any were selected
       if (uploads.length > 0) {

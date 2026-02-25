@@ -31,7 +31,7 @@ from backend.agents.strategy_agent import run_strategy
 from backend.agents.voice_coach import build_coaching_prompt
 
 _live_client = _genai.Client(api_key=GOOGLE_API_KEY)
-_LIVE_MODEL = "gemini-2.0-flash-live-001"
+_LIVE_MODEL = "gemini-2.5-flash-native-audio-latest"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,16 +58,35 @@ async def health_check():
 
 # ── Brand Management ──────────────────────────────────────────
 
+@app.get("/api/brands")
+async def list_brands(owner_uid: str = Query(...)):
+    """List all brands owned by a given anonymous UID."""
+    brands = await firestore_client.list_brands_by_owner(owner_uid)
+    return {"brands": brands}
+
+
 @app.post("/api/brands")
 async def create_brand(data: BrandProfileCreate):
     """Create a new brand profile record (without analysis)."""
-    brand_id = await firestore_client.create_brand({
+    brand_data: dict = {
         "website_url": data.website_url,
         "description": data.description,
         "uploaded_assets": data.uploaded_assets or [],
         "analysis_status": "pending",
-    })
+    }
+    if data.owner_uid:
+        brand_data["owner_uid"] = data.owner_uid
+    brand_id = await firestore_client.create_brand(brand_data)
     return {"brand_id": brand_id, "status": "created"}
+
+
+@app.patch("/api/brands/{brand_id}/claim")
+async def claim_brand_endpoint(brand_id: str, owner_uid: str = Body(..., embed=True)):
+    """Claim an ownerless brand for an anonymous UID (grandfathering)."""
+    success = await firestore_client.claim_brand(brand_id, owner_uid)
+    if not success:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return {"status": "claimed", "brand_id": brand_id}
 
 
 @app.post("/api/brands/{brand_id}/analyze")
