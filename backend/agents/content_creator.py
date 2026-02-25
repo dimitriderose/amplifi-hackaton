@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import re
 from typing import AsyncIterator
 
 from google import genai
@@ -20,48 +21,85 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 PLATFORM_PROMPTS: dict[str, str] = {
     "instagram": (
         "PLATFORM FORMAT: Instagram caption.\n"
-        "- Hook in first line (appears above fold)\n"
+        "- Hook in first line (≤125 chars — this appears above the 'more' fold, make it count)\n"
         "- 2-3 short paragraphs with line breaks for readability\n"
+        "- Total caption: 150-250 words. Be concise — don't over-explain\n"
         "- Call to action (comment, save, share)\n"
-        "- 20-30 relevant hashtags at the end, separated from body\n"
         "- Emoji use: moderate, on-brand\n"
-        "Max: 2200 characters"
+        "HASHTAGS: 8-12 relevant hashtags at the end, separated from body"
     ),
     "linkedin": (
         "PLATFORM FORMAT: LinkedIn post.\n"
         "- Strong opening hook — first 140 chars appear above \"see more\", make them count\n"
         "- Professional but personable tone\n"
         "- 3-5 short paragraphs with line breaks\n"
+        "- Total length: 150-300 words\n"
         "- End with a question or CTA to drive comments\n"
-        "- 3-5 hashtags maximum (LinkedIn penalises over-hashtagging)\n"
         "- Emoji: 1-2 per post max, never decorative\n"
-        "Max: 3000 characters"
+        "HASHTAGS: 3-5 maximum (LinkedIn penalises over-hashtagging)"
     ),
     "twitter": (
         "PLATFORM FORMAT: X (Twitter) post.\n"
         "- Concise, punchy, conversational\n"
         "- One clear idea per post\n"
-        "- Thread format if content needs more than 280 chars (indicate with \U0001f9f5)\n"
-        "- 1-3 hashtags integrated naturally into text (not appended as a block)\n"
-        "Max: 280 characters per tweet"
+        "- Aim for 100-200 characters for maximum engagement\n"
+        "- Thread format ONLY if content truly needs it (indicate with \U0001f9f5)\n"
+        "HASHTAGS: 1-2 woven naturally into the text (not appended as a block)\n"
+        "Hard limit: 280 characters per tweet"
     ),
     "tiktok": (
         "PLATFORM FORMAT: TikTok caption.\n"
         "- Ultra-casual, trend-aware voice\n"
         "- Hook immediately — first 3 words matter most\n"
-        "- Mix brand hashtags with trending tags\n"
+        "- Keep it SHORT: 50-150 characters total. The video does the talking\n"
         "- CTA: 'Follow for more' or 'Save this for later'\n"
-        "Max: 2200 characters"
+        "HASHTAGS: 4-6 mix of brand hashtags and trending tags"
     ),
     "facebook": (
         "PLATFORM FORMAT: Facebook post.\n"
         "- Conversational, community-oriented tone\n"
         "- Ask questions to drive comments\n"
-        "- Longer form acceptable; storytelling works well\n"
-        "- 1-3 hashtags or none\n"
-        "- Emoji use: moderate"
+        "- Storytelling works well — 100-250 words\n"
+        "- Emoji use: moderate\n"
+        "HASHTAGS: 0-3 (optional — Facebook engagement doesn't depend on hashtags)"
     ),
 }
+
+# Per-platform max hashtag counts for the sanitizer
+_HASHTAG_LIMITS: dict[str, int] = {
+    "instagram": 12,
+    "linkedin": 5,
+    "twitter": 2,
+    "tiktok": 6,
+    "facebook": 3,
+}
+
+# Common English stopwords that should never be hashtags
+_HASHTAG_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "is", "it", "by", "as", "be", "was", "are", "has", "had", "do",
+    "if", "my", "me", "we", "he", "she", "no", "so", "up", "out", "not",
+    "you", "your", "our", "its", "his", "her", "this", "that", "with",
+    "from", "here", "heres", "image", "post", "caption",
+})
+
+_VALID_HASHTAG_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _sanitize_hashtags(raw_tags: list[str], platform: str) -> list[str]:
+    """Clean and validate hashtags, enforcing per-platform limits."""
+    limit = _HASHTAG_LIMITS.get(platform, 10)
+    clean = []
+    for tag in raw_tags:
+        tag = tag.strip().lstrip("#").strip()
+        if len(tag) < 3:
+            continue
+        if tag.lower() in _HASHTAG_STOPWORDS:
+            continue
+        if not _VALID_HASHTAG_RE.match(tag):
+            continue
+        clean.append(tag)
+    return clean[:limit]
 
 
 async def generate_post(
@@ -189,7 +227,8 @@ Analyze this photo and write a {platform} post caption that:
 - Carries this key message: {key_message}
 - Ends with a call to action
 {instruction_hint}
-After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
+After the caption, add relevant hashtags on a new line starting with HASHTAGS:
+CRITICAL: Only output real hashtags. Never convert sentence fragments into hashtags.
 """
 
         try:
@@ -216,7 +255,10 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                 caption_part, hashtag_part = full_text.split("HASHTAGS:", 1)
                 full_caption = caption_part.strip()
                 raw_tags = hashtag_part.strip().replace("\n", " ")
-                parsed_hashtags = [t.strip().lstrip("#") for t in raw_tags.split() if t.strip()]
+                parsed_hashtags = _sanitize_hashtags(
+                    [t.strip() for t in raw_tags.split() if t.strip()],
+                    platform,
+                )
             else:
                 full_caption = full_text.strip()
                 parsed_hashtags = hashtags_hint
@@ -301,7 +343,8 @@ Then generate a stunning {platform}-optimized image.
 {color_hint}
 Image visual: {image_prompt}
 {instruction_hint}
-After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAGS:
+After the caption, add relevant hashtags on a new line starting with HASHTAGS:
+CRITICAL: Only output real hashtags. Never convert sentence fragments into hashtags.
 """
 
     full_caption = ""
@@ -329,11 +372,10 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
                     caption_part, hashtag_part = text.split("HASHTAGS:", 1)
                     full_caption += caption_part.strip()
                     raw_tags = hashtag_part.strip().replace("\n", " ")
-                    parsed_hashtags = [
-                        t.strip().lstrip("#")
-                        for t in raw_tags.split()
-                        if t.strip()
-                    ]
+                    parsed_hashtags = _sanitize_hashtags(
+                        [t.strip() for t in raw_tags.split() if t.strip()],
+                        platform,
+                    )
                     yield {
                         "event": "caption",
                         "data": {

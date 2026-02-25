@@ -822,6 +822,12 @@ async def review_post_endpoint(brand_id: str, post_id: str, force: bool = Query(
             "review_revised": True,
         })
 
+    # If revised hashtags provided, auto-save the cleaned version
+    if result.get("revised_hashtags"):
+        await firestore_client.update_post(brand_id, post_id, {
+            "hashtags": result["revised_hashtags"],
+        })
+
     return {"review": result, "post_id": post_id}
 
 

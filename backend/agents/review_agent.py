@@ -36,6 +36,15 @@ Review this {platform} post:
 Caption: "{caption}"
 Hashtags: {hashtags}
 
+Platform-specific guidelines to check:
+- Instagram: hook ≤125 chars above fold, total 150-250 words, 8-12 hashtags
+- LinkedIn: hook ≤140 chars above "see more", 150-300 words, 3-5 hashtags
+- Twitter/X: ≤280 chars per tweet, aim 100-200 chars, 1-2 hashtags in text
+- TikTok: 50-150 chars (ultra-short), 4-6 hashtags
+- Facebook: 100-250 words, 0-3 hashtags
+
+Flag captions that are too long for their platform. Check hashtags for junk (sentence fragments, common words like #the, #for, #your).
+
 Evaluate and respond with JSON only:
 {{
   "score": <integer 1-10, overall brand quality score>,
@@ -43,7 +52,8 @@ Evaluate and respond with JSON only:
   "strengths": [<list of 2-3 strength strings>],
   "improvements": [<list of 1-3 improvement suggestions>],
   "approved": <true if score >= 7, false otherwise>,
-  "revised_caption": <improved caption string, or null if score >= 8>,
+  "revised_caption": <improved caption string if score < 8 or caption is too long for platform, otherwise null>,
+  "revised_hashtags": <cleaned hashtag array if any hashtags are junk/irrelevant/too many, otherwise null>,
   "engagement_scores": {{
     "hook_strength": <integer 1-10: how compelling the opening line is — will people stop scrolling?>,
     "relevance": <integer 1-10: how on-brand and relevant to target audience>,
@@ -80,6 +90,7 @@ Evaluate and respond with JSON only:
             "improvements": result.get("improvements", []),
             "approved": bool(result.get("approved", False)),
             "revised_caption": result.get("revised_caption"),
+            "revised_hashtags": result.get("revised_hashtags"),
             "engagement_scores": {
                 "hook_strength": int(raw_engagement.get("hook_strength", 5)),
                 "relevance": int(raw_engagement.get("relevance", 5)),
