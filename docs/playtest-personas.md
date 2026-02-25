@@ -2,14 +2,15 @@
 
 ## Overview
 
-Two small business personas reviewed the Amplifi codebase and UI across 2 rounds. The panel evaluated UX fixes incrementally as they were merged to `main`.
+Two small business personas reviewed the Amplifi codebase and UI across 3 rounds. The panel evaluated UX fixes incrementally as they were merged to `main`, then reviewed live AI-generated output in Round 3.
 
 | Round | Composite | Delta | HEAD Commit |
 |-------|-----------|-------|-------------|
 | Round 1 (21+ Fixes: DK/H/M/L tiers) | 8.25/10 | — | `2b6642e` |
 | Round 2 (3 Flag Fixes) | 9.25/10 | +1.0 | `b738285` |
+| Round 3 (Live Output Review) | 9.4375/10 | +0.1875 | `a9e544d` |
 
-**Final Verdict:** Ship the demo. Only remaining gate is live output quality evaluation.
+**Final Verdict:** Ship it. One P1 bug (hashtag auto-clean) for post-launch.
 
 ---
 
@@ -181,7 +182,7 @@ Two small business personas reviewed the Amplifi codebase and UI across 2 rounds
 
 **Jason's remaining concern:** "Output quality is still unknowable from code. But the per-platform demo data gives me confidence the team understands voice differentiation across platforms. If they put that care into demo data, the prompt engineering behind the Review Agent is probably solid too. Seeing a generated LinkedIn post that reads like something I'd write is the only remaining gate."
 
-### Flag Resolution Status
+### Flag Resolution Status (Round 2)
 
 | # | Flag | R1 Status | R2 Resolution | Resolved? |
 |---|------|-----------|---------------|-----------|
@@ -192,35 +193,103 @@ Two small business personas reviewed the Amplifi codebase and UI across 2 rounds
 
 ---
 
-## Score Progression Summary
+## Round 3 — Live Output Review (AI-Generated Content)
+
+**Context:** Both personas watched a screen recording of Amplifi generating real content for a CPA firm (Derose & Associates). This is the first time either persona has seen actual AI-generated output — captions, images, video, and brand review — not just the UI shell.
+
+**What the recording shows:**
+1. Instagram post: "Essential Tax Season Checklist for Businesses" — full caption mentioning Derose & Associates, NYC and Long Island, tax deadlines
+2. AI-generated image — professional styled tax checklist with coffee cup, on-brand
+3. Hashtags — #TaxSeason, #BusinessTax, #TaxPreparation, #SmallBusiness, #DeroseAndAssociates, #TaxReady, plus junk hashtags (#Here's, #an, #image, #for, #your, #post:)
+4. Veo 3 video clip — 8-second animated version of the checklist image
+5. AI Brand Review — Score 9/10 "STRONG BRAND ALIGNMENT", auto-approved, engagement predictions (Hook: 9, Relevance: 10, CTA: 9, Platform Fit: 8), strengths, suggested improvements
+6. "Next Day → Day 2" CTA for batch workflow
+
+### Maria's Review — 9.25/10 (+0.25)
+
+| Screen | R2 | R3 | Delta | Notes |
+|--------|----|----|-------|-------|
+| Landing | 9 | 9 | — | |
+| Onboard | 8.5 | 8.5 | — | |
+| Dashboard | 9.5 | 9.5 | — | |
+| Generate | 8.5 | **9.5** | +1.0 | Caption reads like a real business wrote it — mentions firm by name, references NYC and Long Island, has a clear dual CTA. Image looks like a styled stock photo shoot. Veo 3 clip is usable as a Reel intro. |
+| Review | 9 | **9.5** | +0.5 | Brand review caught hashtag pollution, engagement prediction bars are useful, auto-approved at 9/10 is well-calibrated. |
+| Export | 9.5 | 9.5 | — | |
+| Video | 7 | **8.5** | +1.5 | "That 8-second animated checklist is actually usable as a Reel intro. My Sunday night workflow just got a video option I didn't expect." |
+| Voice Coach | 7.5 | 7.5 | — | |
+| **Overall** | **9.0** | **9.25** | **+0.25** | |
+
+**Maria's key quotes:**
+- Caption: "It reads like a real business wrote it, not an AI. The tone is professional but approachable — warm without being corny."
+- Image: "That image looks like something from a real accounting firm's Instagram. The coffee cup, the professional lighting, the checklist with checkmarks — it doesn't look AI-generated in the 'melted fingers' way."
+- Hashtags: "The first 8 hashtags are great. The last 5 (`#Here's #an #image #for #your #post:`) are garbage. The Review Agent caught it — but it should have auto-fixed it, not just flagged it."
+
+**Maria's remaining flag:** Hashtag pollution needs to be auto-cleaned, not just flagged. That's the only thing stopping her from hitting Copy All and pasting straight into Instagram without editing.
+
+### Jason's Review — 9.625/10 (+0.125)
+
+| Screen | R2 | R3 | Delta | Notes |
+|--------|----|----|-------|-------|
+| Landing | 7.5 | 7.5 | — | |
+| Onboard | 8.5 | 8.5 | — | |
+| Dashboard | 9 | 9 | — | |
+| Generate | 9.5 | **10** | +0.5 | "This caption opens with a benefit-driven hook, establishes urgency, then provides structured value. The CTA is dual-track. For Instagram, this is well-structured." Output quality matches UX quality — the gate is cleared. |
+| Review | 8.5 | **10** | +1.5 | "This is where the tool differentiates itself from every other AI content tool. Score 9/10 with specific engagement predictions, actionable strengths, and improvement suggestions. The Review Agent caught the hashtag pollution before I did." |
+| Export | 9 | 9 | — | |
+| Video | 9 | 9 | — | |
+| Voice Coach | 8 | 8 | — | |
+| **Overall** | **9.5** | **9.625** | **+0.125** | |
+
+**Jason's key quotes:**
+- Caption: "The fact that this Instagram post reads like a professional accountant talking to small business owners — not like generic AI slop — tells me the Brand Analyst and Content Creator agents are working."
+- Brand Review: "Score 9/10 with specific engagement predictions, actionable strengths, and improvement suggestions. The Review Agent caught the hashtag pollution before I did. That's the kind of quality control that makes me trust the system."
+- Architecture: "The per-platform demo data gave me confidence the team understands voice differentiation. The live output confirms it. The architecture delivers."
+
+**Jason's verdict:** "Flag 4 is resolved. The output quality matches the UX quality. The one remaining issue — hashtag auto-cleaning — is a P1 bug, not an architecture problem. The Review Agent already identifies the issue; it just needs to execute the fix instead of only flagging it. Ship it."
+
+---
+
+## Score Progression Summary (All 3 Rounds)
 
 ```
-          R1      R2
-Maria    8.5 ──→ 9.0   (+0.5)
-Jason    8.0 ──→ 9.5   (+1.5)
-──────────────────────
-AVG      8.25    9.25   (+1.0)
+          R1      R2      R3
+Maria    8.5 ──→ 9.0 ──→ 9.25    (+0.75 total)
+Jason    8.0 ──→ 9.5 ──→ 9.625   (+1.625 total)
+──────────────────────────────────────
+AVG      8.25    9.25    9.4375   (+1.1875 total)
 ```
 
 ---
 
-## Per-Screen Score Comparison
+## Per-Screen Score Comparison (All 3 Rounds)
 
-| Screen | Maria R1 | Maria R2 | Jason R1 | Jason R2 |
-|--------|----------|----------|----------|----------|
-| Landing | 9 | 9 | 7.5 | 7.5 |
-| Onboard | 8.5 | 8.5 | 8.5 | 8.5 |
-| Dashboard | 9 | 9.5 | 8 | 9 |
-| Generate | 8.5 | 8.5 | 9 | 9.5 |
-| Review | 9 | 9 | 8 | 8.5 |
-| Export | 8.5 | 9.5 | 7.5 | 9 |
-| Video | 7 | 7 | 6 | 9 |
-| Voice Coach | 7.5 | 7.5 | 8 | 8 |
+| Screen | Maria R1 | Maria R2 | Maria R3 | Jason R1 | Jason R2 | Jason R3 |
+|--------|----------|----------|----------|----------|----------|----------|
+| Landing | 9 | 9 | 9 | 7.5 | 7.5 | 7.5 |
+| Onboard | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 |
+| Dashboard | 9 | 9.5 | 9.5 | 8 | 9 | 9 |
+| Generate | 8.5 | 8.5 | 9.5 | 9 | 9.5 | 10 |
+| Review | 9 | 9 | 9.5 | 8 | 8.5 | 10 |
+| Export | 8.5 | 9.5 | 9.5 | 7.5 | 9 | 9 |
+| Video | 7 | 7 | 8.5 | 6 | 9 | 9 |
+| Voice Coach | 7.5 | 7.5 | 7.5 | 8 | 8 | 8 |
+
+---
+
+## Flag Resolution (Final)
+
+| # | Flag | R1 | R2 | R3 | Status |
+|---|------|----|----|-----|--------|
+| 1 | Demo voice data Instagram-only | Open | ✅ Resolved | ✅ | Per-platform demos |
+| 2 | Export format ZIP-only | Open | ✅ Resolved | ✅ | Copy All clipboard |
+| 3 | Video noise for text-first | Open | ✅ Resolved | ✅ | Collapsed pill |
+| 4 | Output quality unknowable | Open | Open | ✅ **Resolved** | Live output confirms brand alignment |
+| 5 | Hashtag pollution | — | — | 🟡 **New P1** | Review Agent flags but doesn't auto-clean |
 
 ---
 
 ## What Each Persona Would Tell a Friend
 
-**Maria:** "There's this AI tool where you describe your business and it generates a week of social media posts. No sign-up, no credit card. You just describe Verde Kitchen, tell it your events, and it builds a whole content calendar. Sunday night I can copy all 7 captions to my clipboard and paste them into Instagram one by one. The whole batch session takes maybe 20 minutes instead of 2 hours."
+**Maria:** "There's this AI tool where you describe your business and it generates a week of social media posts. No sign-up, no credit card. You just describe Verde Kitchen, tell it your events, and it builds a whole content calendar. Sunday night I can copy all 7 captions to my clipboard and paste them into Instagram one by one. The whole batch session takes maybe 20 minutes instead of 2 hours. I watched it generate a post for a CPA firm — the caption sounded like a real accountant wrote it, the image looked like a styled photo shoot, and it even made an 8-second video clip I could use as a Reel. The AI reviewed its own work and caught a hashtag mistake before I did."
 
-**Jason:** "I found a content tool that actually understands LinkedIn isn't Instagram. The demo shows a B2B coaching voice — no emoji, authoritative, the way I actually write. It collapses the video section on LinkedIn because it knows I don't need it. I can copy all my week's posts to clipboard and paste into Notion for final edits. If the actual AI output quality matches the UX quality, this replaces my entire content workflow."
+**Jason:** "I found a content tool that actually understands LinkedIn isn't Instagram. The demo shows a B2B coaching voice — no emoji, authoritative, the way I actually write. It collapses the video section on LinkedIn because it knows I don't need it. I can copy all my week's posts to clipboard and paste into Notion for final edits. I watched it generate real content for a professional services firm — the caption had a benefit-driven hook, structured value, and a dual-track CTA. The brand review scored it 9/10 with specific engagement predictions and caught its own hashtag mistake. If they auto-fix that instead of just flagging it, this replaces my entire content workflow."
