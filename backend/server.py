@@ -17,9 +17,11 @@ from backend.services.storage_client import (
     upload_brand_asset,
     get_signed_url,
     download_from_gcs,
+    download_gcs_uri,
     upload_byop_photo,
     upload_raw_video_source,
     upload_repurposed_clip,
+    get_bucket,
 )
 from google import genai as _genai
 from google.genai import types as _gtypes
@@ -227,6 +229,25 @@ async def connect_social_account(
     return {"platform": platform, "voice_analysis": voice_analysis}
 
 
+# ── GCS proxy (local dev) ──────────────────────────────────────
+from fastapi.responses import Response
+
+
+@app.get("/api/storage/serve/{blob_path:path}")
+async def serve_storage_object(blob_path: str):
+    """Proxy-serve a GCS object.  Used when signed URLs are unavailable
+    (e.g. local dev with ADC credentials that lack a private key)."""
+    try:
+        bucket = get_bucket()
+        blob = bucket.blob(blob_path)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, blob.download_as_bytes)
+        ct = blob.content_type or "application/octet-stream"
+        return Response(content=data, media_type=ct)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ── Posts ─────────────────────────────────────────────────────
 
 @app.get("/api/posts")
@@ -237,6 +258,18 @@ async def list_posts_endpoint(
     """List all posts for a brand, optionally filtered by plan."""
     posts = await firestore_client.list_posts(brand_id, plan_id)
     return {"posts": posts}
+
+
+@app.get("/api/posts/{post_id}")
+async def get_post_endpoint(
+    post_id: str,
+    brand_id: str = Query(...),
+):
+    """Return a single post by ID."""
+    post = await firestore_client.get_post(brand_id, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
 
 
 # ── Export / Download ─────────────────────────────────────────
@@ -606,8 +639,7 @@ async def stream_generate(
     custom_photo_gcs_uri = day_brief.get("custom_photo_gcs_uri")
     if custom_photo_gcs_uri:
         try:
-            fresh_url = await get_signed_url(custom_photo_gcs_uri)
-            custom_photo_bytes = await download_from_gcs(fresh_url)
+            custom_photo_bytes = await download_gcs_uri(custom_photo_gcs_uri)
             custom_photo_mime = day_brief.get("custom_photo_mime", "image/jpeg")
         except Exception as e:
             logger.warning("Could not download custom photo for day %s: %s", day_index, e)
@@ -625,59 +657,84 @@ async def stream_generate(
         "byop": custom_photo_bytes is not None,
     })
 
-    async def event_stream():
+    # Run generation as a background task so it completes (and saves to
+    # Firestore) even if the user navigates away and the SSE stream closes.
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run_generation():
         final_caption = ""
-        final_hashtags = []
+        final_hashtags: list = []
         final_image_url = None
         final_image_gcs_uri = None
 
-        async for event in generate_post(
-            plan_id, day_brief, brand, post_id,
-            custom_photo_bytes=custom_photo_bytes,
-            custom_photo_mime=custom_photo_mime,
-            instructions=instructions,
-        ):
-            event_name = event["event"]
-            event_data = event["data"]
+        try:
+            async for event in generate_post(
+                plan_id, day_brief, brand, post_id,
+                custom_photo_bytes=custom_photo_bytes,
+                custom_photo_mime=custom_photo_mime,
+                instructions=instructions,
+            ):
+                event_name = event["event"]
+                event_data = event["data"]
 
-            # Track final values
-            if event_name == "caption" and not event_data.get("chunk"):
-                final_caption = event_data.get("text", "")
-                final_hashtags = event_data.get("hashtags", [])
-            elif event_name == "image":
-                final_image_url = event_data.get("url")
-                final_image_gcs_uri = event_data.get("gcs_uri")
-            elif event_name == "complete":
-                final_caption = event_data.get("caption", final_caption)
-                final_hashtags = event_data.get("hashtags", final_hashtags)
-                final_image_url = event_data.get("image_url", final_image_url)
-                final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
+                # Track final values
+                if event_name == "caption" and not event_data.get("chunk"):
+                    final_caption = event_data.get("text", "")
+                    final_hashtags = event_data.get("hashtags", [])
+                elif event_name == "image":
+                    final_image_url = event_data.get("url")
+                    final_image_gcs_uri = event_data.get("gcs_uri")
+                elif event_name == "complete":
+                    final_caption = event_data.get("caption", final_caption)
+                    final_hashtags = event_data.get("hashtags", final_hashtags)
+                    final_image_url = event_data.get("image_url", final_image_url)
+                    final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
 
-                # Persist complete post to Firestore — wrapped so a DB error
-                # doesn't kill the SSE stream before the client receives the event
-                update_data: dict = {
-                    "status": "complete",
-                    "caption": final_caption,
-                    "hashtags": final_hashtags,
-                    "image_url": final_image_url,
+                    # Persist complete post to Firestore
+                    update_data: dict = {
+                        "status": "complete",
+                        "caption": final_caption,
+                        "hashtags": final_hashtags,
+                        "image_url": final_image_url,
+                    }
+                    if final_image_gcs_uri:
+                        update_data["image_gcs_uri"] = final_image_gcs_uri
+                    try:
+                        await firestore_client.update_post(brand_id, post_id, update_data)
+                    except Exception as fs_err:
+                        logger.error("Firestore update failed for post %s: %s", post_id, fs_err)
+                elif event_name == "error":
+                    try:
+                        await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
+                    except Exception as fs_err:
+                        logger.error("Firestore error-update failed for post %s: %s", post_id, fs_err)
+
+                await event_queue.put(event)
+        except Exception as exc:
+            logger.error("Generation task error for post %s: %s", post_id, exc)
+            try:
+                await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
+            except Exception:
+                pass
+            await event_queue.put({"event": "error", "data": {"message": str(exc)}})
+        finally:
+            await event_queue.put(None)  # sentinel: end of stream
+
+    gen_task = asyncio.create_task(_run_generation())
+
+    async def event_stream():
+        try:
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"]),
                 }
-                if final_image_gcs_uri:
-                    update_data["image_gcs_uri"] = final_image_gcs_uri
-                try:
-                    await firestore_client.update_post(brand_id, post_id, update_data)
-                except Exception as fs_err:
-                    logger.error("Firestore update failed for post %s: %s", post_id, fs_err)
-            elif event_name == "error":
-                # Mark post as failed so it doesn't stay stuck in "generating"
-                try:
-                    await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
-                except Exception as fs_err:
-                    logger.error("Firestore error-update failed for post %s: %s", post_id, fs_err)
-
-            yield {
-                "event": event_name,
-                "data": json.dumps(event_data),
-            }
+        except asyncio.CancelledError:
+            # SSE closed (user navigated away) — generation task keeps running
+            pass
 
     return EventSourceResponse(event_stream())
 
@@ -716,11 +773,15 @@ async def patch_post_endpoint(brand_id: str, post_id: str, data: PatchPostBody):
 
 
 @app.post("/api/brands/{brand_id}/posts/{post_id}/review")
-async def review_post_endpoint(brand_id: str, post_id: str):
+async def review_post_endpoint(brand_id: str, post_id: str, force: bool = Query(False)):
     """AI-review a generated post against brand guidelines."""
     post = await firestore_client.get_post(brand_id, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    # Return cached review if one exists (unless force=true for re-review)
+    if not force and post.get("review"):
+        return {"review": post["review"], "post_id": post_id}
 
     brand = await firestore_client.get_brand(brand_id)
     if not brand:
@@ -838,8 +899,7 @@ async def start_video_generation(
         )
 
     try:
-        signed_url = await get_signed_url(image_gcs_uri)
-        hero_image_bytes = await download_from_gcs(signed_url)
+        hero_image_bytes = await download_gcs_uri(image_gcs_uri)
     except Exception as e:
         logger.error("Failed to download hero image for post %s: %s", post_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to fetch hero image: {e}")

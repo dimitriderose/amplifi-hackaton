@@ -11,8 +11,9 @@ export default function GeneratePage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const brandId = searchParams.get('brand_id') || ''
+  const viewPostId = searchParams.get('post_id') || ''
 
-  const { state, generate, reset } = usePostGeneration()
+  const { state, generate, reset, loadExisting } = usePostGeneration()
 
   const [dayBrief, setDayBrief] = useState<{ platform: string; pillar: string; content_theme: string; day_index?: number } | undefined>(undefined)
   const [planDayCount, setPlanDayCount] = useState<number>(0)
@@ -47,17 +48,28 @@ export default function GeneratePage() {
       .catch(() => {})
   }, [brandId])
 
-  // Auto-start generation on mount; return cleanup so EventSource closes on unmount
+  // View mode: load existing post; Generate mode: start SSE generation
   useEffect(() => {
-    if (planId && dayIndex !== undefined && brandId) {
+    if (viewPostId && brandId) {
+      // View an existing post
+      ;(api.getPost(brandId, viewPostId) as Promise<any>)
+        .then(post => {
+          loadExisting({
+            postId: post.post_id,
+            caption: post.caption || '',
+            hashtags: post.hashtags || [],
+            imageUrl: post.image_url || null,
+          })
+        })
+        .catch(() => {})
+    } else if (planId && dayIndex !== undefined && brandId) {
+      // Auto-start generation; return cleanup so EventSource closes on unmount
       return generate(planId, parseInt(dayIndex, 10), brandId)
     }
-  }, [planId, dayIndex, brandId, generate])
+  }, [planId, dayIndex, brandId, generate, viewPostId, loadExisting])
 
   const handleRegenerate = (instructions?: string) => {
     if (planId && dayIndex !== undefined && brandId) {
-      // reset() closes the existing EventSource; generate() handles its own
-      // teardown at the top of its body — no setTimeout needed
       reset()
       generate(planId, parseInt(dayIndex, 10), brandId, instructions)
     }
@@ -73,6 +85,8 @@ export default function GeneratePage() {
       navigate(`/generate/${planId}/${currentDayIdx + 1}?brand_id=${brandId}`)
     }
   }
+
+  const isViewMode = !!viewPostId
 
   // H-3: Subtitle uses platform + content_theme from dayBrief instead of raw UUID
   const subtitle = dayBrief
@@ -100,7 +114,7 @@ export default function GeneratePage() {
         </button>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: A.text, margin: 0 }}>
-            Generate Post
+            {isViewMode ? 'View Post' : 'Generate Post'}
           </h1>
           {/* H-3: Show human-readable context instead of Plan UUID */}
           <p style={{ fontSize: 13, color: A.textSoft, margin: 0 }}>{subtitle}</p>

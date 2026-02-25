@@ -125,10 +125,14 @@ async def generate_video_clip(
         )
         logger.info("Veo operation status: done=%s", operation.done)
 
-    logger.info("Veo operation complete, extracting video bytes...")
+    logger.info("Veo operation complete, downloading video via files API...")
 
-    # Extract the generated video bytes
-    video_bytes = operation.response.generated_videos[0].video.video_bytes
+    # Use client.files.download() — Veo doesn't populate video_bytes directly
+    gen_video = operation.response.generated_videos[0]
+    video_bytes = await loop.run_in_executor(
+        None,
+        lambda: client.files.download(file=gen_video),
+    )
 
     # Upload MP4 to GCS and get signed URL + GCS URI
     video_url, video_gcs_uri = await upload_video_to_gcs(video_bytes, post_id)

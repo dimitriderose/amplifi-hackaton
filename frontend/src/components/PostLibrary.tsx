@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { api } from '../api/client'
 import PostCard from './PostCard'
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: Props) {
+  const navigate = useNavigate()
   const { posts, loading, error, refresh } = usePostLibrary(brandId, planId)
   const [filter, setFilter] = React.useState<Filter>(defaultFilter)
   const [exporting, setExporting] = React.useState(false)
@@ -190,6 +192,11 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all' }: 
               onDismiss={
                 post.status === 'generating' || post.status === 'failed'
                   ? () => setDismissed(prev => new Set([...prev, post.post_id]))
+                  : undefined
+              }
+              onView={
+                (post.status === 'complete' || post.status === 'approved') && planId
+                  ? () => navigate(`/generate/${planId}/${post.day_index}?brand_id=${brandId}&post_id=${post.post_id}`)
                   : undefined
               }
             />

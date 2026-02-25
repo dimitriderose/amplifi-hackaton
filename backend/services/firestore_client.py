@@ -3,13 +3,14 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from google.cloud import firestore
 from google.cloud.firestore_v1.async_client import AsyncClient
+from backend.config import GCP_PROJECT_ID
 
 _client: Optional[AsyncClient] = None
 
 def get_client() -> AsyncClient:
     global _client
     if _client is None:
-        _client = firestore.AsyncClient()
+        _client = firestore.AsyncClient(project=GCP_PROJECT_ID)
     return _client
 
 # ── Brand operations ──────────────────────────────────────────

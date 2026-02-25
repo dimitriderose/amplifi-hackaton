@@ -119,5 +119,24 @@ export function usePostGeneration() {
     })
   }, [])
 
-  return { state, generate, reset }
+  /** Load an already-generated post into the state (view mode). */
+  const loadExisting = useCallback((post: {
+    postId: string
+    caption: string
+    hashtags: string[]
+    imageUrl: string | null
+  }) => {
+    setState({
+      status: 'complete',
+      statusMessage: '',
+      captionChunks: [],
+      caption: post.caption,
+      hashtags: post.hashtags,
+      imageUrl: post.imageUrl,
+      postId: post.postId,
+      error: null,
+    })
+  }, [])
+
+  return { state, generate, reset, loadExisting }
 }

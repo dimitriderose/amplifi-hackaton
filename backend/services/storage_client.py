@@ -1,10 +1,13 @@
+import logging
 import re
 import uuid
 import asyncio
 from datetime import timedelta
 from typing import Optional
 from google.cloud import storage
-from backend.config import GCS_BUCKET_NAME
+from backend.config import GCS_BUCKET_NAME, GCP_PROJECT_ID
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_filename(filename: str, max_len: int = 80) -> str:
@@ -19,18 +22,39 @@ _storage_client: Optional[storage.Client] = None
 def get_storage_client() -> storage.Client:
     global _storage_client
     if _storage_client is None:
-        _storage_client = storage.Client()
+        _storage_client = storage.Client(project=GCP_PROJECT_ID)
     return _storage_client
 
 def get_bucket() -> storage.Bucket:
     return get_storage_client().bucket(GCS_BUCKET_NAME)
+
+
+async def _get_serving_url(blob: storage.Blob, blob_path: str,
+                            expiration: timedelta = timedelta(days=7)) -> str:
+    """Try to generate a signed URL; fall back to a backend proxy URL.
+
+    ADC credentials from ``gcloud auth application-default login`` lack a
+    private key, so ``generate_signed_url`` raises.  When that happens we
+    return ``/api/storage/serve/<blob_path>`` so the frontend can fetch the
+    object through a backend proxy endpoint instead.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(
+            None,
+            lambda: blob.generate_signed_url(expiration=expiration, method="GET"),
+        )
+    except Exception:
+        logger.debug("Signed URL unavailable — using backend proxy for %s", blob_path)
+        return f"/api/storage/serve/{blob_path}"
+
 
 async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
                                post_id: Optional[str] = None) -> tuple[str, str]:
     """Upload generated image bytes to GCS.
 
     Returns:
-        (signed_url, gcs_uri) — 7-day signed URL and the gs:// URI.
+        (url, gcs_uri) — A serving URL (signed or backend-proxy) and the gs:// URI.
     """
     if not post_id:
         post_id = str(uuid.uuid4())
@@ -46,12 +70,9 @@ async def upload_image_to_gcs(image_bytes: bytes, mime_type: str,
         lambda: blob.upload_from_string(image_bytes, content_type=mime_type)
     )
 
-    signed_url = await loop.run_in_executor(
-        None,
-        lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET")
-    )
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
-    return signed_url, gcs_uri
+    url = await _get_serving_url(blob, blob_path)
+    return url, gcs_uri
 
 async def upload_brand_asset(brand_id: str, file_bytes: bytes,
                               filename: str, mime_type: str) -> str:
@@ -68,18 +89,14 @@ async def upload_brand_asset(brand_id: str, file_bytes: bytes,
     return f"gs://{GCS_BUCKET_NAME}/{blob_path}"
 
 async def get_signed_url(gcs_uri: str) -> str:
-    """Convert a gs:// URI to a 1-hour signed URL for frontend serving."""
+    """Convert a gs:// URI to a serving URL (signed or backend-proxy)."""
     prefix = f"gs://{GCS_BUCKET_NAME}/"
     if not gcs_uri.startswith(prefix):
         raise ValueError(f"Invalid GCS URI for bucket {GCS_BUCKET_NAME!r}: {gcs_uri!r}")
     blob_path = gcs_uri[len(prefix):]
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: blob.generate_signed_url(expiration=timedelta(hours=1), method="GET")
-    )
+    return await _get_serving_url(blob, blob_path, expiration=timedelta(hours=1))
 
 async def download_from_gcs(url: str) -> bytes:
     """Download bytes from a GCS signed URL. Only storage.googleapis.com URLs accepted."""
@@ -114,13 +131,9 @@ async def upload_byop_photo(
         lambda: blob.upload_from_string(file_bytes, content_type=mime_type),
     )
 
-    signed_url = await loop.run_in_executor(
-        None,
-        lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET"),
-    )
-
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
-    return signed_url, gcs_uri
+    url = await _get_serving_url(blob, blob_path)
+    return url, gcs_uri
 
 
 async def upload_video_to_gcs(video_bytes: bytes, post_id: str) -> tuple[str, str]:
@@ -139,13 +152,9 @@ async def upload_video_to_gcs(video_bytes: bytes, post_id: str) -> tuple[str, st
         lambda: blob.upload_from_string(video_bytes, content_type="video/mp4"),
     )
 
-    signed_url = await loop.run_in_executor(
-        None,
-        lambda: blob.generate_signed_url(expiration=timedelta(days=7), method="GET"),
-    )
-
     gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
-    return signed_url, gcs_uri
+    url = await _get_serving_url(blob, blob_path)
+    return url, gcs_uri
 
 
 async def upload_raw_video_source(

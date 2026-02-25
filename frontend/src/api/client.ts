@@ -33,10 +33,12 @@ export const api = {
 
   listPosts: (brandId: string, planId?: string) =>
     request(`/api/posts?brand_id=${brandId}${planId ? `&plan_id=${planId}` : ''}`),
+  getPost: (brandId: string, postId: string) =>
+    request(`/api/posts/${postId}?brand_id=${brandId}`),
   updatePost: (brandId: string, postId: string, data: { caption?: string; hashtags?: string[] }) =>
     request(`/api/brands/${brandId}/posts/${postId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  reviewPost: (brandId: string, postId: string) =>
-    request(`/api/brands/${brandId}/posts/${postId}/review`, { method: 'POST' }),
+  reviewPost: (brandId: string, postId: string, force = false) =>
+    request(`/api/brands/${brandId}/posts/${postId}/review${force ? '?force=true' : ''}`, { method: 'POST' }),
   approvePost: (brandId: string, postId: string) =>
     request(`/api/brands/${brandId}/posts/${postId}/approve`, { method: 'POST' }),
   exportPost: (postId: string, brandId: string) => request(`/api/posts/${postId}/export?brand_id=${brandId}`),

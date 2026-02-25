@@ -68,7 +68,7 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId, brandId])
 
-  const runReview = async () => {
+  const runReview = async (force = false) => {
     // Reset prior results at the start so the re-review button doesn't cause a
     // stale-state flash (setReview(null) outside was async and didn't flush first)
     setReview(null)
@@ -81,12 +81,9 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
     setLoading(true)
     setError('')
     try {
-      const res = await api.reviewPost(brandId, postId) as { review: ReviewResult }
+      const res = await api.reviewPost(brandId, postId, force) as { review: ReviewResult }
       setReview(res.review)
-      if (res.review.approved) {
-        setApproved(true)
-        onApproved?.()
-      }
+      // Don't auto-navigate on approval — let the user see the review first
     } catch (err: any) {
       setError(err.message || 'Review failed')
     } finally {
@@ -112,10 +109,21 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
         <span style={{ fontSize: 20 }}>✅</span>
-        <div>
+        <div style={{ flex: 1 }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: A.emerald, margin: 0 }}>Post Approved</p>
           <p style={{ fontSize: 12, color: A.textSoft, margin: 0 }}>Ready for export</p>
         </div>
+        {onApproved && (
+          <button
+            onClick={onApproved}
+            style={{
+              padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: A.emerald, color: 'white', fontSize: 13, fontWeight: 600,
+            }}
+          >
+            ← Dashboard
+          </button>
+        )}
       </div>
     )
   }
@@ -299,7 +307,18 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8 }}>
-            {!review.approved && (
+            {review.approved ? (
+              <button
+                onClick={() => { setApproved(true); onApproved?.() }}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: `linear-gradient(135deg, ${A.emerald}, #059669)`,
+                  color: 'white', fontSize: 13, fontWeight: 600,
+                }}
+              >
+                ✓ Done — Go to Dashboard
+              </button>
+            ) : (
               <button
                 onClick={handleManualApprove}
                 style={{
@@ -312,7 +331,7 @@ export default function ReviewPanel({ brandId, postId, onApproved }: Props) {
               </button>
             )}
             <button
-              onClick={runReview}
+              onClick={() => runReview(true)}
               style={{
                 padding: '10px 16px', borderRadius: 8,
                 border: `1px solid ${A.border}`,

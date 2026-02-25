@@ -1,6 +1,7 @@
 import React from 'react'
 import { A } from '../theme'
-import { useVoiceCoach, VoiceCoachStatus } from '../hooks/useVoiceCoach'
+import { useVoiceCoach } from '../hooks/useVoiceCoach'
+import type { VoiceCoachStatus } from '../hooks/useVoiceCoach'
 
 interface Props {
   brandId: string

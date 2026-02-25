@@ -7,6 +7,9 @@ from google import genai
 from google.genai import types
 
 from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
+
+# Interleaved text+image generation requires an image-capable model
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
 from backend.services import budget_tracker as bt
 from backend.services.storage_client import upload_image_to_gcs
 
@@ -311,7 +314,7 @@ After the caption, add 5-8 relevant hashtags on a new line starting with HASHTAG
     try:
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model=GEMINI_MODEL,
+            model=GEMINI_IMAGE_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],

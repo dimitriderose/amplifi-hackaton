@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { A } from '../theme'
-import { GenerationState } from '../hooks/usePostGeneration'
+import type { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
 import PlatformPreview from './PlatformPreview'
 import { api } from '../api/client'

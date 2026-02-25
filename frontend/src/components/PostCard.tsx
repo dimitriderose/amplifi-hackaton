@@ -25,9 +25,11 @@ interface Props {
   onApproved?: () => void
   /** DK-5: Called when user dismisses a stuck 'generating' or 'failed' post from the UI */
   onDismiss?: () => void
+  /** Navigate to view this post's full content */
+  onView?: () => void
 }
 
-export default function PostCard({ post, brandId, onApproved, onDismiss }: Props) {
+export default function PostCard({ post, brandId, onApproved, onDismiss, onView }: Props) {
   const color = STATUS_COLORS[post.status] || A.textMuted
   const label = STATUS_LABELS[post.status] || post.status
   const [copied, setCopied] = useState(false)
@@ -80,11 +82,15 @@ export default function PostCard({ post, brandId, onApproved, onDismiss }: Props
       overflow: 'hidden', display: 'flex', flexDirection: 'column',
     }}>
       {/* Image or placeholder */}
-      <div style={{
-        width: '100%', aspectRatio: '1', background: A.surfaceAlt,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden', position: 'relative',
-      }}>
+      <div
+        onClick={isFinal && onView ? onView : undefined}
+        style={{
+          width: '100%', aspectRatio: '1', background: A.surfaceAlt,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', position: 'relative',
+          cursor: isFinal && onView ? 'pointer' : 'default',
+        }}
+      >
         {post.image_url ? (
           <img
             src={post.image_url}
