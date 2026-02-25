@@ -141,10 +141,10 @@ Analyze the provided information and extract:
 1. BUSINESS_NAME: The brand/business name (infer from description if needed)
 2. BUSINESS_TYPE: One of: local_business, service, personal_brand, ecommerce
 3. INDUSTRY: The industry category (e.g., "Food & Beverage", "Fitness & Wellness", "B2B Software")
-4. TONE: 3-5 comma-separated adjectives describing brand voice (e.g., "warm, approachable, artisanal")
-5. COLORS: Array of 3 hex colors [primary, secondary, accent] that represent the brand
+4. TONE: Select exactly 3 adjectives from this list: professional, friendly, authoritative, playful, warm, bold, minimal, luxurious, casual, inspiring, educational, witty, empathetic, confident, sophisticated, approachable, artisanal, energetic
+5. COLORS: Array of 3 hex colors [primary, secondary, accent]. If a website was provided, extract the ACTUAL brand colors from the site CSS/design. If no website, choose colors that are conventional and appropriate for the industry (e.g., blue/navy for finance, green for health/organic, warm tones for food)
 6. TARGET_AUDIENCE: One sentence describing demographics and psychographics
-7. VISUAL_STYLE: One sentence describing photography/visual aesthetic style
+7. VISUAL_STYLE: Select one from: clean-minimal, warm-organic, bold-vibrant, dark-luxurious, bright-playful, professional-corporate, rustic-artisan, modern-tech, elegant-refined
 8. CONTENT_THEMES: Array of 5-8 content topics this brand should post about
 9. COMPETITORS: Array of 2-3 competitor names or domains
 10. IMAGE_STYLE_DIRECTIVE: A 2-3 sentence visual identity fragment. Be EXTREMELY specific about colors, lighting, composition, textures. This will be prepended to every image generation prompt.
@@ -186,7 +186,7 @@ Return ONLY a valid JSON object with these exact keys:
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.4,
+                temperature=0.15,
                 response_mime_type="application/json",
             ),
         )
