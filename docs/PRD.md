@@ -5,7 +5,7 @@
 **Tagline:** Your AI creative director. One brand. Infinite content.
 **Core Technology:** Gemini Interleaved Output (text + image in one stream)
 
-Version 1.1 | February 23, 2026 (updated from v1.0 Feb 21)
+Version 1.2 | February 25, 2026 (updated from v1.1 Feb 23)
 Hackathon Deadline: **March 16, 2026 at 5:00 PM PDT**
 Prize Target: $10K (category) + $5K (subcategory)
 
@@ -48,7 +48,7 @@ Amplifi is an AI creative director that analyzes your brand and produces complet
 
 - **Brand-first intelligence:** Upload your website URL or product photos. Amplifi's Brand Analyst agent builds a complete brand profile — colors, tone, target audience, competitive positioning — that informs every piece of content it creates. No more generic AI outputs.
 - **Interleaved content generation:** Watch as captions and matching images stream together in real-time. Monday's post appears with its custom product photo, then Tuesday's story graphic — all flowing as one cohesive output. This is Gemini's interleaved output in action.
-- **Full content packages:** Not individual assets but complete weekly content plans. Each post includes caption + product/lifestyle image + 5–8 relevant hashtags + optimal posting time + platform-specific formatting notes.
+- **Full content packages:** Not individual assets but complete weekly content plans. Each post includes caption + product/lifestyle image + platform-appropriate hashtags (8–12 for IG, 3–5 for LinkedIn, 1–2 for X) + optimal posting time + platform-specific formatting. Instagram carousel posts generate 3 slides with parallel image generation. If interleaved image generation fails, an automatic fallback generates the image separately — no manual retry needed.
 - **Multi-agent quality pipeline:** Four specialized agents work in sequence — Brand Analyst, Strategist, Content Creator, Reviewer — ensuring every post passes brand consistency checks before delivery.
 
 ## What Makes This Different
@@ -60,6 +60,8 @@ The Creative Storyteller category specifically asks for projects that "leverage 
 - Brand colors, typography style, and aesthetic carry across both text and visuals
 - A week's worth of content maintains visual and tonal consistency because it's generated in one contextual session
 - For video-first platforms (Reels, TikTok, Stories), the interleaved hero image becomes the first frame of a Veo-generated video clip — ensuring the static post and the video clip share the same visual DNA
+- Instagram carousel posts generate 3 cohesive slides in parallel, each following the brand's visual identity seed
+- Export delivers complete media packages (image + video + caption) as ZIP files, not just text
 
 ---
 
@@ -68,12 +70,12 @@ The Creative Storyteller category specifically asks for projects that "leverage 
 | Step | What Happens | User Experience |
 |---|---|---|
 | **1. Onboarding** | User describes their business in free text (min 20 characters) as the primary input. URL is an optional enhancement ("Have a website? Paste it for deeper analysis"). Optionally uploads brand assets (photos, PDFs like brand guides or menus) to enrich the analysis. | Primary action is "describe your business." URL field is optional, not the default path. Brand asset upload zone accepts images and PDFs (max 3 files), clearly marked as optional. Analysis steps adapt based on whether a URL is provided. A pulsing "Finalizing your brand profile..." row appears after all analysis steps complete while the backend finalizes. Takes under 2 minutes. |
-| **2. Brand Analysis** | Brand Analyst Agent scrapes the website, analyzes uploaded assets, and extracts brand colors, tone of voice, target audience, competitive positioning, and content themes. Analysis is weighted by business type — personal brands emphasize thought leadership; local businesses emphasize community and product. | Brand profile card appears with all extracted attributes. User can edit any field inline to correct or refine; save button shows loading state and inline error feedback on failure. |
+| **2. Brand Analysis** | Brand Analyst Agent scrapes the website, analyzes uploaded assets, and extracts brand colors, tone of voice, target audience, competitive positioning, and content themes. **Deterministic analysis** (temperature 0.15) with constrained enums ensures consistent results across repeated runs of the same brand. Tone is selected from a fixed set of 15 adjectives (professional, friendly, authoritative, playful, warm, bold, minimal, luxurious, casual, inspiring, educational, witty, empathetic, confident, sophisticated). Visual style is selected from 7 presets (clean-minimal, warm-organic, bold-vibrant, dark-luxurious, bright-playful, professional-corporate, rustic-artisan). Analysis is weighted by business type — personal brands emphasize thought leadership; local businesses emphasize community and product. If a brand already has `analysis_status: complete`, re-analysis is skipped unless the user explicitly requests it. | Brand profile card appears with all extracted attributes. User can edit any field inline to correct or refine; save button shows loading state and inline error feedback on failure. |
 | **3. Strategy** | Strategy Agent takes the brand profile + user's goals (e.g., "launch spring menu") + optional business events this week (e.g., "new croissant Tuesday, farmer's market Saturday") and generates a 7-day content calendar. Identifies 1–2 pillar ideas per week and plans platform-specific derivatives. Real business events become pillar anchors automatically. | Interactive calendar view showing each day's planned content theme and platform. "What's happening this week?" text area above calendar — disabled with contextual message while brand analysis is still running. Calendar generation shows a 6-step animated progress sequence (understanding brand, mapping events, building pillars, scheduling platform mix, crafting repurposing chains, finalizing calendar). A confirmation dialog is shown before clearing an active plan. Pillar posts are visually grouped. |
 | **4. Photo Upload (P1)** | For any calendar day, user can optionally drop their own photo (iPhone shot, product photo, team pic). Days with user photos use image understanding; days without use image generation. | "Drop photo here" zone on each day card. Uploading a photo switches that day from "AI generates image" to "AI writes for your image." |
-| **5. Generation** | Content Creator Agent produces posts using Gemini's interleaved output. For days without a user photo: generates caption + matching image + hashtags in one stream. For days with a user photo: generates caption + hashtags crafted specifically for that image. For video-eligible days (Reels, Stories, TikTok): optional "Generate Video" button creates an 8-sec Veo clip using the hero image as first frame. On text-first platforms (LinkedIn, X, Facebook), the video section is collapsed by default into a minimal pill — expandable on click — to reduce visual noise for text-primary creators. When the Brand Analyst flags the user's industry as high-risk for AI images (food, real estate), a BYOP recommendation banner appears with a "Caption-only mode" toggle that hides the image panel entirely. | Page subtitle shows "Day N · platform · content theme" for human-readable context. Real-time generation stream: text appears, then its matching image materializes (or user photo is displayed), then hashtags. Video generation is a separate async action with a progress bar. Text-first platforms show a collapsed "Video Clip (not typical for this platform)" pill. Post library auto-refreshes every 8s while any post is generating. Posts stuck in generating/failed status show a dismiss button (×) for local removal. |
-| **6. Review** | Review Agent automatically checks each generated post against the brand profile for consistency (tone, colors, messaging), platform rules (character limits, hashtag counts), and engagement prediction (hook strength, relevance, CTA clarity, platform fit). Review auto-triggers on mount once generation completes — no manual action required. | Score circle with brand alignment badge. Engagement prediction bars for four dimensions. Strengths listed with green checkmarks, improvements with yellow arrows. If the AI proposes a revised caption, a "Use this caption" copy-to-clipboard button appears alongside it. Approval is handled exclusively in the review panel — no duplicate approve button elsewhere. After review, a "Next Day →" CTA navigates to the next day in the plan. |
-| **7. Export** | User approves posts and exports via clipboard (primary), individual download, or full ZIP. "Copy All" button copies all filtered captions as a structured clipboard string with per-post headers and separators. Per-post copy and image download are also available. Full calendar export as ZIP. Export page is accessible from a persistent NavBar link that carries the active plan ID via sessionStorage. | Clipboard-first: "Copy All" in the post library header copies all captions for pasting into scheduling tools. Per-post "Copy" button for individual captions. Per-post image download via signed URL. Full calendar export as ZIP. The export page defaults to the "Approved" filter so users see only ready-to-publish posts on arrival. NavBar shows an "Export" link when a plan is active. |
+| **5. Generation** | Content Creator Agent produces posts using Gemini's interleaved output. For days without a user photo: generates caption + matching image + hashtags in one stream. For days with a user photo: generates caption + hashtags crafted specifically for that image. **Instagram carousel posts** generate 3 slides with parallel image generation per slide. **Image fallback:** if interleaved mode fails to produce an image, a separate image-only generation call is made automatically — the user sees a "Retrying image generation..." status and the image appears without manual intervention. For video-eligible days (Reels, Stories, TikTok): optional "Generate Video" button creates an 8-sec Veo clip using the hero image as first frame. On text-first platforms (LinkedIn, X, Facebook), the video section is collapsed by default into a minimal pill — expandable on click — to reduce visual noise for text-primary creators. **Post deduplication:** regenerating a day automatically deletes the previous post for that day/plan, preventing duplicate entries. Platform-specific caption lengths (IG: 150–250 words, LinkedIn: 150–300 words, X: ≤280 chars, TikTok: 50–150 chars, FB: 100–250 words) and hashtag counts (IG: 8–12, LinkedIn: 3–5, X: 1–2, TikTok: 4–6, FB: 0–3) are enforced via prompt engineering and a post-processing hashtag sanitizer that strips stopwords and junk fragments. | Page subtitle shows "Day N · platform · content theme" for human-readable context. Real-time generation stream: text appears, then its matching image materializes (or user photo is displayed), then hashtags. Carousel posts show navigation arrows, dot indicators, and a slide counter (e.g., "1 / 3"). Video generation is a separate async action with a progress bar; generated videos are viewable inline on saved posts. Text-first platforms show a collapsed "Video Clip (not typical for this platform)" pill. Post library auto-refreshes every 8s while any post is generating. Posts stuck in generating/failed status show a dismiss button (×) for local removal. |
+| **6. Review** | Review Agent automatically checks each generated post against the brand profile for consistency (tone, colors, messaging), platform rules (character limits, hashtag counts), and engagement prediction (hook strength, relevance, CTA clarity, platform fit). Review auto-triggers on mount once generation completes — no manual action required. **Auto-clean hashtags:** the Review Agent returns `revised_hashtags` alongside `revised_caption`; cleaned hashtags are applied to the post automatically when the review score is below threshold. Review results are cached in the post document — navigating away and returning preserves the score without re-running the review. | Score circle with brand alignment badge. Engagement prediction bars for four dimensions. Strengths listed with green checkmarks, improvements with yellow arrows. If the AI proposes a revised caption, a "Use this caption" copy-to-clipboard button appears alongside it. Post approval via a dedicated "Approve" button on each PostCard; approved posts show a green badge. After review, a "Next Day →" CTA navigates to the next day in the plan. |
+| **7. Export** | User approves posts and exports via clipboard (primary), individual ZIP download, or full plan ZIP. **"Copy All"** button copies all filtered captions as a structured clipboard string with per-post headers and separators. **Per-post ZIP download:** clicking "Export" on any PostCard downloads a ZIP containing the image, video (if generated), and a caption text file. **Bulk plan ZIP ("Export All"):** downloads a ZIP of all posts in the plan — each post gets a subfolder with image, video, and caption, plus a `metadata.json` with all post data. Media is downloaded directly from Cloud Storage via `blob.download_as_bytes()` (not via signed URLs). Export is integrated into the Dashboard's Posts tab — no separate Export page. | Clipboard-first: "Copy All" in the post library header copies all captions for pasting into scheduling tools. Per-post "Copy" button for individual captions. Per-post "Export" button triggers ZIP download (image + video + caption.txt). "Export All" button downloads bulk plan ZIP with all media. Dashboard tabs (Calendar | Posts | Export) provide unified access. |
 
 ---
 
@@ -86,7 +88,7 @@ The Creative Storyteller category specifically asks for projects that "leverage 
 | **Brand Analyst** | gemini-2.5-flash | Website URL (optional), free-text business description, uploaded assets (images/PDFs) | Brand profile document: colors, tone, audience, positioning, content themes, inferred business type | `fetch_website`, `analyze_brand_colors`, `extract_brand_voice`, `scan_competitors`, `process_uploaded_assets` |
 | **Strategy Agent** | gemini-2.5-flash | Brand profile + user goals + platform selection | 7-day content calendar with themes, platforms, and timing per day | `generate_calendar`, `research_trending_hashtags`, `analyze_best_posting_times` |
 | **Content Creator** ⭐ | gemini-2.5-flash with `responseModalities: ["TEXT", "IMAGE"]` | Brand profile + single day's content brief from calendar | Interleaved stream: caption text + generated product image + hashtags + posting notes | Gemini interleaved output (no custom tools — the model itself generates both text and images) |
-| **Review Agent** | gemini-2.5-flash (text only) | Generated content + brand profile | Approved/flagged status with specific revision suggestions | `check_brand_consistency`, `validate_hashtags`, `check_platform_rules` |
+| **Review Agent** | gemini-2.5-flash (text only) | Generated content + brand profile | Approved/flagged status with revision suggestions, revised caption, and auto-cleaned hashtags (stopword filter + per-platform count enforcement) | `check_brand_consistency`, `validate_hashtags`, `check_platform_rules` |
 
 ### Agent Orchestration
 
@@ -120,28 +122,35 @@ The Content Creator Agent uses Gemini's `responseModalities: ["TEXT", "IMAGE"]` 
 |---|---|---|
 | **Cloud Run** | Backend API + ADK agents | Serverless, auto-scaling. REST API + SSE for streaming interleaved output to the frontend. |
 | **Cloud Firestore** | Brand profiles, content plans, post history | Real-time data sync. Generous free tier (1 GiB). Hierarchical data model maps cleanly to brand→plan→day→post. |
-| **Cloud Storage** | Generated images, uploaded brand assets | Store/serve generated product images with signed URLs. Upload and store user's logo and product photos. |
+| **Cloud Storage** | Generated images, videos, uploaded brand assets | Store/serve generated images and Veo videos. Media downloaded directly via `blob.download_as_bytes()` for export ZIPs. Local dev uses a backend proxy (`/api/storage/serve/`) when signed URLs aren't available. |
+| **Firebase Auth** | Anonymous authentication | Zero-friction persistent identity. Brands linked to anonymous UIDs. No login flow required. |
 | **Cloud Build + Terraform** | CI/CD pipeline + IaC | Automated deployment for bonus points (+0.2). Push to main auto-deploys to Cloud Run. |
 
 ## System Architecture
 
 ```
-User Browser (React) ←REST + SSE→ Cloud Run (FastAPI)
-                                    ├── ADK Sequential Pipeline
-                                    │   ├── Brand Analyst Agent
-                                    │   ├── Strategy Agent
-                                    │   ├── Content Creator Agent (interleaved output)
-                                    │   └── Review Agent
-                                    ├── Gemini API (generateContent)
-                                    │   └── responseModalities: ["TEXT", "IMAGE"]
-                                    ├── Cloud Firestore (brand profiles, plans)
-                                    └── Cloud Storage (images, assets)
+User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
+                                       ├── ADK Sequential Pipeline
+                                       │   ├── Brand Analyst Agent (temp 0.15)
+                                       │   ├── Strategy Agent
+                                       │   ├── Content Creator Agent (interleaved output)
+                                       │   │   ├── Carousel: 3-slide parallel image gen
+                                       │   │   └── Fallback: image-only retry on failure
+                                       │   └── Review Agent (auto-clean hashtags)
+                                       ├── Voice Coach (Gemini Live — BidiGenerateContent)
+                                       ├── Video Creator (Veo 3.1)
+                                       ├── Firebase Anonymous Auth (persistent UID)
+                                       ├── Gemini API (generateContent)
+                                       │   └── responseModalities: ["TEXT", "IMAGE"]
+                                       ├── Cloud Firestore (brands, plans, posts)
+                                       └── Cloud Storage (images, videos, assets)
 ```
 
 ## Brand Profile Schema (Firestore)
 
 ```
 brands/{brandId}/
+  ├── owner_uid: "abc123..."             # Firebase Anonymous Auth UID
   ├── business_name: "Sunrise Bakery"
   ├── website_url: "https://sunrisebakery.com"
   ├── industry: "Food & Beverage"
@@ -168,16 +177,19 @@ brands/{brandId}/
 ## Frontend (React Dashboard)
 
 ```
+/                → Landing page with "Your Brands" list (Firebase Anonymous Auth)
 /onboard         → Brand setup wizard (URL, upload logo, describe business)
 /dashboard       → Main content management view
-  ├── Calendar   → Weekly/monthly content calendar (themes, platforms, timing)
-  ├── Generator  → Real-time content generation (streaming interleaved output)
-  ├── Library    → All generated posts, filterable by platform/status
-  └── Analytics  → (stretch goal) Post performance tracking
-/generate/{day}  → Single post generation view
+  ├── Tabs: Calendar | Posts | Export
+  ├── Calendar   → Weekly content calendar (themes, platforms, timing, event badges)
+  ├── Posts      → PostLibrary: all generated posts, filterable by platform/status
+  └── Export     → Copy All clipboard, per-post ZIP, bulk plan ZIP
+/generate/{planId}/{dayIndex}  → Single post generation view
   ├── Brief input (theme, platform, notes)
   ├── Live generation stream (text + images appearing together)
-  ├── Edit/refine controls (regenerate image, edit caption)
+  ├── Carousel navigation (arrows, dots, slide counter) for multi-slide posts
+  ├── Video section (collapsible on text-first platforms)
+  ├── Review panel (auto-triggers, shows score + suggestions)
   └── Approve button
 ```
 
@@ -218,12 +230,13 @@ brands/{brandId}/
 | React dashboard | **P0 — Must Have** | Brand wizard + calendar view + generation view + post library. Mobile responsive. |
 | Image storage (Cloud Storage) | **P0 — Must Have** | Store generated images with signed URLs. Serve to frontend for display and download. |
 | Streaming UI (SSE) | **P0 — Must Have** | Progressive display of interleaved output — text appears, then image materializes, then hashtags. |
-| Voice brand coaching | **P1 — Should Have** | Optional Live API voice mode: AI explains content strategy verbally, coaches through brand positioning. |
+| Voice brand coaching | **P1 — Should Have** | Multi-turn Gemini Live voice sessions via BidiGenerateContent. AI coaches through brand voice and content strategy verbally. Sessions support auto-reconnect on connection drop and graceful close. The voice coach receives the full brand profile as context so coaching is brand-aware. |
 | Video generation for Reels/TikTok | **P1 — Should Have** | For calendar days targeting Reels, Stories, or TikTok, generate an 8-second video clip via Veo 3.1. Uses the interleaved-output hero image as the first frame for visual continuity. Async generation with polling — separate "Generate Video" button per day card, not part of the main SSE stream. Supports 9:16 (portrait) for mobile-first platforms and 16:9 (landscape) for YouTube/LinkedIn. Stored as MP4 in Cloud Storage alongside the hero image. Budget-conscious: uses Veo 3.1 Fast ($0.15/sec = ~$1.20 per 8-sec clip) by default, with Standard ($0.40/sec) as an optional quality upgrade. On text-first platforms (LinkedIn, X, Facebook), the video section defaults to a collapsed pill to reduce visual noise — expandable on click if the user wants video for that platform. |
 | Bring Your Own Photos mode | **P1 — Should Have** | Users upload their own photos for specific calendar days. The Content Creator Agent switches from "generate caption + image" to "generate caption + hashtags + strategy FOR this photo" using Gemini's image understanding. AI-generated images remain the fallback for days without a user photo. This is critical for small businesses where customers expect real product/location photos. The Brand Wizard gains a bulk photo upload step; the calendar gains a "drop photo here" zone per day card. Architecturally minimal: same Content Creator Agent, different prompt path based on whether `uploaded_photo` is present. |
 | Content repurposing (pillar → derivatives) | **P1 — Should Have** | Instead of 7 independent posts, the Strategy Agent generates 1–2 pillar content ideas per week and plans platform-specific derivatives. Example: Monday = LinkedIn long-form post about pricing strategy. Tuesday = X thread (same idea, condensed). Wednesday = Instagram carousel (same idea, visual tips). Each derivative links back to a `pillar_id` in the calendar schema. This is how successful solopreneurs actually operate and produces more coherent weekly content than unrelated daily posts. Implementation is primarily a Strategy Agent prompt change + a `pillar_id` field on day objects. |
 | Business description onboarding | **P1 — Should Have** | Free-text business description (min 20 characters) replaces rigid business type selector. User describes their business naturally ("I run a mobile dog grooming van in Austin, I specialize in anxious rescue dogs"). The Brand Analyst infers business type, audience, tone, and content opportunities from the description. No-website toggle provides an alternative path where description + optional brand asset uploads are the only inputs — no URL required. Brand asset upload zone accepts up to 3 files (images, PDFs like brand guides or menus) that are processed multimodally to enrich the brand profile. |
-| Landing page | **P1 — Should Have** | Marketing page: hero with gradient headline ("Your entire week of content. One click."), product preview showing mini calendar, 3-step how-it-works, 2×3 feature grid, testimonial placeholder, CTA footer. Desktop-first, clean creative studio aesthetic. CTA flows to onboarding. |
+| Firebase Anonymous Auth | **P1 — Should Have** | Zero-friction authentication via Firebase Anonymous Auth. Auto-creates a persistent UID on first visit — no login screen. Brands get an `owner_uid` field linking them to the anonymous user. On return, the app queries Firestore for all brands matching the UID and shows a "Your Brands" list on the landing page. Existing brands created before auth was added are grandfathered via a `PATCH /api/brands/{id}/claim` endpoint that sets `owner_uid` on first load. |
+| Landing page | **P1 — Should Have** | Marketing page: hero with gradient headline ("Your entire week of content. One click."), product preview showing mini calendar, 3-step how-it-works, 2×3 feature grid, testimonial placeholder, CTA footer. Desktop-first, clean creative studio aesthetic. CTA flows to onboarding. "Your Brands" section appears when the user has existing brands linked to their anonymous UID. |
 | Event-aware calendar | **P1 — Should Have** | Optional "What's happening this week?" free-text field displayed BETWEEN the Brand Profile screen and the Calendar generation screen (or as a prominent input at the top of the Calendar screen before generation starts). User types real business events: "launching lavender croissant Tuesday, farmer's market booth Saturday, staff birthday Wednesday." The Strategy Agent incorporates these events into the content plan — one pillar becomes the product launch, derivatives flow from there. Events appear as badges on the calendar (e.g., "📅 Event: Valentine's prix fixe (Tue)"). This is the difference between a generic AI calendar and one that feels like it was made by someone who works at the business. Zero new infrastructure: one text input, one prompt parameter (`business_events_this_week`) injected into the Strategy Agent. The UI entry point must be discoverable — users need to understand WHERE events come from when they see badges on the calendar. |
 | Visual identity seed | **P1 — Should Have** | During brand analysis, the Brand Analyst generates a persistent "image style directive" — a 2-3 sentence visual identity fragment (e.g., "warm earth tones, soft natural lighting, minimalist composition with generous whitespace, serif typography aesthetic"). This directive is prepended to EVERY Content Creator image generation call for that brand, ensuring stylistic coherence across independently generated images. Not perfect grid consistency (that's P2), but a massive improvement over completely uncoordinated generations. One new field on brand profile: `image_style_directive`. Costs nothing extra — pure prompt engineering. |
 | Caption style directive | **P1 — Should Have** | The textual equivalent of the visual identity seed. During brand analysis, the Brand Analyst generates a persistent "caption style directive" — a 2-4 sentence writing rhythm guide (e.g., "Open with a one-sentence hook under 10 words. Use personal anecdotes as the second beat. Deliver the counterintuitive insight by paragraph three. End with a direct question. Prefer em dashes. Never use exclamation marks."). This directive is prepended to EVERY Content Creator caption generation call. Ensures every post sounds like the same person wrote it, even across different platforms and pillar derivatives. One new field on brand profile: `caption_style_directive`. Same architecture as image_style_directive — Brand Analyst generates it, user can edit it, Content Creator consumes it. |
@@ -256,16 +269,19 @@ brands/{brandId}/
 | **Buffer / SocialBee** | Social scheduling + light AI assist | Scheduling tools with minimal AI capability. No content generation. | AI creative director, not just a scheduler. |
 
 **Key differentiators that no competitor has:**
-1. **Interleaved output is the core mechanic** — caption + image generated TOGETHER in one stream, not separately
-2. **Image-to-video pipeline** — hero image becomes the first frame of an AI-generated video clip via Veo, ensuring visual continuity between static and video content
+1. **Interleaved output is the core mechanic** — caption + image generated TOGETHER in one stream, not separately. Automatic image fallback if interleaved mode fails
+2. **Image-to-video pipeline** — hero image becomes the first frame of an AI-generated video clip via Veo 3.1, ensuring visual continuity between static and video content
 3. **Bring Your Own Photos + AI fallback** — upload real product photos and get AI-crafted captions, or let AI generate both when you don't have a photo. No other tool seamlessly blends user photos with AI-generated content in one calendar
-4. **Pillar content repurposing** — one idea becomes a LinkedIn post, an X thread, an Instagram carousel, and a TikTok caption. Coherent weekly narrative, not 7 disconnected posts
-5. **Event-aware calendar** — tell Amplifi what's actually happening at your business this week and the calendar builds around real events, not generic themes
-6. **Visual + textual identity seeds** — every generated image shares a consistent brand aesthetic AND every caption follows the same writing rhythm, because the Brand Analyst creates persistent style directives for both
-7. **Full content packages** — a week's worth of posts in one generation, not individual assets
-8. **Brand analysis from URL** — paste your website, AI builds your brand profile automatically
-9. **AI creative director pipeline** — strategy + creation + review in one automated workflow
-10. **Built on Gemini's native interleaved output + Veo** — the category literally asks for these capabilities
+4. **Instagram carousels** — 3-slide carousel posts with parallel image generation per slide, each following the brand's visual identity seed
+5. **Pillar content repurposing** — one idea becomes a LinkedIn post, an X thread, an Instagram carousel, and a TikTok caption. Coherent weekly narrative, not 7 disconnected posts
+6. **Event-aware calendar** — tell Amplifi what's actually happening at your business this week and the calendar builds around real events, not generic themes
+7. **Visual + textual identity seeds** — every generated image shares a consistent brand aesthetic AND every caption follows the same writing rhythm, because the Brand Analyst creates persistent style directives for both
+8. **Full content packages** — a week's worth of posts in one generation, not individual assets. Export as ZIP with images, videos, and captions
+9. **Brand analysis from URL** — paste your website, AI builds your brand profile automatically. Deterministic (temperature 0.15) with constrained enums for consistency
+10. **AI creative director pipeline** — strategy + creation + review in one automated workflow. Review Agent auto-cleans hashtags
+11. **Voice coaching via Gemini Live** — multi-turn voice sessions where AI coaches through brand voice and content strategy verbally
+12. **Zero-friction auth** — Firebase Anonymous Auth links brands to a persistent UID across sessions, no sign-up required
+13. **Built on Gemini's native interleaved output + Gemini Live + Veo** — the category literally asks for these capabilities
 
 ---
 

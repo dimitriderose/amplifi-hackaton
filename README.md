@@ -8,15 +8,17 @@ An AI-powered creative director that analyzes your brand and produces complete, 
 
 Amplifi uses Gemini's interleaved text + image output to generate copy and visuals together in one coherent stream. Paste your website URL (or just describe your business), and get a full week of social media content tailored to your brand, across every platform.
 
-- 🎨 **Brand-aware AI** — extracts your colors, tone, audience, and style automatically
+- 🎨 **Brand-aware AI** — extracts your colors, tone, audience, and style automatically with deterministic analysis (temperature 0.15)
 - 📅 **Full weekly calendar** — 7 days of content with pillar-based strategy and event integration
-- 🖼️ **Interleaved generation** — captions and matching images born together via Gemini
-- 📱 **Multi-platform** — Instagram, LinkedIn, X, TikTok, Facebook with platform-specific formatting
+- 🖼️ **Interleaved generation** — captions and matching images born together via Gemini, with automatic fallback if interleaved mode fails to produce an image
+- 📱 **Multi-platform** — Instagram, LinkedIn, X, TikTok, Facebook with platform-specific caption lengths and hashtag counts
 - 📸 **Bring your own photos** — upload product shots, get tailored captions
-- 🎬 **AI video** — generate Reels/TikTok clips via Veo (collapses for text-first platforms)
-- 🗣️ **Voice analysis** — per-platform demo voice data (LinkedIn B2B, Instagram lifestyle, X punchy) with OAuth-ready social connect
-- 📋 **Clipboard-first export** — "Copy All" bulk captions to clipboard, per-post copy, or full ZIP download
-- 🔍 **Auto-review** — AI checks every post against your brand for tone, platform rules, and engagement potential
+- 🎠 **Instagram carousels** — 3-slide carousel posts with parallel image generation per slide
+- 🎬 **AI video** — generate Reels/TikTok clips via Veo 3.1, viewable on saved posts (collapses for text-first platforms)
+- 🗣️ **Voice coach** — multi-turn Gemini Live sessions with auto-reconnect and graceful close
+- 🔐 **Anonymous auth** — Firebase Anonymous Auth links brands to a persistent UID across sessions
+- 📋 **Full export** — "Copy All" clipboard, per-post ZIP download (image + video + caption), bulk plan ZIP with all media
+- 🔍 **Auto-review** — AI checks every post against your brand for tone, platform rules, and engagement potential; auto-cleans hashtags
 - 🎯 **Platform previews** — live character counts, "see more" fold indicators, and platform-specific formatting
 
 ## How it works
@@ -28,35 +30,45 @@ Amplifi uses Gemini's interleaved text + image output to generate copy and visua
 ## Tech Stack
 
 - **AI Engine:** Google Gemini 2.5 Flash (interleaved text + image output)
+- **Voice:** Gemini Live API (BidiGenerateContent) for multi-turn voice coaching
 - **Agent Framework:** Google ADK (Agent Development Kit)
 - **Backend:** FastAPI on Cloud Run
+- **Auth:** Firebase Anonymous Auth (persistent UID, zero-friction)
 - **Database:** Cloud Firestore
-- **Storage:** Cloud Storage (generated images + uploads)
-- **Video:** Veo 3.1 (P1)
-- **Frontend:** React (desktop-first, mobile responsive)
+- **Storage:** Cloud Storage (generated images, videos + uploads)
+- **Video:** Veo 3.1 (AI-generated Reels/TikTok clips)
+- **Frontend:** React 19 + TypeScript + Vite 7
 - **Deployment:** Terraform + Cloud Build (CI/CD)
 
 ## Architecture
 
 ```
-User Browser (React) ←REST + SSE→ Cloud Run (FastAPI)
-                                    ├── ADK Sequential Pipeline
-                                    │   ├── Brand Analyst Agent
-                                    │   ├── Strategy Agent
-                                    │   ├── Content Creator Agent (interleaved output)
-                                    │   └── Review Agent
-                                    ├── Gemini API (generateContent)
-                                    │   └── responseModalities: ["TEXT", "IMAGE"]
-                                    ├── Cloud Firestore (brand profiles, plans)
-                                    └── Cloud Storage (images, assets)
+User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
+                                       ├── ADK Sequential Pipeline
+                                       │   ├── Brand Analyst Agent (temp 0.15)
+                                       │   ├── Strategy Agent
+                                       │   ├── Content Creator Agent (interleaved output)
+                                       │   │   ├── Carousel: 3-slide parallel image gen
+                                       │   │   └── Fallback: image-only retry on failure
+                                       │   └── Review Agent (auto-clean hashtags)
+                                       ├── Voice Coach (Gemini Live — BidiGenerateContent)
+                                       ├── Video Creator (Veo 3.1)
+                                       ├── Firebase Anonymous Auth (persistent UID)
+                                       ├── Gemini API (generateContent)
+                                       │   └── responseModalities: ["TEXT", "IMAGE"]
+                                       ├── Cloud Firestore (brands, plans, posts)
+                                       └── Cloud Storage (images, videos, assets)
 ```
+
+See the full [architecture diagram](docs/architecture.mermaid) for agent interactions and data flows.
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 9 P1, 12 P2, 2 P3 features. All P0, P1, and P2 shipped (28/28). |
-| [Technical Design (TDD)](docs/TDD.md) | Implementation spec — 3,200+ lines covering all P0/P1/P2 + persona-driven UX improvements |
+| [Product Requirements (PRD)](docs/PRD.md) | Full product spec — 7 P0, 9 P1, 12 P2, 2 P3 features. All P0 and P1 shipped; P2 export, preview, and review features shipped. |
+| [Technical Design (TDD)](docs/TDD.md) | Implementation spec — 3,200+ lines covering all P0/P1 + shipped P2 features + persona-driven UX improvements |
+| [Architecture Diagram](docs/architecture.mermaid) | Mermaid diagram — full agent pipeline, supporting agents, GCP services, and data flows |
 | [UI Mockup](docs/amplifi-ui.jsx) | Interactive React prototype — 6 screens (Landing, Onboard, Brand, Calendar, Content, Dashboard) |
 
 ## Hackathon

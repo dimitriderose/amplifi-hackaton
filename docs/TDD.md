@@ -4,7 +4,7 @@
 **Category:** ✍️ Creative Storyteller
 **Author:** Software Architecture Team
 **Companion Document:** PRD — Amplifi v1.0
-**Version:** 1.1 | February 23, 2026 (updated from v1.0 Feb 21)
+**Version:** 1.2 | February 25, 2026 (updated from v1.1 Feb 23)
 
 ---
 
@@ -12,9 +12,9 @@
 
 This Technical Design Document specifies the implementation architecture for Amplifi, an AI-powered creative director that produces complete social media content packages using Gemini's interleaved text and image output. It translates the PRD's product requirements into concrete engineering decisions, API contracts, data models, code structure, and deployment specifications.
 
-**Scope:** All P0 (Must Have) features from the PRD: brand analysis from URL, content calendar generation, interleaved post generation, brand consistency review, React dashboard, image storage, and streaming UI.
+**Scope:** All P0 and P1 features from the PRD, plus shipped P2 features: brand analysis from URL (with deterministic analysis at temperature 0.15), content calendar generation with event integration, interleaved post generation with carousel support and image fallback, brand consistency review with auto-cleaned hashtags, React dashboard with tab-based navigation, image/video storage, streaming UI, Firebase Anonymous Auth, multi-turn Gemini Live voice coaching, Veo 3.1 video generation, full ZIP export with media, and platform-specific caption/hashtag enforcement.
 
-**Out of scope (unspecified):** Voice brand coaching (P3), post analytics dashboard (P3). All P2 features are now specified in §12.1, including video repurposing (§12.1.12). P3 features are additive and do not affect core architecture.
+**Out of scope (unspecified):** Post analytics dashboard (P3). Remaining P2 features are specified in §12.1. P3 features are additive and do not affect core architecture.
 
 ---
 
@@ -27,15 +27,15 @@ This Technical Design Document specifies the implementation architecture for Amp
 │                       USER BROWSER                              │
 │                                                                 │
 │   ┌───────────────────────────────────────────────────────────┐ │
-│   │                    React Dashboard                        │ │
+│   │          React 19 Dashboard + Firebase Anon Auth          │ │
 │   │                                                           │ │
 │   │  ┌──────────┐  ┌────────────┐  ┌──────────────────────┐  │ │
-│   │  │  Brand    │  │  Content   │  │   Post Generator     │  │ │
-│   │  │  Wizard   │  │  Calendar  │  │   (SSE streaming)    │  │ │
-│   │  │          │  │            │  │                      │  │ │
-│   │  │ URL input │  │ 7-day grid │  │ Caption ──────────── │  │ │
-│   │  │ Upload    │  │ Themes     │  │ Image ░░░░░░░░░░░░░ │  │ │
-│   │  │ Describe  │  │ Platforms  │  │ Hashtags ──────────  │  │ │
+│   │  │  Brand    │  │  Dashboard │  │   Post Generator     │  │ │
+│   │  │  Wizard   │  │  Tabs:     │  │   (SSE streaming)    │  │ │
+│   │  │          │  │ Calendar   │  │                      │  │ │
+│   │  │ URL input │  │ Posts      │  │ Caption ──────────── │  │ │
+│   │  │ Upload    │  │ Export     │  │ Image / Carousel     │  │ │
+│   │  │ Describe  │  │            │  │ Hashtags ──────────  │  │ │
 │   │  └──────────┘  └────────────┘  └──────────────────────┘  │ │
 │   └────────────────────────┬──────────────────────────────────┘ │
 │                            │ REST + SSE                         │
@@ -48,16 +48,16 @@ This Technical Design Document specifies the implementation architecture for Amp
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │                 FastAPI Application Server                 │  │
 │  │                                                           │  │
-│  │  POST   /api/brands           → Create brand profile      │  │
-│  │  GET    /api/brands/{id}      → Get brand profile         │  │
-│  │  PUT    /api/brands/{id}      → Update brand profile      │  │
-│  │  POST   /api/brands/{id}/analyze  → Trigger brand analysis│  │
-│  │  POST   /api/plans            → Generate content calendar │  │
-│  │  GET    /api/plans/{id}       → Get plan details          │  │
-│  │  GET    /api/generate/{planId}/{day} → SSE: generate post │  │
-│  │  POST   /api/review/{postId}  → Review single post        │  │
-│  │  GET    /api/posts/{brandId}  → List generated posts      │  │
-│  │  GET    /health               → Health check              │  │
+│  │  POST   /api/brands             → Create brand (+ owner_uid) │  │
+│  │  GET    /api/brands?owner_uid= → List user's brands        │  │
+│  │  PATCH  /api/brands/{id}/claim → Grandfather brand to UID  │  │
+│  │  POST   /api/brands/{id}/analyze → Brand analysis (t=0.15)│  │
+│  │  POST   /api/plans             → Generate content calendar │  │
+│  │  GET    /api/generate/{planId}/{day} → SSE: generate post  │  │
+│  │  GET    /api/posts/{id}/export → ZIP: image+video+caption  │  │
+│  │  POST   /api/export/{planId}   → ZIP: bulk plan export     │  │
+│  │  PATCH  /api/posts/{id}/approve → Toggle approval          │  │
+│  │  GET    /health                → Health check              │  │
 │  └──────────────┬────────────────────────────────────────────┘  │
 │                 │                                                │
 │  ┌──────────────▼────────────────────────────────────────────┐  │
@@ -108,10 +108,25 @@ The Content Creator Agent is invoked once per calendar day, producing one post p
 
 Rationale: Each interleaved output call generates text + image in one response. Generating all 7 posts in one call would make the response too large and the UI would have to wait for the entire response before showing anything. Per-day calls allow progressive display: Day 1 streams in, then Day 2, etc.
 
-**Decision 3: Image Storage in Cloud Storage with Signed URLs**
-Generated images are extracted from the Gemini response, uploaded to Cloud Storage, and served to the frontend via time-limited signed URLs. The image URL (not the base64 data) is stored in Firestore.
+**Decision 3: Image Storage in Cloud Storage with Backend Proxy**
+Generated images are extracted from the Gemini response, uploaded to Cloud Storage. The `gs://` URI is stored in Firestore. Images are served to the frontend via a backend proxy endpoint (`/api/storage/serve/{blob_path}`) rather than signed URLs, because Application Default Credentials (ADC) in local dev lack the private key needed for URL signing.
 
-Rationale: Base64 images in Firestore would quickly exceed document size limits (1 MiB). Cloud Storage is purpose-built for binary objects. Signed URLs provide security without requiring authentication on the frontend.
+Rationale: Base64 images in Firestore would quickly exceed document size limits (1 MiB). Cloud Storage is purpose-built for binary objects. The backend proxy provides a reliable serving path that works identically in local dev and Cloud Run. For export, media is downloaded directly via `blob.download_as_bytes()` — bypassing URL resolution entirely.
+
+**Decision 5: Firebase Anonymous Auth for Brand Ownership**
+Firebase Anonymous Auth auto-creates a persistent UID on first visit. Brands get an `owner_uid` field linking them to the anonymous user. On return, the app queries Firestore for all brands matching the UID. Existing pre-auth brands are grandfathered via a `PATCH /api/brands/{id}/claim` endpoint.
+
+Rationale: Users lose their brand on tab close without persistent identity. Anonymous auth provides zero-friction persistence (no login screen) while enabling multi-brand support and brand recovery on return.
+
+**Decision 6: Image Fallback on Interleaved Failure**
+If the Content Creator's interleaved output produces zero images (text-only response), a separate image-only generation call is made automatically. This is a two-tier fallback: (1) retry with explicit image instruction via `generate_post_fallback()`, (2) if still no image, emit an `IMAGE_GEN_FAILED` error event — caption is still saved.
+
+Rationale: Gemini's interleaved output occasionally produces text-only responses. Rather than failing the entire generation, the fallback ensures the user always gets a caption and usually gets an image.
+
+**Decision 7: Post Deduplication on Regeneration**
+When regenerating a day, existing posts for the same `plan_id + day_index` are deleted before creating the new post. This prevents duplicate entries in the post library.
+
+Rationale: Without deduplication, regenerating a day would create a second post alongside the first, confusing the export and library views.
 
 **Decision 4: Review Agent Runs Independently**
 The Review Agent is a separate LLM call that receives the generated post content + the brand profile and produces a structured review. It does NOT modify the generated content; it only flags issues and provides suggestions.
@@ -144,11 +159,13 @@ brand_analyst = Agent(
     name="brand_analyst",
     model="gemini-2.5-flash",
     description="Analyzes a brand from its website and assets to build a brand profile",
-    instruction="""You are a brand strategist analyzing a business to build a 
+    # Temperature 0.15 for deterministic, consistent analysis across repeated runs
+    generation_config=types.GenerateContentConfig(temperature=0.15),
+    instruction="""You are a brand strategist analyzing a business to build a
     comprehensive brand profile.
-    
+
     BUSINESS DESCRIPTION: {business_description}
-    
+
     Infer the business type and tailor your analysis accordingly:
     - Local/physical businesses: Emphasize product photography direction, local community 
       engagement, seasonal promotions, foot traffic drivers.
@@ -162,13 +179,16 @@ brand_analyst = Agent(
     Given a website URL (if provided), free-text business description, and/or uploaded brand 
     assets (images and PDFs like brand guides or menus), extract:
     1. BRAND COLORS: Primary, secondary, and accent colors (hex values)
-    2. TONE OF VOICE: 3-5 adjectives describing the brand's communication style
+    2. TONE OF VOICE: Select exactly 3 adjectives from this list:
+       professional, friendly, authoritative, playful, warm, bold, minimal, luxurious,
+       casual, inspiring, educational, witty, empathetic, confident, sophisticated
     3. TARGET AUDIENCE: Demographics, psychographics, and interests
     4. INDUSTRY & POSITIONING: What category they're in and how they differentiate
     5. CONTENT THEMES: 5-8 recurring topics the brand should post about
        (weighted by business_type — personal brands get thought leadership topics,
         local businesses get community/product topics)
-    6. VISUAL STYLE: Photography style, illustration preferences, overall aesthetic
+    6. VISUAL STYLE: Select one from: clean-minimal, warm-organic, bold-vibrant,
+       dark-luxurious, bright-playful, professional-corporate, rustic-artisan
     7. COMPETITORS: 2-3 direct competitors if identifiable
     8. IMAGE STYLE DIRECTIVE (P1): A 2-3 sentence visual identity fragment that will be
        prepended to EVERY image generation prompt for this brand. Be extremely specific.
@@ -494,9 +514,12 @@ review_agent = Agent(
        Score: 1-5 (5 = perfect match)
     2. AUDIENCE FIT: Is the content appropriate for the target audience?
        Score: 1-5
-    3. PLATFORM RULES: Does it meet platform requirements?
-       - Instagram caption: < 2,200 chars
-       - Twitter/X: < 280 chars
+    3. PLATFORM RULES: Does it meet platform-specific targets?
+       - Instagram: 150-250 words, 8-12 hashtags
+       - LinkedIn: 150-300 words, 3-5 hashtags
+       - Twitter/X: ≤280 chars, 1-2 hashtags woven into text
+       - TikTok: 50-150 chars, 4-6 hashtags
+       - Facebook: 100-250 words, 0-3 hashtags
        - LinkedIn: < 3,000 chars
        - TikTok caption: < 2,200 chars
        - Hashtag count: 5-30 for Instagram, 3-5 for other platforms
@@ -516,8 +539,18 @@ review_agent = Agent(
             "visual": { "score": number, "feedback": string },
             "quality": { "score": number, "feedback": string }
         },
-        "suggestions": [string]  // Actionable improvement suggestions
+        "suggestions": [string],  // Actionable improvement suggestions
+        "revised_caption": string | null,   // Proposed improved caption (if score < 4)
+        "revised_hashtags": [string] | null // Auto-cleaned hashtags (stopwords removed,
+                                            // per-platform count enforced, junk stripped)
     }
+
+    HASHTAG CLEANING RULES:
+    - Strip tags shorter than 3 characters
+    - Strip common English stopwords (#the, #for, #your, #an, #is, #here, #this)
+    - Validate each tag is alphanumeric + underscores only (no apostrophes, spaces, punctuation)
+    - Enforce per-platform max count: IG: 12, LinkedIn: 5, Twitter: 2, TikTok: 6, Facebook: 3
+    - CRITICAL: Only output real hashtags. Never convert sentence fragments into hashtags
     
     BRAND PROFILE: {brand_profile}
     GENERATED CAPTION: {caption}
@@ -539,11 +572,21 @@ review_agent = Agent(
 
 ```
 POST /api/brands
-Body: { website_url?: string, description: string, uploaded_assets?: string[] }
+Body: { website_url?: string, description: string, uploaded_assets?: string[], owner_uid?: string }
   // description: free-text business description (min 20 chars, required)
   // website_url: optional — omitted in no-website mode
   // uploaded_assets: optional array of Cloud Storage refs for brand assets (images, PDFs)
+  // owner_uid: Firebase Anonymous Auth UID — links this brand to the user
 Response: { brand_id: string, status: "created" }
+
+GET /api/brands?owner_uid={uid}
+  // Returns all brands linked to this Firebase Anonymous Auth UID
+Response: { brands: BrandProfile[] }
+
+PATCH /api/brands/{brandId}/claim
+Body: { owner_uid: string }
+  // Grandfathers a pre-auth brand to the current user — only if brand has no owner yet
+Response: { status: "claimed" | "already_owned" }
 
 POST /api/brands/{brandId}/analyze
 Body: { website_url?: string, description: string }
@@ -606,33 +649,55 @@ GET /api/generate/{planId}/{dayIndex}
 Accept: text/event-stream
 Response: SSE stream of events:
 
-  MODE A (AI-generated image — no user photo on this day):
+  MODE A (AI-generated image — single image post):
   event: text
   data: {"content": "Rise and grind! Our new espresso blend..."}
-  
+
   event: image
-  data: {"url": "https://storage.googleapis.com/...", "mime_type": "image/png", "source": "generated"}
-  
+  data: {"url": "/api/storage/serve/generated/.../image.png", "mime_type": "image/png", "source": "generated"}
+
   event: text
   data: {"content": "#coffee #morningroutine #espresso..."}
-  
+
+  MODE A-CAROUSEL (Instagram carousel — 3 slides, parallel image gen):
+  event: text
+  data: {"content": "Swipe for the full story..."}
+
+  event: image
+  data: {"url": "/api/storage/serve/generated/.../slide_1.png", "mime_type": "image/png", "source": "generated"}
+
+  event: image
+  data: {"url": "/api/storage/serve/generated/.../slide_2.png", "mime_type": "image/png", "source": "generated"}
+
+  event: image
+  data: {"url": "/api/storage/serve/generated/.../slide_3.png", "mime_type": "image/png", "source": "generated"}
+
+  event: text
+  data: {"content": "#carousel #tips..."}
+
   MODE B (user photo uploaded for this day — P1 BYOP):
   event: text
   data: {"content": "That golden hour light hitting the fresh batch..."}
-  
+
   event: image
-  data: {"url": "https://storage.googleapis.com/.../user_photo.jpg", "mime_type": "image/jpeg", "source": "user_upload"}
-  
+  data: {"url": "/api/storage/serve/.../user_photo.jpg", "mime_type": "image/jpeg", "source": "user_upload"}
+
   event: text
   data: {"content": "#bakerylife #freshbread #goldenhour..."}
-  
+
+  IMAGE FALLBACK (when interleaved mode produces no image):
+  event: status
+  data: {"message": "Retrying image generation..."}
+
+  event: image
+  data: {"url": "/api/storage/serve/generated/.../fallback.png", "mime_type": "image/png", "source": "generated"}
+
   BOTH MODES:
   event: complete
-  data: {"post_id": "abc123"}
   data: {"post_id": "post_abc123"}
-  
+
   event: review
-  data: {"overall_score": 4.2, "approved": true, "checks": {...}}
+  data: {"overall_score": 4.2, "approved": true, "checks": {...}, "revised_hashtags": [...]}
 ```
 
 ### Post Management
@@ -648,11 +713,26 @@ POST /api/posts/{postId}/regenerate
 Body: { feedback?: string }
 Response: SSE stream (same as generate)
 
-GET /api/posts/{postId}/export
-Response: { caption: string, image_url: string, hashtags: string[], download_url: string }
+GET /api/posts/{postId}/export?brand_id={brandId}
+Response: StreamingResponse (application/zip)
+  // Returns a ZIP containing:
+  //   {post_name}/{post_name}.{png|jpg}   — hero image (downloaded via blob.download_as_bytes)
+  //   {post_name}/{post_name}.mp4          — video (if generated)
+  //   {post_name}/caption.txt              — caption + hashtags
 
-POST /api/export/{planId}
-Response: { zip_url: string }  // All posts as ZIP
+POST /api/export/{planId}?brand_id={brandId}
+Response: StreamingResponse (application/zip)
+  // Returns a ZIP of ALL posts in the plan:
+  //   day_N_{platform}/{post_name}.{png|jpg}
+  //   day_N_{platform}/{post_name}.mp4
+  //   day_N_{platform}/caption.txt
+  //   metadata.json   — full post data (image_gcs_uri stripped)
+  // Media downloaded directly from GCS via blob.download_as_bytes()
+  // (not via signed URLs — works identically in local dev and prod)
+
+PATCH /api/posts/{postId}/approve?brand_id={brandId}
+Response: { status: "approved" | "unapproved" }
+  // Toggles approval status on the post
 ```
 
 ## 4.2 SSE Implementation
@@ -774,10 +854,11 @@ async def generate_post_endpoint(plan_id: str, day_index: int, request: Request)
 ## 4.3 TypeScript API Client
 
 ```typescript
-// Frontend SSE consumer
+// Frontend SSE consumer — supports single image and carousel (multiple images)
 function usePostGeneration(planId: string, dayIndex: number) {
   const [caption, setCaption] = useState<string>("");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);      // First/hero image
+  const [imageUrls, setImageUrls] = useState<string[]>([]);           // All images (carousel support)
   const [imageSource, setImageSource] = useState<"generated" | "user_upload" | null>(null);
   const [hashtags, setHashtags] = useState<string>("");
   const [review, setReview] = useState<ReviewResult | null>(null);
@@ -811,7 +892,8 @@ function usePostGeneration(planId: string, dayIndex: number) {
     
     eventSource.addEventListener("image", (e) => {
       const data = JSON.parse(e.data);
-      setImageUrl(data.url);
+      setImageUrl(prev => prev || data.url);  // First image becomes hero
+      setImageUrls(prev => [...prev, data.url]);  // All images collected (carousel)
       setImageSource(data.source || "generated");  // "generated" or "user_upload"
     });
     
@@ -850,7 +932,7 @@ function usePostGeneration(planId: string, dayIndex: number) {
     };
   }, [planId, dayIndex]);
   
-  return { caption, imageUrl, hashtags, review, error, status, generate };
+  return { caption, imageUrl, imageUrls, hashtags, review, error, status, generate };
 }
 ```
 
@@ -864,6 +946,7 @@ function usePostGeneration(planId: string, dayIndex: number) {
 amplifi-db/
 ├── brands/
 │   └── {brandId}/                         # Auto-generated
+│       ├── owner_uid: string | null       # Firebase Anonymous Auth UID — links brand to user
 │       ├── business_name: string          # "Sunrise Bakery"
 │       ├── business_type: string          # AI-inferred from description: "local_business" | "service" | "personal_brand" | "ecommerce"
 │       ├── website_url: string | null     # "https://sunrisebakery.com" — null in no-website mode
@@ -952,11 +1035,12 @@ amplifi-db/
 │               │   └── reviewed_at: timestamp
 │               │
 │               ├── video/                 # Embedded document (P1)
-│               │   ├── url: string | null         # Signed URL to MP4 in Cloud Storage
-│               │   ├── duration_seconds: number   # 8
-│               │   ├── aspect_ratio: string       # "9:16" | "16:9"
-│               │   ├── model: string              # "veo-3.1-fast-generate-preview"
-│               │   ├── job_id: string | null      # Reference to video_jobs
+│               │   ├── video_gcs_uri: string | null  # gs:// URI to MP4 in Cloud Storage
+│               │   ├── url: string | null            # Serving URL (backend proxy or signed)
+│               │   ├── duration_seconds: number      # 8
+│               │   ├── aspect_ratio: string          # "9:16" | "16:9"
+│               │   ├── model: string                 # "veo-3.1-generate-preview"
+│               │   ├── job_id: string | null         # Reference to video_jobs
 │               │   └── generated_at: timestamp | null
 │               │
 │               ├── created_at: timestamp
@@ -988,10 +1072,14 @@ gs://amplifi-assets-2026/
 │
 └── generated/
     └── {postId}/
-        ├── image_0.png                    # First generated image
-        ├── image_1.png                    # Additional images (carousel)
-        ├── video_abc123.mp4               # Generated video clip (P1)
+        ├── image_{hash}.png               # Generated image (naming uses content hash)
+        ├── image_{hash2}.png              # Additional images (carousel — up to 3 slides)
+        ├── image_{hash3}.png              # Third carousel slide
+        ├── video_{hash}.mp4               # Generated video clip (Veo 3.1)
         └── ...
+
+# Image serving: /api/storage/serve/{blob_path} — backend proxy for local dev
+# Export: blob.download_as_bytes() — direct GCS download for ZIP packaging
 ```
 
 ## 5.3 Cloud Storage Operations
@@ -1371,10 +1459,12 @@ async def get_video_job_status(job_id: str):
 
 ```typescript
 // useVideoGeneration.ts
-function useVideoGeneration(postId: string) {
-  const [status, setStatus] = useState<"idle" | "generating" | "complete" | "error">("idle");
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+function useVideoGeneration(postId: string, existingVideoUrl?: string | null) {
+  const [status, setStatus] = useState<"idle" | "generating" | "complete" | "error">(
+    existingVideoUrl ? "complete" : "idle"
+  );
+  const [videoUrl, setVideoUrl] = useState<string | null>(existingVideoUrl || null);
+  const [progress, setProgress] = useState(existingVideoUrl ? 100 : 0);
   
   const generateVideo = useCallback(async (tier: "fast" | "standard" = "fast") => {
     setStatus("generating");
@@ -1472,6 +1562,8 @@ function VideoGenerateButton({ postId, contentType }: Props) {
 App (React Router)
 ├── LandingPage (/)
 │   ├── HeroSection (gradient headline, value prop, dual CTAs)
+│   ├── YourBrands (Firebase Anonymous Auth — shows brands linked to current UID)
+│   │   └── BrandCard[] (name, industry, last updated — click to open dashboard)
 │   ├── ProductPreview (mini calendar preview with pillar tags)
 │   ├── HowItWorks (3-step cards: Describe → Strategy → Generate)
 │   ├── FeaturesGrid (2×3: brand-aware, multi-platform, BYOP, video, pillars, events)
@@ -1491,6 +1583,7 @@ App (React Router)
 ├── DashboardPage (/dashboard/{brandId})
 │   ├── BrandProfileCard (editable brand profile summary — inline save with loading state and error feedback)
 │   │   ├── InferredBusinessType (AI-inferred from description, editable)
+│   │   ├── VoiceCoachButton ("🗣️ Voice Coach" — opens Gemini Live multi-turn session)
 │   │   ├── ColorSwatches (clickable hex colors)
 │   │   ├── ToneChips (editable tone adjectives)
 │   │   ├── ImageStyleDirective (P1 — shows visual identity seed, editable)
@@ -1500,12 +1593,9 @@ App (React Router)
 │   │   ├── AudienceDescription
 │   │   └── EditButton → BrandEditModal
 │   │
-│   ├── SocialConnect (P2 — per-platform voice analysis with OAuth-ready connect)
-│   │   └── PlatformCard[] (Instagram, LinkedIn, X)
-│   │       ├── ConnectButton (OAuth placeholder)
-│   │       ├── TryDemoLink ("or load demo data →" — loads per-platform demo voice analysis)
-│   │       └── VoiceProfile (voice characteristics, common phrases, tone adjectives, emoji usage)
+│   ├── TabBar (Calendar | Posts | Export — default: Calendar)
 │   │
+│   ├── [Tab: Calendar]
 │   ├── ContentCalendar
 │   │   ├── CalendarHeader (week selector, "Generate All" button, ClearPlanButton with confirm dialog)
 │   │   ├── EventsInput (P1 — "What's happening this week?" free-text area, disabled during brand analysis)
@@ -1522,20 +1612,26 @@ App (React Router)
 │   │       ├── StatusBadge (planned / generated / approved)
 │   │       └── GenerateButton → opens PostGenerator
 │   │
-│   └── PostLibrary (grid of all generated posts — auto-polls every 8s while generating, defaultFilter prop)
-│       ├── FilterTabs (All / ✓ Approved / Ready / Generating / Failed — with counts)
-│       ├── HeaderRow
-│       │   ├── RefreshButton
-│       │   ├── CopyAllButton ("📋 Copy All" / "✓ Copied N" — bulk clipboard export)
-│       │   └── ExportAllButton (ZIP download)
-│       └── PostCard[]
-│           ├── ImageThumbnail
-│           ├── VideoPlayer (if video generated, P1)
-│           ├── CaptionPreview
-│           ├── PlatformBadge
-│           ├── ReviewScore (1-5 stars)
-│           ├── DismissButton (× — shown on generating/failed posts for local removal)
-│           └── ActionButtons (regenerate, download, copy caption)
+│   ├── [Tab: Posts]
+│   ├── PostLibrary (grid of all generated posts — auto-polls every 8s while generating, defaultFilter prop)
+│   │   ├── FilterTabs (All / ✓ Approved / Ready / Generating / Failed — with counts)
+│   │   ├── HeaderRow
+│   │   │   ├── RefreshButton
+│   │   │   ├── CopyAllButton ("📋 Copy All" / "✓ Copied N" — bulk clipboard export)
+│   │   │   └── ExportAllButton (ZIP download — bulk plan ZIP with all media)
+│   │   └── PostCard[]
+│   │       ├── ImageThumbnail (carousel: shows first slide with slide count badge)
+│   │       ├── VideoPlayer (if video generated, P1 — collapsible on text-first platforms)
+│   │       ├── CaptionPreview
+│   │       ├── PlatformBadge
+│   │       ├── ReviewScore (1-5 stars, cached in post document)
+│   │       ├── ApprovedBadge (green "Approved" — shown when post.approved === true)
+│   │       ├── ApproveButton ("✓ Approve" / "↩ Unapprove" toggle)
+│   │       ├── DismissButton (× — shown on generating/failed posts for local removal)
+│   │       └── ActionButtons (copy caption, export ZIP, view)
+│   │
+│   └── [Tab: Export]
+│       └── ExportPanel (Copy All clipboard, per-post ZIP, bulk plan ZIP — inline, not separate page)
 │
 ├── GeneratePage (/generate/{planId}/{dayIndex})
 │   ├── PageSubtitle ("Day N · Platform · Content Theme" — human-readable context)
@@ -1545,8 +1641,13 @@ App (React Router)
 │   ├── GenerationStream ⭐ (the "wow" moment)
 │   │   ├── CaptionArea (text streams in progressively)
 │   │   ├── ImageArea
-│   │   │   ├── Mode A (no user photo): SkeletonLoader → AI-generated image materializes
-│   │   │   └── Mode B (BYOP): User photo displayed immediately, caption streams around it
+│   │   │   ├── Mode A (single image): SkeletonLoader → AI-generated image materializes
+│   │   │   ├── Mode A-Carousel (3 slides): CarouselViewer with arrows, dots, slide counter
+│   │   │   │   ├── LeftArrow / RightArrow (navigate slides)
+│   │   │   │   ├── DotIndicators (1 dot per slide, active dot highlighted)
+│   │   │   │   └── SlideCounter ("1 / 3")
+│   │   │   ├── Mode B (BYOP): User photo displayed immediately, caption streams around it
+│   │   │   └── Fallback: "Retrying image generation..." status → fallback image materializes
 │   │   ├── HashtagArea (tags appear last)
 │   │   └── GenerationStatus ("Crafting your caption..." → "done")
 │   │
@@ -1573,6 +1674,7 @@ App (React Router)
 └── ExportPage (/export/{brandId}?plan_id={planId} — linked from NavBar when plan is active)
     ├── PageSubtitle ("Copy captions to clipboard, download individual posts, or export as ZIP")
     └── PostLibrary (reused — defaultFilter="approved", CopyAllButton, filter tabs, PostCard grid)
+        // Export is also integrated into Dashboard's Export tab — no separate page required
 ```
 
 ## 7.2 Key UI Interactions
@@ -1582,8 +1684,10 @@ App (React Router)
 ```typescript
 // PostGenerator.tsx
 function PostGenerator({ planId, dayIndex }: Props) {
-  const { caption, imageUrl, imageSource, hashtags, review, error, status, generate } = 
+  const { caption, imageUrl, imageUrls, imageSource, hashtags, review, error, status, generate } =
     usePostGeneration(planId, dayIndex);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const isCarousel = imageUrls.length > 1;
   
   return (
     <div className="generation-stream">
@@ -1601,18 +1705,40 @@ function PostGenerator({ planId, dayIndex }: Props) {
         )}
       </div>
       
-      {/* Image area — different UX for BYOP vs AI-generated */}
+      {/* Image area — carousel, single image, or BYOP */}
       <div className="image-area">
-        {/* Mode A: AI-generated — show skeleton until image arrives */}
+        {/* Skeleton while generating */}
         {status === "generating" && !imageUrl && imageSource !== "user_upload" && (
           <SkeletonImage className="animate-pulse bg-gray-200 rounded-lg w-full aspect-square" />
         )}
-        {/* Mode B: BYOP — user photo shows immediately (already uploaded) */}
-        {imageUrl && (
+        {/* Carousel: multiple images with navigation */}
+        {isCarousel && (
           <div className="relative">
-            <img 
-              src={imageUrl} 
-              alt="Generated content" 
+            <img
+              src={imageUrls[carouselIndex]}
+              alt={`Slide ${carouselIndex + 1}`}
+              className="rounded-lg shadow-lg w-full animate-fade-in"
+            />
+            <button onClick={() => setCarouselIndex(i => Math.max(0, i - 1))}
+              className="absolute left-2 top-1/2 -translate-y-1/2">←</button>
+            <button onClick={() => setCarouselIndex(i => Math.min(imageUrls.length - 1, i + 1))}
+              className="absolute right-2 top-1/2 -translate-y-1/2">→</button>
+            <div className="text-center mt-2 text-sm text-gray-500">
+              {carouselIndex + 1} / {imageUrls.length}
+            </div>
+            <div className="flex justify-center gap-1 mt-1">
+              {imageUrls.map((_, i) => (
+                <span key={i} className={`w-2 h-2 rounded-full ${i === carouselIndex ? 'bg-purple-600' : 'bg-gray-300'}`} />
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Single image (non-carousel) */}
+        {!isCarousel && imageUrl && (
+          <div className="relative">
+            <img
+              src={imageUrl}
+              alt="Generated content"
               className="rounded-lg shadow-lg w-full animate-fade-in"
             />
             {imageSource === "user_upload" && (
@@ -2023,7 +2149,7 @@ logger.info("generation_event", extra={
 | Streaming UI — SSE (P0) | §4.2 SSE Implementation, §4.3 TypeScript Client | ✓ Specified |
 | Generation error handling | §4.2 SSE error/retry flow, §4.3 error event type, §7.2 error UI | ✓ Specified |
 | Budget protection | §4.2 Budget guard (429), §6.3 BudgetTracker | ✓ Specified |
-| Individual download (P0) | §7.1 ActionBar (via signed URL — already exists) | ✓ Covered by GCS signed URLs |
+| Individual download (P0) | §7.1 PostCard Export button, §4.1 GET /api/posts/{id}/export | ✓ ZIP download (image + video + caption) |
 | Bring Your Own Photos (P1) | §3.4 Mode B, §4.1 Photo Upload endpoint, §4.2 user_photo_url, §5.1 day schema, §7.1 PhotoDropZone | ✓ Specified |
 | Content repurposing / pillars (P1) | §3.3 Strategy Agent pillar prompt, §5.1 pillars subcollection + day pillar fields, §7.1 PillarSummary/PillarTag | ✓ Specified |
 | Business persona (P1) | §3.2 Brand Analyst business_type prompt, §4.1 POST /api/brands, §5.1 business_type field, §7.1 BusinessTypeBadge | ✓ Specified |
@@ -2031,13 +2157,13 @@ logger.info("generation_event", extra={
 | Visual identity seed (P1) | §3.2 Brand Analyst image_style_directive output, §3.4 Content Creator Mode A prepend, §5.1 image_style_directive field, §7.1 ImageStyleDirective | ✓ Specified |
 | Caption style directive (P1) | §3.2 Brand Analyst caption_style_directive output, §3.4 Content Creator base_context prepend, §5.1 caption_style_directive field, §7.1 CaptionStyleDirective | ✓ Specified |
 | Video generation via Veo 3.1 (P1) | §6.4 Video Generation, §6.4.2 Veo API, §6.4.3 REST endpoint, §6.4.4 Frontend | ✓ Specified |
-| ZIP export (P2) | §12.1.1 One-Tap Caption Export (includes ZIP) | ✓ Specified |
+| ZIP export (P2) | §12.1.1 Full Export (shipped — per-post ZIP + bulk plan ZIP with media) | ✓ Shipped |
 | Engagement prediction (P2) | §12.1.8 Engagement Prediction Scoring | ✓ Specified |
 | Social media voice analysis (P2) | §12.1.9 Social Media Voice Analysis | ✓ Specified |
 | Platform meta intelligence (P2) | §12.1.10 Platform Meta Intelligence | ✓ Specified |
 | Video repurposing / smart editing (P2) | §12.1.12 Video Repurposing / Smart Editing | ✓ Specified |
 | Instagram grid consistency (P2) | §12.1.11 Instagram Grid Visual Consistency | ✓ Specified |
-| One-tap caption export (P2) | §12.1.1 One-Tap Caption Export | ✓ Specified |
+| One-tap caption export (P2) | §12.1.1 Full Export (shipped — clipboard + ZIP) | ✓ Shipped |
 | Platform preview formatting (P2) | §12.1.2 Platform Preview Formatting | ✓ Specified |
 | Content editing/regeneration (P2) | §12.1.3 Content Editing & Regeneration | ✓ Specified |
 | Competitor visibility toggle (P2) | §12.1.4 Competitor Visibility Toggle | ✓ Specified |
@@ -2059,19 +2185,46 @@ These features are documented in the PRD and sequenced by PM sprint priority (se
 
 ---
 
-### 12.1.1 One-Tap Caption Export (Sprint 4)
+### 12.1.1 Full Export (Shipped)
 
-**Type:** Frontend + one backend endpoint
+**Type:** Frontend + backend endpoints | **Status:** Shipped
 
 **Three export tiers (clipboard-first hierarchy):**
 
 1. **Bulk clipboard ("Copy All")** — PostLibrary header button copies all filtered captions as a structured string with `[N] Platform · Day N` headers and `---` separators. Count is snapshotted at click time via `useRef` (not re-derived at render) to prevent label drift during polling refresh. Timer cleaned up on unmount.
 
-2. **Per-post clipboard** — Each PostCard has a copy button that writes `caption\n\nhashtags` to clipboard with 1.5s confirmation flash.
+2. **Per-post clipboard + ZIP** — Each PostCard has a copy button (caption + hashtags, 1.5s flash) and an export button that downloads a ZIP containing image + video + caption.txt.
 
-3. **ZIP export** — `POST /api/export/{plan_id}` generates a ZIP containing per-day caption `.txt` files and images. Served via `StreamingResponse`.
+3. **Bulk plan ZIP ("Export All")** — `POST /api/export/{plan_id}?brand_id={brandId}` generates a ZIP containing all posts. Each post gets a subfolder (`day_N_{platform}/`) with image, video (if generated), and caption.txt. A root `metadata.json` contains full post data (with `image_gcs_uri` stripped for security).
 
-**ExportPage subtitle** leads with clipboard: "Copy captions to clipboard, download individual posts, or export an entire plan as a ZIP archive."
+**Media download architecture:**
+```python
+# Direct GCS download — bypasses URL signing entirely
+async def _download_post_image(post: dict) -> bytes | None:
+    gcs_uri = post.get("image_gcs_uri")
+    if not gcs_uri: return None
+    prefix = f"gs://{GCS_BUCKET_NAME}/"
+    if not gcs_uri.startswith(prefix): return None
+    blob = get_bucket().blob(gcs_uri[len(prefix):])
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, blob.download_as_bytes)
+
+# Image + video downloaded in parallel for each post
+image_bytes_list = await asyncio.gather(*[_download_post_image(p) for p in posts])
+video_bytes_list = await asyncio.gather(*[_download_post_video(p) for p in posts])
+```
+
+**Frontend ZIP handling:**
+```typescript
+// Both per-post and bulk export use blob download + programmatic <a> click
+const blob = await response.blob();
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = filename;  // From Content-Disposition header
+a.click();
+URL.revokeObjectURL(url);
+```
 
 **PostLibrary header button order:** `[Refresh] [Copy All] [Export All]` — lightweight to heavy, left to right. Copy All hidden when no filtered posts exist.
 

@@ -1,69 +1,74 @@
 graph TB
-    subgraph Browser["🖥️ User Browser (React)"]
+    subgraph Browser["🖥️ User Browser (React 19 + TypeScript)"]
         FE["Frontend<br/>React 19 + TypeScript<br/>Vite 7"]
+        AUTH["🔐 Firebase Anonymous Auth<br/>Persistent UID<br/>Zero-Friction"]
     end
 
     subgraph CloudRun["☁️ Google Cloud Run"]
         API["FastAPI Backend<br/>Port 8080<br/>REST + SSE Streaming"]
 
         subgraph Pipeline["ADK Sequential Pipeline"]
-            BA["🔍 Brand Analyst Agent<br/>URL Scraping + Brand DNA<br/>Colors, Tone, Audience"]
-            STR["📅 Strategy Agent<br/>7-Day Content Calendar<br/>Pillar-Based Planning"]
-            CC["✨ Content Creator Agent<br/>Gemini Interleaved Output<br/>Text + Image Together"]
-            RA["🔍 Review Agent<br/>Brand Alignment Check<br/>Revised Captions"]
+            BA["🔍 Brand Analyst Agent<br/>URL Scraping + Brand DNA<br/>Colors, Tone, Audience<br/>Temperature 0.15"]
+            STR["📅 Strategy Agent<br/>7-Day Content Calendar<br/>Pillar-Based Planning<br/>Event Integration"]
+            CC["✨ Content Creator Agent<br/>Gemini Interleaved Output<br/>Text + Image Together<br/>Carousel: 3-Slide Parallel Gen"]
+            RA["🔍 Review Agent<br/>Brand Alignment Check<br/>Revised Captions + Hashtags<br/>Auto-Clean Stopwords"]
         end
 
         subgraph Support["Supporting Agents"]
-            SVA["🗣️ Social Voice Agent<br/>Per-Platform Voice Analysis<br/>LinkedIn / Instagram / X"]
-            VC["🎯 Voice Coach<br/>Brand Voice Coaching<br/>Consistency Scoring"]
-            VID["🎬 Video Creator<br/>Veo 3.1 Generation<br/>Reels / TikTok Clips"]
-            VR["✂️ Video Repurpose Agent<br/>Clip Extraction<br/>Platform-Specific Edits"]
+            VC["🗣️ Voice Coach<br/>Gemini Live API<br/>BidiGenerateContent<br/>Multi-Turn Sessions"]
+            VID["🎬 Video Creator<br/>Veo 3.1<br/>Reels / TikTok Clips"]
         end
 
-        subgraph Tools["Agent Tools"]
+        subgraph Services["Backend Services"]
             WS["🌐 Web Scraper<br/>httpx + BeautifulSoup"]
             BT["🏷️ Brand Tools<br/>ADK Tool Wrappers"]
-            BU["💰 Budget Tracker<br/>Per-Session Cost Caps"]
+            HS["🧹 Hashtag Sanitizer<br/>Stopword Filter<br/>Per-Platform Limits"]
+            EX["📦 Export Service<br/>ZIP: Image + Video + Caption<br/>Direct GCS Download"]
+            IF["🖼️ Image Fallback<br/>Separate Image-Only Gen<br/>On Interleaved Failure"]
         end
     end
 
     subgraph GCP["Google Cloud Platform"]
-        FS[("🔥 Cloud Firestore<br/>Brand Profiles<br/>Content Plans + Posts<br/>Video Jobs + Trends")]
-        GCS[("📦 Cloud Storage<br/>Generated Images<br/>Uploaded Assets<br/>Video Clips")]
+        FS[("🔥 Cloud Firestore<br/>Brand Profiles (owner_uid)<br/>Content Plans + Posts<br/>Video Jobs")]
+        GCS[("📦 Cloud Storage<br/>Generated Images<br/>Generated Videos<br/>Uploaded Assets")]
+        FA["🔐 Firebase Auth<br/>Anonymous Auth Provider<br/>Persistent UIDs"]
     end
 
     subgraph Gemini["Google Gemini API"]
         GFlash["gemini-2.5-flash<br/>generateContent<br/>responseModalities:<br/>TEXT + IMAGE"]
+        GLive["Gemini Live API<br/>BidiGenerateContent<br/>Multi-Turn Voice"]
     end
 
     FE <-->|"REST + SSE<br/>/api/*"| API
+    AUTH <-->|"Anonymous UID"| FA
 
     API --> BA
     BA --> STR
     STR --> CC
     CC --> RA
 
-    API --> SVA
     API --> VC
     API --> VID
-    API --> VR
 
     BA --> WS
     BA --> BT
-    CC --> BU
-    VID --> BU
+    CC --> HS
+    CC --> IF
+    RA --> HS
+    API --> EX
 
-    BA -->|"Brand Analysis"| GFlash
+    BA -->|"Brand Analysis<br/>(temp 0.15)"| GFlash
     STR -->|"Strategy Planning"| GFlash
     CC -->|"Interleaved<br/>Text + Image"| GFlash
+    IF -->|"Image-Only<br/>Fallback"| GFlash
     RA -->|"Review + Revise"| GFlash
-    SVA -->|"Voice Analysis"| GFlash
-    VC -->|"Voice Coaching"| GFlash
+    VC -->|"Voice Sessions"| GLive
 
     API --> FS
     API --> GCS
     CC -->|"Store Images"| GCS
     VID -->|"Store Video"| GCS
+    EX -->|"Download Media<br/>blob.download_as_bytes"| GCS
 
     classDef browser fill:#1a1a2e,stroke:#e94560,color:#fff
     classDef cloud fill:#0f3460,stroke:#16213e,color:#fff
@@ -72,11 +77,13 @@ graph TB
     classDef tools fill:#3c4043,stroke:#8ab4f8,color:#fff
     classDef gcp fill:#4285f4,stroke:#1a73e8,color:#fff
     classDef gemini fill:#1e88e5,stroke:#1565c0,color:#fff
+    classDef auth fill:#ff9800,stroke:#f57c00,color:#fff
 
     class FE browser
+    class AUTH auth
     class API cloud
     class BA,STR,CC,RA pipeline
-    class SVA,VC,VID,VR support
-    class WS,BT,BU tools
-    class FS,GCS gcp
-    class GFlash gemini
+    class VC,VID support
+    class WS,BT,HS,EX,IF tools
+    class FS,GCS,FA gcp
+    class GFlash,GLive gemini
