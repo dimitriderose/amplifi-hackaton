@@ -33,12 +33,7 @@ export default function NavBar() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
            onClick={() => navigate('/')}>
-        <div style={{
-          width: 28, height: 28, borderRadius: 7,
-          background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14, color: 'white', fontWeight: 700,
-        }}>A</div>
+        <img src="/logo.svg" alt="Amplifi" style={{ width: 28, height: 28, borderRadius: 7 }} />
         <span style={{ fontSize: 17, fontWeight: 700, color: A.text, letterSpacing: -0.3 }}>
           Amplifi
         </span>

@@ -132,4 +132,46 @@ export const api = {
       clips: unknown[]
       error?: string
     }>(`/api/video-repurpose-jobs/${jobId}?brand_id=${encodeURIComponent(brandId)}`),
+
+  downloadCalendar: (brandId: string, planId: string) =>
+    fetch(`/api/brands/${brandId}/plans/${planId}/calendar.ics`)
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: r.statusText }))
+          throw new Error(err.detail || `HTTP ${r.status}`)
+        }
+        const blob = await r.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'amplifi_content_plan.ics'
+        a.click()
+        URL.revokeObjectURL(url)
+      }),
+
+  emailCalendar: (brandId: string, planId: string, email: string) =>
+    request(`/api/brands/${brandId}/plans/${planId}/calendar/email`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  // Notion integration
+  getNotionAuthUrl: (brandId: string) =>
+    request<{ auth_url: string }>(`/api/brands/${brandId}/integrations/notion/auth-url`),
+  disconnectNotion: (brandId: string) =>
+    request(`/api/brands/${brandId}/integrations/notion/disconnect`, { method: 'POST' }),
+  getNotionDatabases: (brandId: string) =>
+    request<{ databases: { id: string; title: string }[] }>(
+      `/api/brands/${brandId}/integrations/notion/databases`,
+    ),
+  selectNotionDatabase: (brandId: string, databaseId: string, databaseName: string) =>
+    request(`/api/brands/${brandId}/integrations/notion/select-database`, {
+      method: 'POST',
+      body: JSON.stringify({ database_id: databaseId, database_name: databaseName }),
+    }),
+  exportToNotion: (brandId: string, planId: string) =>
+    request<{ exported: number; total: number; results: { post_id: string; status: string; error?: string }[] }>(
+      `/api/brands/${brandId}/plans/${planId}/export/notion`,
+      { method: 'POST' },
+    ),
 }

@@ -4,6 +4,7 @@ import type { GenerationState } from '../hooks/usePostGeneration'
 import { useVideoGeneration } from '../hooks/useVideoGeneration'
 import PlatformPreview from './PlatformPreview'
 import { api } from '../api/client'
+import { getPlatform } from '../platformRegistry'
 
 interface Props {
   state: GenerationState
@@ -17,18 +18,6 @@ interface Props {
   onRegenerate?: (instructions?: string) => void
   byopRecommendation?: string
 }
-
-const PLATFORM_ICONS: Record<string, string> = {
-  instagram: '📸',
-  linkedin: '💼',
-  twitter: '🐦',
-  x: '✖',
-  facebook: '👥',
-}
-
-const VIDEO_PLATFORMS = new Set(['instagram', 'tiktok', 'reels', 'story', 'stories'])
-// Text-first platforms where video section defaults to collapsed to reduce visual noise
-const TEXT_PLATFORMS = new Set(['linkedin', 'x', 'twitter', 'facebook'])
 
 // RegenerateButton with optional instructions input
 function RegenerateButton({ onRegenerate }: { onRegenerate: (instructions?: string) => void }) {
@@ -251,10 +240,11 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
     setTimeout(() => captionRef.current?.focus(), 0)
   }
 
-  const platformIcon = PLATFORM_ICONS[dayBrief?.platform || ''] || '📱'
   const platform = dayBrief?.platform?.toLowerCase() ?? ''
-  const isVideoPlatform = VIDEO_PLATFORMS.has(platform)
-  const isTextPlatform = TEXT_PLATFORMS.has(platform)
+  const platformSpec = getPlatform(platform)
+  const PlatformIcon = platformSpec.icon
+  const isVideoPlatform = platformSpec.isPortraitVideo
+  const isTextPlatform = !platformSpec.isPortraitVideo
 
   const showVideoSection = status === 'complete' && postId && brandId
 
@@ -305,10 +295,10 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
           {/* Platform + theme header */}
           {dayBrief && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 20 }}>{platformIcon}</span>
+              <PlatformIcon size={20} color={platformSpec.color} />
               <div>
                 <p style={{ fontSize: 13, fontWeight: 600, color: A.text, margin: 0 }}>
-                  {dayBrief.platform.charAt(0).toUpperCase() + dayBrief.platform.slice(1)}
+                  {platformSpec.displayName}
                 </p>
                 <p style={{ fontSize: 11, color: A.textMuted, margin: 0 }}>{dayBrief.content_theme}</p>
               </div>
@@ -433,7 +423,7 @@ export default function PostGenerator({ state, dayBrief, brandId, onRegenerate, 
           {status === 'complete' && savedCaption && dayBrief?.platform && !editingCaption && (
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, color: A.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                How this looks on {dayBrief.platform.charAt(0).toUpperCase() + dayBrief.platform.slice(1)}
+                How this looks on {platformSpec.displayName}
               </p>
               <PlatformPreview
                 platform={dayBrief.platform}

@@ -4,27 +4,29 @@ import { A } from '../theme'
 import { useBrandProfile } from '../hooks/useBrandProfile'
 import { useContentPlan } from '../hooks/useContentPlan'
 import { usePostLibrary } from '../hooks/usePostLibrary'
-import BrandProfileCard from '../components/BrandProfileCard'
+import BrandSummaryBar from '../components/BrandSummaryBar'
 import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
 import EventsInput from '../components/EventsInput'
 import VoiceCoach from '../components/VoiceCoach'
 import SocialConnect from '../components/SocialConnect'
+import IntegrationConnect from '../components/IntegrationConnect'
 import VideoRepurpose from '../components/VideoRepurpose'
 
-type Tab = 'calendar' | 'posts' | 'export'
+type Tab = 'calendar' | 'posts' | 'connections' | 'video'
 
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'calendar', label: 'Calendar', icon: '📅' },
   { key: 'posts', label: 'Posts', icon: '📝' },
-  { key: 'export', label: 'Export', icon: '📦' },
+  { key: 'connections', label: 'Connections', icon: '🔗' },
+  { key: 'video', label: 'Video', icon: '🎬' },
 ]
 
 export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { brand, loading: brandLoading, error: brandError, updateBrand } = useBrandProfile(brandId)
+  const { brand, loading: brandLoading, error: brandError, updateBrand, refetch: refetchBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
   const { posts: calendarPosts } = usePostLibrary(brandId ?? '', plan?.plan_id)
   const [activeTab, setActiveTab] = useState<Tab>('calendar')
@@ -51,6 +53,7 @@ export default function DashboardPage() {
   }, [brandId])
 
   const approvedParam = searchParams.get('approved')
+  const notionParam = searchParams.get('notion')
   const approvedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -68,6 +71,20 @@ export default function DashboardPage() {
       if (approvedTimerRef.current) clearTimeout(approvedTimerRef.current)
     }
   }, [approvedParam, setSearchParams])
+
+  // Auto-dismiss Notion connected banner
+  useEffect(() => {
+    if (notionParam) {
+      const timer = setTimeout(() => {
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev)
+          next.delete('notion')
+          return next
+        }, { replace: true })
+      }, 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [notionParam, setSearchParams])
 
   if (brandLoading) {
     return (
@@ -109,6 +126,17 @@ export default function DashboardPage() {
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
+      {/* Notion connected banner */}
+      {notionParam === 'connected' && (
+        <div style={{
+          marginBottom: 20, padding: '10px 16px', borderRadius: 8,
+          background: A.emeraldLight, border: `1px solid ${A.emerald}44`,
+          color: A.emerald, fontSize: 13, fontWeight: 500,
+        }}>
+          Notion connected — select a database to start exporting your content calendar.
+        </div>
+      )}
+
       {/* Approved success banner */}
       {approvedParam && (
         <div style={{
@@ -134,44 +162,118 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: A.text, marginBottom: 4 }}>
-            {brand.business_name || 'Your Brand'} — Dashboard
-          </h1>
-          <p style={{ fontSize: 14, color: A.textSoft }}>
-            Manage your brand profile and content calendar
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+      {/* Brand Summary Bar */}
+      <BrandSummaryBar
+        brand={brand}
+        onNavigateEdit={() => navigate(`/edit/${brandId}`)}
+        onNavigateNew={() => navigate('/onboard')}
+      />
+
+      {/* Tab bar */}
+      <div style={{
+        display: 'flex', gap: 2,
+        marginBottom: 20,
+        background: A.surfaceAlt,
+        borderRadius: 10,
+        padding: 3,
+      }}>
+        {TABS.map(tab => (
           <button
-            onClick={() => navigate(`/edit/${brandId}`)}
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
             style={{
-              padding: '8px 16px', borderRadius: 8, border: `1px solid ${A.indigo}40`,
-              background: A.indigoLight, cursor: 'pointer', fontSize: 13, color: A.indigo,
-              fontWeight: 500,
+              flex: 1,
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: activeTab === tab.key ? 600 : 400,
+              background: activeTab === tab.key ? A.surface : 'transparent',
+              color: activeTab === tab.key ? A.text : A.textSoft,
+              boxShadow: activeTab === tab.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
             }}
           >
-            Edit Brand
+            <span style={{ fontSize: 14 }}>{tab.icon}</span>
+            {tab.label}
           </button>
-          <button
-            onClick={() => navigate('/onboard')}
-            style={{
-              padding: '8px 16px', borderRadius: 8, border: `1px solid ${A.border}`,
-              background: 'transparent', cursor: 'pointer', fontSize: 13, color: A.textSoft,
-            }}
-          >
-            + New Brand
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* 1:2 grid layout — left: brand card, right: tabbed content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24, alignItems: 'start' }}>
-        {/* Left column: Brand Profile Card + Social Connect + Video Repurpose */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <BrandProfileCard brand={brand} onUpdate={updateBrand} />
+      {/* ── Calendar Tab ─────────────────────────────────── */}
+      {activeTab === 'calendar' && (
+        plan ? (
+          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button
+                onClick={() => {
+                  if (window.confirm('This will clear your current plan. Are you sure?')) {
+                    clearPlan()
+                  }
+                }}
+                style={{
+                  padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
+                  background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                New Plan
+              </button>
+            </div>
+            <ContentCalendar
+              plan={{ plan_id: plan.plan_id, days: plan.days }}
+              brandId={brandId ?? ''}
+              posts={calendarPosts}
+              onGeneratePost={(planId, dayIndex) =>
+                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
+              }
+              onViewPost={(planId, dayIndex, postId) =>
+                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}&post_id=${postId}`)
+              }
+              onPhotoUploaded={(dayIndex, photoUrl) =>
+                setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
+              }
+            />
+          </div>
+        ) : (
+          <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+            {planError && (
+              <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
+                {planError}
+              </p>
+            )}
+            <EventsInput
+              onGenerate={(events) => generatePlan(7, events || undefined)}
+              generating={generating}
+              analysisStatus={brand.analysis_status}
+            />
+          </div>
+        )
+      )}
+
+      {/* ── Posts Tab ─────────────────────────────────────── */}
+      {activeTab === 'posts' && (
+        <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
+          {plan && brandId ? (
+            <PostLibrary brandId={brandId} planId={plan.plan_id} notionReady={!!brand.integrations?.notion?.database_id} />
+          ) : (
+            <div style={{
+              padding: 40, textAlign: 'center',
+              color: A.textMuted, fontSize: 13,
+            }}>
+              Generate a content plan first to see your posts here.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Connections Tab ────────────────────────────────── */}
+      {activeTab === 'connections' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
             <SocialConnect
               brandId={brandId ?? ''}
@@ -182,149 +284,24 @@ export default function DashboardPage() {
             />
           </div>
           <div style={{ padding: 20, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-            <VideoRepurpose brandId={brandId ?? ''} />
+            <IntegrationConnect
+              brandId={brandId ?? ''}
+              notion={brand.integrations?.notion}
+              onUpdate={refetchBrand}
+            />
           </div>
         </div>
+      )}
 
-        {/* Right column: Tab bar + tab content */}
-        <div>
-          {/* Tab bar */}
-          <div style={{
-            display: 'flex', gap: 2,
-            marginBottom: 16,
-            background: A.surfaceAlt,
-            borderRadius: 10,
-            padding: 3,
-          }}>
-            {TABS.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: activeTab === tab.key ? 600 : 400,
-                  background: activeTab === tab.key ? A.surface : 'transparent',
-                  color: activeTab === tab.key ? A.text : A.textSoft,
-                  boxShadow: activeTab === tab.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                <span style={{ fontSize: 14 }}>{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Calendar Tab ─────────────────────────────────── */}
-          {activeTab === 'calendar' && (
-            plan ? (
-              <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                  <button
-                    onClick={() => {
-                      if (window.confirm('This will clear your current plan. Are you sure?')) {
-                        clearPlan()
-                      }
-                    }}
-                    style={{
-                      padding: '4px 12px', borderRadius: 6, border: `1px solid ${A.border}`,
-                      background: 'transparent', color: A.textSoft, fontSize: 12, cursor: 'pointer',
-                    }}
-                  >
-                    New Plan
-                  </button>
-                </div>
-                <ContentCalendar
-                  plan={{ plan_id: plan.plan_id, days: plan.days }}
-                  brandId={brandId ?? ''}
-                  posts={calendarPosts}
-                  onGeneratePost={(planId, dayIndex) =>
-                    navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
-                  }
-                  onViewPost={(planId, dayIndex, postId) =>
-                    navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}&post_id=${postId}`)
-                  }
-                  onPhotoUploaded={(dayIndex, photoUrl) =>
-                    setDayCustomPhoto(plan.plan_id, dayIndex, photoUrl)
-                  }
-                />
-              </div>
-            ) : (
-              <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-                {planError && (
-                  <p style={{ fontSize: 13, color: A.coral, marginBottom: 12 }}>
-                    {planError}
-                  </p>
-                )}
-                <EventsInput
-                  onGenerate={(events) => generatePlan(7, events || undefined)}
-                  generating={generating}
-                  analysisStatus={brand.analysis_status}
-                />
-              </div>
-            )
-          )}
-
-          {/* ── Posts Tab ─────────────────────────────────────── */}
-          {activeTab === 'posts' && (
-            <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-              {plan && brandId ? (
-                <PostLibrary brandId={brandId} planId={plan.plan_id} />
-              ) : (
-                <div style={{
-                  padding: 40, textAlign: 'center',
-                  color: A.textMuted, fontSize: 13,
-                }}>
-                  Generate a content plan first to see your posts here.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Export Tab ────────────────────────────────────── */}
-          {activeTab === 'export' && (
-            <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-              {plan && brandId ? (
-                <>
-                  <div style={{
-                    marginBottom: 16, padding: '12px 16px', borderRadius: 10,
-                    background: `linear-gradient(135deg, ${A.indigo}10, ${A.violet}08)`,
-                    border: `1px solid ${A.indigo}20`,
-                    display: 'flex', alignItems: 'center', gap: 12,
-                  }}>
-                    <span style={{ fontSize: 20 }}>📦</span>
-                    <div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: A.text, margin: 0 }}>
-                        Plan ZIP export available
-                      </p>
-                      <p style={{ fontSize: 12, color: A.textSoft, margin: 0 }}>
-                        Use "Export All" to download all approved posts as a ZIP with captions and images.
-                      </p>
-                    </div>
-                  </div>
-                  <PostLibrary brandId={brandId} planId={plan.plan_id} defaultFilter="approved" />
-                </>
-              ) : (
-                <div style={{
-                  padding: 40, textAlign: 'center',
-                  color: A.textMuted, fontSize: 13,
-                }}>
-                  Generate a content plan first to export your posts.
-                </div>
-              )}
-            </div>
-          )}
+      {/* ── Video Tab ──────────────────────────────────────── */}
+      {activeTab === 'video' && (
+        <div style={{
+          padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}`,
+          maxWidth: 640,
+        }}>
+          <VideoRepurpose brandId={brandId ?? ''} />
         </div>
-      </div>
+      )}
 
       {/* Voice Brand Coach — floating button, fixed position */}
       {brandId && (

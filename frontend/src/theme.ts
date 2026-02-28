@@ -27,10 +27,5 @@ export const PILLARS: Record<string, { color: string; bg: string; icon: string }
   Connect: { color: A.emerald, bg: A.emeraldLight, icon: '🤝' },
 }
 
-export const PLATFORMS: Record<string, { color: string; icon: string }> = {
-  instagram: { color: '#E1306C', icon: '📷' },
-  linkedin: { color: '#0A66C2', icon: '💼' },
-  x: { color: '#1A1A2E', icon: '𝕏' },
-  tiktok: { color: '#000000', icon: '🎵' },
-  facebook: { color: '#1877F2', icon: '📘' },
-}
+// Platform config is centralized in platformRegistry.ts — re-export for backwards compat
+export { PLATFORMS, getPlatform } from './platformRegistry'

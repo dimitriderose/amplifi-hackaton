@@ -27,6 +27,7 @@ class Post(BaseModel):
     image_source: str = "generated"  # generated | user_upload
     review: Optional[ReviewResult] = None
     video_url: Optional[str] = None
+    publish_status: Optional[dict] = None  # { "notion": { status, page_id, ... } }
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

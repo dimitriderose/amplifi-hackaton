@@ -47,6 +47,7 @@ class BrandProfile(BaseModel):
     logo_url: Optional[str] = None
     product_photos: List[str] = []
     uploaded_assets: List[dict] = []
+    integrations: dict = {}  # { "notion": { access_token, ... }, "buffer": { ... } }
     analysis_status: str = "pending"  # pending | analyzing | complete | failed
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

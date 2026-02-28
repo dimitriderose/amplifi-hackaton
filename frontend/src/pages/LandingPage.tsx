@@ -587,6 +587,31 @@ export default function LandingPage() {
         </p>
       </section>
 
+      {/* ── Footer ─────────────────────────────────────────── */}
+      <footer style={{
+        borderTop: `1px solid ${A.border}`,
+        padding: '24px',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 24,
+        flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: 12, color: A.textMuted }}>
+          © 2026 Amplifi
+        </span>
+        <a href="/terms" style={{ fontSize: 12, color: A.textSoft, textDecoration: 'none' }}
+           onMouseEnter={e => (e.currentTarget.style.color = A.indigo)}
+           onMouseLeave={e => (e.currentTarget.style.color = A.textSoft)}>
+          Terms of Service
+        </a>
+        <a href="/privacy" style={{ fontSize: 12, color: A.textSoft, textDecoration: 'none' }}
+           onMouseEnter={e => (e.currentTarget.style.color = A.indigo)}
+           onMouseLeave={e => (e.currentTarget.style.color = A.textSoft)}>
+          Privacy Policy
+        </a>
+      </footer>
+
     </div>
   )
 }

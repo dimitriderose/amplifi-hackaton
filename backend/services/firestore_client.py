@@ -290,3 +290,36 @@ async def save_platform_trends(platform: str, industry: str, trends: dict) -> No
         "fetched_at": now,
         "expires_at": now + timedelta(days=7),
     })
+
+
+# ── Platform recommendation cache ─────────────────────────────
+
+async def get_platform_recommendations(industry: str, business_type: str) -> Optional[list]:
+    """Return cached platform recommendations if not expired (7-day TTL)."""
+    db = get_client()
+    doc_id = f"{industry}_{business_type}".lower().replace(" ", "_")
+    snap = await db.collection("platform_recommendations").document(doc_id).get()
+    if not snap.exists:
+        return None
+    data = snap.to_dict()
+    expires_at = data.get("expires_at")
+    if expires_at:
+        if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            return None
+    return data.get("recommendations")
+
+
+async def save_platform_recommendations(
+    industry: str, business_type: str, recommendations: list
+) -> None:
+    """Cache platform recommendations with a 7-day TTL."""
+    db = get_client()
+    doc_id = f"{industry}_{business_type}".lower().replace(" ", "_")
+    now = datetime.now(timezone.utc)
+    await db.collection("platform_recommendations").document(doc_id).set({
+        "recommendations": recommendations,
+        "fetched_at": now,
+        "expires_at": now + timedelta(days=7),
+    })

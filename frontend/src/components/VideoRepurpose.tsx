@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
+import { getPlatform } from '../platformRegistry'
 
 const SPIN_STYLE = `@keyframes vr-spin { to { transform: rotate(360deg); } }`
 const PULSE_STYLE = `@keyframes vr-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }`
@@ -23,11 +24,11 @@ interface Job {
   filename?: string
 }
 
-const PLATFORM_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-  reels:         { label: 'Instagram Reels', color: '#E1306C', icon: '📸' },
-  tiktok:        { label: 'TikTok',          color: '#010101', icon: '🎵' },
-  youtube_shorts: { label: 'YouTube Shorts', color: '#FF0000', icon: '▶️' },
-  linkedin:      { label: 'LinkedIn',        color: '#0A66C2', icon: '💼' },
+const REPURPOSE_LABELS: Record<string, { label: string; platformKey: string }> = {
+  reels:          { label: 'Instagram Reels', platformKey: 'instagram' },
+  tiktok:         { label: 'TikTok',          platformKey: 'tiktok' },
+  youtube_shorts: { label: 'YouTube Shorts',  platformKey: 'youtube_shorts' },
+  linkedin:       { label: 'LinkedIn',        platformKey: 'linkedin' },
 }
 
 interface Props {
@@ -259,7 +260,10 @@ export default function VideoRepurpose({ brandId }: Props) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {job.clips.map((clip, i) => {
-              const plat = PLATFORM_LABELS[clip.platform] ?? { label: clip.platform, color: A.indigo, icon: '🎬' }
+              const repurposeInfo = REPURPOSE_LABELS[clip.platform]
+              const spec = getPlatform(repurposeInfo?.platformKey ?? clip.platform)
+              const PlatIcon = spec.icon
+              const platLabel = repurposeInfo?.label ?? spec.displayName
               return (
                 <div key={i} style={{
                   borderRadius: 10, border: `1px solid ${A.border}`,
@@ -269,12 +273,12 @@ export default function VideoRepurpose({ brandId }: Props) {
                   <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '10px 12px',
-                    background: plat.color + '12',
+                    background: spec.color + '12',
                     borderBottom: `1px solid ${A.border}`,
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>{plat.icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: A.text }}>{plat.label}</span>
+                      <PlatIcon size={16} color={spec.color} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: A.text }}>{platLabel}</span>
                       <span style={{
                         fontSize: 11, padding: '2px 8px', borderRadius: 20,
                         background: A.surfaceAlt, color: A.textSoft, border: `1px solid ${A.borderLight}`,

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { A } from '../theme'
 import { api } from '../api/client'
+import { getPlatform } from '../platformRegistry'
 
 // Module-level keyframe — avoids duplicate injection on remount
 const SPIN_STYLE = `@keyframes sc-spin { to { transform: rotate(360deg); } }`
@@ -16,8 +17,6 @@ interface VoiceAnalysis {
 
 interface PlatformConfig {
   name: string
-  icon: string
-  color: string
   tokenLabel: string
   tokenPlaceholder: string
   helpText: string
@@ -27,8 +26,6 @@ interface PlatformConfig {
 const PLATFORMS: Record<string, PlatformConfig> = {
   linkedin: {
     name: 'LinkedIn',
-    icon: '💼',
-    color: '#0A66C2',
     tokenLabel: 'LinkedIn OAuth 2.0 Access Token',
     tokenPlaceholder: 'AQX...',
     helpText: 'Get a token from LinkedIn Developer Portal → OAuth 2.0 tools → Generate token (scopes: r_liteprofile, r_member_social)',
@@ -36,8 +33,6 @@ const PLATFORMS: Record<string, PlatformConfig> = {
   },
   instagram: {
     name: 'Instagram',
-    icon: '📸',
-    color: '#E1306C',
     tokenLabel: 'Instagram User Access Token',
     tokenPlaceholder: 'IGQ...',
     helpText: 'Get a token from Meta for Developers → Graph API Explorer → select your Instagram app',
@@ -45,8 +40,6 @@ const PLATFORMS: Record<string, PlatformConfig> = {
   },
   x: {
     name: 'X (Twitter)',
-    icon: '✖',
-    color: '#000000',
     tokenLabel: 'X OAuth 2.0 User Access Token',
     tokenPlaceholder: 'AAAA...',
     helpText: 'Get a token from X Developer Portal → Your App → Keys and Tokens → OAuth 2.0 User Access Token',
@@ -65,6 +58,8 @@ interface PlatformCardProps {
 }
 
 function PlatformCard({ platformKey, config, brandId, isConnected, existingAnalysis, onConnected, onLoadDemo }: PlatformCardProps) {
+  const spec = getPlatform(platformKey)
+  const PlatIcon = spec.icon
   const [expanded, setExpanded] = useState(false)
   const [token, setToken] = useState('')
   const [loading, setLoading] = useState(false)
@@ -96,8 +91,8 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
   return (
     <div style={{
       borderRadius: 10,
-      border: `1px solid ${connected ? config.color + '40' : A.border}`,
-      background: connected ? config.color + '08' : A.surface,
+      border: `1px solid ${connected ? spec.color + '40' : A.border}`,
+      background: connected ? spec.color + '08' : A.surface,
       overflow: 'hidden',
       transition: 'border-color 0.2s, background 0.2s',
     }}>
@@ -109,7 +104,7 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
         padding: '12px 14px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>{config.icon}</span>
+          <PlatIcon size={18} color={spec.color} />
           <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>{config.name}</span>
           {connected && (
             <span style={{
