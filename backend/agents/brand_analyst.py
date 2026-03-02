@@ -151,9 +151,17 @@ Analyze the provided information and extract:
 10. IMAGE_STYLE_DIRECTIVE: A 2-3 sentence visual identity fragment. Be EXTREMELY specific about colors, lighting, composition, textures. This will be prepended to every image generation prompt.
     BAD: "professional and clean"
     GOOD: "warm earth tones with terracotta and sage green accents, soft natural lighting with golden hour warmth, minimalist compositions with generous whitespace, organic textures like linen and raw wood, shot from slightly above at 30-degree angle"
-11. CAPTION_STYLE_DIRECTIVE: A 2-4 sentence writing rhythm guide. Describe structural patterns, not just adjectives.
-    BAD: "professional and friendly"
-    GOOD: "Open with a one-sentence hook under 10 words. Second beat is a personal anecdote or concrete example. Third beat delivers the counterintuitive insight or actionable takeaway. Close with a direct question to drive comments. Use em dashes liberally. Never use exclamation marks."
+11. CAPTION_STYLE_DIRECTIVE: A 2-4 sentence writing RHYTHM guide. Describe tone, cadence, and stylistic patterns.
+    INCLUDE: sentence length, punctuation style, paragraph rhythm, perspective (first/third person), vocabulary register, emoji usage policy
+    EXCLUDE: Do NOT include content structure instructions. These are handled separately by the content system:
+    - "start with a question" / "open with a question"
+    - "follow with a solution" / "describe how the brand helps"
+    - "include a call to action" / "end with a CTA"
+    - "share a story/insight" / "include a statistic"
+    - "use bullet points" / "use numbered lists"
+    - "mention competitors" / "reference industry trends"
+    BAD: "Start with a question about their pain point. Follow with how the brand solves it. End with a CTA."
+    GOOD: "One-sentence hooks under 10 words. Personal anecdotes as the second beat. Counterintuitive insights as the third beat. Em dashes liberally. Never use exclamation marks."
 12. IMAGE_GENERATION_RISK: Assess the risk of AI-generated images for this business type:
     - "high": food photography, fashion, real estate, jewelry, automotive, cosmetics, restaurants — industries where bad AI images are worse than no images. Authenticity is critical.
     - "medium": fitness, travel, education, events — AI images acceptable but user photos are strongly preferred for authenticity.
@@ -268,7 +276,7 @@ def _fallback_profile(description: str, website_url: str | None) -> dict:
         "content_themes": ["behind the scenes", "tips and advice", "product highlights", "customer stories", "team culture"],
         "competitors": [],
         "image_style_directive": "clean, modern aesthetic with consistent brand colors, professional lighting, crisp compositions with generous whitespace",
-        "caption_style_directive": "Open with a compelling hook. Share a relevant insight or story. End with a clear call to action or question to drive engagement.",
+        "caption_style_directive": "Short punchy sentences under 15 words. Mix first-person and second-person perspective. Use em dashes for asides. Conversational register — write like a knowledgeable friend, not a brochure.",
         "image_generation_risk": "low",
         "byop_recommendation": "AI-generated images work well for this business type. For best results, upload your own photos when you have them.",
     }

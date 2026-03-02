@@ -158,6 +158,42 @@ async def _research_platform_trends(platform: str, industry: str) -> dict | None
         return None
 
 
+async def _research_industry_hooks(industry: str, platforms: list[str]) -> str:
+    """Search for best-performing hook patterns for this industry across all platforms.
+
+    Returns a text block with hook examples/patterns, or "" on failure.
+    Called once per plan (not per post) to amortize latency.
+    """
+    if not industry:
+        return ""
+    platform_str = ", ".join(platforms[:5])
+    try:
+        prompt = (
+            f"Research the most effective social media hooks and opening lines for "
+            f"{industry} businesses on {platform_str}.\n"
+            "What types of hooks stop the scroll and drive engagement for this industry?\n"
+            "- Specific hook structures that work (contrarian, story, number, question)\n"
+            "- Real examples of high-performing opening lines\n"
+            "- What makes a hook specific to this industry vs generic\n\n"
+            "Return a concise summary (under 200 words) of the best hook patterns."
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        result = response.text.strip()
+        logger.info("Industry hook research completed for %s", industry)
+        return result
+    except Exception as e:
+        logger.warning("Industry hook research failed (%s): %s", industry, e)
+        return ""
+
+
 # ── Format-aware planning notes ───────────────────────────────────────────────
 
 _FORMAT_GUIDE = """PLATFORM FORMAT GUIDANCE (match content format to what works on each platform):
@@ -286,12 +322,17 @@ async def run_strategy(
             platforms = ["instagram", "linkedin", "x", "facebook"]
             platform_reasoning = ""
 
-    # ── Phase 0b: Fetch trends for selected platforms (in parallel) ───────────
+    # ── Phase 0b: Fetch trends + industry hooks for selected platforms ────────
     trend_platforms = platforms[:5]  # Limit to 5 to avoid rate limits
     trend_results = await asyncio.gather(
         *[_research_platform_trends(p, industry) for p in trend_platforms],
+        _research_industry_hooks(industry, platforms),
         return_exceptions=True,
     )
+    # Last result is the hook research; the rest are per-platform trends
+    hook_research_result = trend_results[-1]
+    hook_research: str = hook_research_result if isinstance(hook_research_result, str) else ""
+    trend_results = trend_results[:-1]
     trends_context = ""
     platform_trends_map: dict[str, dict] = {}
     for p, result in zip(trend_platforms, trend_results):
@@ -308,6 +349,15 @@ async def run_strategy(
         trends_context += (
             "\nIncorporate these trends where they fit the brand. "
             "Don't force them — only use what is authentic.\n"
+        )
+
+    # Add hook research to trends context if available
+    hook_research_block = ""
+    if hook_research:
+        hook_research_block = (
+            f"\nINDUSTRY HOOK RESEARCH ({industry}):\n{hook_research}\n"
+            "Use these hook patterns as inspiration for caption_hook values. "
+            "Adapt them to be specific to this brand, not generic.\n"
         )
 
     # ── Build strategy prompt ─────────────────────────────────────────────────
@@ -346,6 +396,85 @@ async def run_strategy(
         f"Colors: {', '.join(brand_profile.get('colors', []))}\n"
     )
 
+    # ── Social proof tier → pillar + format guidance ──
+    _has_years = bool(brand_profile.get("years_in_business"))
+    _has_clients = bool(brand_profile.get("client_count"))
+    if _has_years and _has_clients:
+        _proof_tier = "data_rich"
+    elif _has_years or _has_clients:
+        _proof_tier = "partial_data"
+    else:
+        _proof_tier = "thin_profile"
+
+    _pillar_guidance = ""
+    if _proof_tier == "thin_profile":
+        _pillar_guidance = (
+            "\nPILLAR DISTRIBUTION — THIN PROFILE (this brand has NO client reviews, "
+            "testimonials, years-in-business, or client count):\n"
+            f"Education is this brand's PRIMARY trust-builder. In a {num_days}-day plan:\n"
+            "- MINIMUM 4 education posts — teach specific, actionable insights that prove expertise\n"
+            "- Maximum 1 promotion post — focus on the service itself, NOT social proof or results\n"
+            "- behind_the_scenes: allowed on Facebook (max 1-2), max 1 on other platforms\n"
+            "- Do NOT assign 'inspiration' with client success stories — this brand has ZERO client "
+            "data. If using inspiration, frame as INDUSTRY INSIGHT or professional philosophy.\n"
+            "- Do NOT assign 'user_generated' — there is no user content to reference.\n"
+            "Strategy: prove expertise through DEPTH OF KNOWLEDGE, not breadth of claims.\n\n"
+            "PLATFORM-SPECIFIC FORMAT RULES FOR THIN PROFILES:\n"
+            "- Instagram education → ALWAYS 'carousel'. Cap 'video_first' at 1/week on IG.\n"
+            "- LinkedIn → 'carousel' or 'original' (long-form). ALL LI posts = education. "
+            "Never 'video_first' on LinkedIn for this brand.\n"
+            "- X → 'thread_hook'. 1 post/week max. Always education.\n"
+            "- Facebook → 'original'. Conversational + local tone. Best platform for BTS. "
+            "MINIMUM 2 Facebook posts per week for local businesses — FB drives the most "
+            "community engagement for professional services.\n"
+            "- Facebook CTA: ALWAYS 'engagement' (genuine question).\n\n"
+            "CTA RULES FOR THIN PROFILES:\n"
+            "- Prefer 'implied' and 'engagement' — these work without social proof\n"
+            "- Max 1 'conversion' per week — and only for a specific free resource (checklist, guide), "
+            "NOT 'book a consultation' (no proof = no conversion trust)\n"
+            "- 'none' is fine for pure educational threads\n"
+        )
+    elif _proof_tier == "partial_data":
+        _pillar_guidance = (
+            "\nPILLAR DISTRIBUTION — PARTIAL DATA:\n"
+            f"Education should anchor the calendar. In a {num_days}-day plan:\n"
+            "- At least 3 education posts\n"
+            "- Promotion posts should lean on available data only (don't inflate)\n"
+            "- Inspiration posts: use process authority, not fabricated client outcomes\n"
+        )
+
+    # ── Conditional angle list based on proof tier ──
+    _angle_list = (
+        "  - Teach a specific tip (name the actual thing, not just 'tips and tricks')\n"
+        "  - Myth-bust (a common misconception in the industry)\n"
+        "  - Behind-the-scenes or human moment (team, process, day-in-the-life)\n"
+        "  - Timely hook (upcoming deadline, seasonal event, industry news)\n"
+    )
+    if _proof_tier == "thin_profile":
+        _angle_list += (
+            "  - Common mistake (walk through a specific error and the correct approach)\n"
+            "  - Contrarian take (challenge conventional wisdom in the industry)\n"
+        )
+    else:
+        _angle_list += (
+            "  - Client perspective (anonymized pain point → resolution pattern)\n"
+            "  - Contrarian take (challenge conventional wisdom in the industry)\n"
+        )
+
+    # ── Format guide override for thin-profile brands ──
+    _format_override = ""
+    if _proof_tier == "thin_profile":
+        _format_override = (
+            "\nFORMAT GUIDE OVERRIDE — THIN PROFILE (supersedes general guidance above):\n"
+            "This brand has no face-on-camera talent, no testimonials, and no visual demos. "
+            "AI-generated video clips look generic and hurt credibility for professional services.\n"
+            "- LIMIT video_first to MAX 1 post across the ENTIRE week\n"
+            "- Prefer 'carousel' for education (save-worthy, high-reach format)\n"
+            "- Prefer 'thread_hook' on X (educational threads outperform video for B2B)\n"
+            "- Never use video_first on LinkedIn for this brand type\n"
+            "- 'Personal stories or testimonials' is NOT available as a video angle\n"
+        )
+
     prompt = f"""You are a social media strategy expert and creative director.
 
 Your job is to generate a {num_days}-day content calendar for the following brand.
@@ -354,7 +483,7 @@ Your job is to generate a {num_days}-day content calendar for the following bran
 
 BRAND PROFILE:
 {curated_profile}
-{platform_rec_block}{trends_context}
+{platform_rec_block}{trends_context}{hook_research_block}
 BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile and current season/timing."}
 
 Generate exactly {num_days} day briefs. Each brief covers one day of social media content.
@@ -367,8 +496,9 @@ Most platform algorithms reward consistency (3-5 posts/week minimum).
 Prioritize the top-ranked platforms — they should get the majority of days.
 
 Content pillars to use: education, inspiration, promotion, behind_the_scenes, user_generated
-
+{_pillar_guidance}
 {_FORMAT_GUIDE}
+{_format_override}
 
 CAROUSEL POSTS (IMPORTANT):
 For Instagram and LinkedIn posts, decide whether the post works better as a SINGLE IMAGE or a CAROUSEL (3 slides).
@@ -379,31 +509,50 @@ CONTENT REPURPOSING (IMPORTANT — follow this carefully):
 Choose exactly 2 "hero" content ideas that will be repurposed across different platforms this week.
 For each hero idea:
   - ONE day is the ORIGINAL hero post: derivative_type "original" or "carousel", ideally on the top-priority platform.
-  - ONE OR TWO other days REPURPOSE that idea for a different platform and format:
+  - EXACTLY ONE other day repurposes that idea for a different platform and format:
       derivative_type must be one of: "carousel", "thread_hook", "blog_snippet", "story", "pin", "video_first"
   - All days in the same repurposing group MUST share the same pillar_id string (e.g., "series_0").
   - Adapt content_theme, caption_hook, and image_prompt to suit the derivative platform/format.
-Remaining days each get their own unique pillar_id and derivative_type "original" (or format-appropriate type).
+Remaining days (at least 3 of 7) each get their own UNIQUE topic — not a reword of the hero ideas.
 
 CTA VARIETY (CRITICAL):
 Each day's caption_hook and key_message must drive a DIFFERENT call to action. Track what you've used:
 - Day 0: question CTA ("What's your biggest challenge with X?")
-- Day 1: save CTA ("Save this for tax season")
+- Day 1: save CTA ("Save this for your next quarterly review")
 - Day 2: share CTA ("Tag someone who needs this")
-- Day 3: action CTA ("DM us 'AUDIT' for a free checklist")
+- Day 3: action CTA ("DM us 'GUIDE' for a free checklist")
 - Day 4: story CTA ("Tell us your experience in the comments")
 - Day 5+: mix from above, never repeat back-to-back
 NEVER use "Follow for more" or "Like and share" — these are engagement bait from 2019.
 
+CTA TYPE DEFINITIONS (assign one per day):
+- "engagement": a conversational question or discussion prompt (e.g., "What's your biggest challenge with X?")
+- "conversion": a direct action CTA (e.g., "DM us 'GUIDE'", "Book a call", "Save this")
+- "implied": the content implies the next step without explicitly asking (e.g., teaching something that naturally leads to wanting the service)
+- "none": no CTA — used for Mastodon, Threads, or pure educational content
+DISTRIBUTION: across a 5-day plan, use at least 2 different types. Never use "conversion" back-to-back. Mastodon MUST be "none". Threads MUST be "engagement" or "none".
+
 QUALITY STANDARDS FOR DAY BRIEFS:
-BAD content_theme: "Tips and insights for accounting enthusiasts" (vague, generic)
-GOOD content_theme: "3 tax deductions freelancers miss every April" (specific, timely, actionable)
+BAD content_theme: "Tips and insights for our industry" (vague, generic)
+GOOD content_theme: "3 hidden costs that eat into margins every Q1" (specific, timely, actionable)
 
 BAD caption_hook: "Something worth stopping for" (meaningless)
-GOOD caption_hook: "Your accountant won't tell you this about Q1 estimated taxes" (specific, creates curiosity)
+BAD caption_hook: "Are you struggling with growth?" (banned pattern)
+BAD caption_hook: "Did you know most businesses miss this?" (banned pattern)
+GOOD caption_hook: "Most businesses lose 15% of revenue to this one overlooked process" (specific, creates curiosity)
+BANNED HOOK PATTERNS (the content generator will reject these — do NOT suggest them):
+  These patterns are banned ANYWHERE in the hook, not just at the start:
+  "Are you...?", "Did you know...?", "What if...?", "In today's...",
+  "As a...", "When it comes to...", "Here's the thing:", "The truth is:"
+GOOD hooks use: specific numbers, contrarian statements, or pattern-interrupts.
 
 BAD image_prompt: "Professional brand photo with clean composition"
-GOOD image_prompt: "Overhead flatlay of tax documents, calculator, and coffee on a dark oak desk, warm lighting, brand navy accent color in a pen and notebook"
+GOOD image_prompt: "Overhead flatlay of business documents, laptop, and coffee on a dark oak desk, warm lighting, brand accent color in a pen and notebook"
+
+ANGLE DIVERSITY (CRITICAL — this is what separates good content from spam):
+Each day MUST cover a DIFFERENT angle. Even if the brand only offers one core service,
+vary the ANGLE, not the message. Use these lenses:
+{_angle_list}SELF-CHECK: If two content_themes could be summarized as the same sentence, they are TOO SIMILAR. Rewrite one.
 
 Each day brief MUST have these exact fields:
 - day_index: integer (0-based, so first day is 0, last day is {num_days - 1})
@@ -414,9 +563,12 @@ Each day brief MUST have these exact fields:
 - caption_hook: string — opening line to stop the scroll (under 15 words)
 - key_message: string — main takeaway (1-2 sentences)
 - image_prompt: string — detailed visual description for AI image generation (2-3 sentences)
-- hashtags: array of 5-8 relevant hashtag strings (without the # symbol)
+- hashtags: array of relevant hashtag strings (without #). COUNT PER PLATFORM:
+  Instagram 3-5, LinkedIn 3-5, X 1-2, Facebook 3-5, TikTok 4-6,
+  Pinterest 2-5, YouTube Shorts 3-5, Threads 0-3, Mastodon 3-5 (CamelCase), Bluesky 1-3
 - derivative_type: one of "original", "carousel", "thread_hook", "blog_snippet", "story", "pin", "video_first"
 - event_anchor: string or null
+- cta_type: one of "engagement", "conversion", "implied", "none" — the CTA style for this post
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
 The image_prompt should reference the brand's visual style and colors if provided.
@@ -457,7 +609,7 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
         validated = []
         for i, day in enumerate(days[:num_days]):
             validated.append(
-                _normalize_day(day, i, brand_profile, platforms, platform_trends_map)
+                _normalize_day(day, i, brand_profile, platforms, platform_trends_map, hook_research)
             )
 
         # Pad if AI returned fewer days than requested
@@ -483,6 +635,7 @@ def _normalize_day(
     brand_profile: dict,
     platforms: list[str],
     platform_trends_map: dict[str, dict] | None = None,
+    hook_research: str = "",
 ) -> dict:
     """Ensure a day brief has all required fields with valid values."""
     all_platforms = platform_keys()
@@ -518,9 +671,23 @@ def _normalize_day(
         "event_anchor": day.get("event_anchor", None),
     }
 
+    # Normalize cta_type with platform overrides
+    cta_type = str(day.get("cta_type", "engagement")).lower()
+    if cta_type not in ("engagement", "conversion", "implied", "none"):
+        cta_type = "engagement"
+    if platform == "mastodon":
+        cta_type = "none"
+    elif platform == "threads" and cta_type == "conversion":
+        cta_type = "engagement"
+    result["cta_type"] = cta_type
+
     # Attach platform trend intelligence for content creator
     if platform_trends_map and platform in platform_trends_map:
         result["platform_trends"] = platform_trends_map[platform]
+
+    # Attach industry hook research for content creator
+    if hook_research:
+        result["hook_research"] = hook_research
 
     return result
 
@@ -577,6 +744,7 @@ def _fallback_day(
         ],
         "derivative_type": "original",
         "event_anchor": None,
+        "cta_type": "engagement",
     }
 
 

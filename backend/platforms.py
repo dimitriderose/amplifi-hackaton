@@ -22,8 +22,9 @@ class PlatformSpec:
     hashtag_limit: int
     caption_max: int
 
-    # Post-generation enforcement
-    hard_char_limit: int | None = None
+    # Post-generation enforcement — per-derivative character limits
+    # "default" is used when no derivative-specific limit is set
+    char_limits: dict[str, int] = field(default_factory=dict)
     fold_at: int | None = None
 
     # Image generation
@@ -35,6 +36,9 @@ class PlatformSpec:
     # Derivative types this platform supports
     derivative_types: list[str] = field(default_factory=lambda: ["original"])
 
+    # Voice/tone directive — how content should *sound* on this platform
+    voice: str = ""
+
 
 # ── Content prompts (named constants for readability) ─────────────────────────
 
@@ -42,7 +46,9 @@ _INSTAGRAM_PROMPT = (
     "PLATFORM FORMAT: Instagram post.\n"
     "- Hook in first line (≤125 chars — appears above 'more' fold, make it count)\n"
     "- 2-3 short paragraphs with line breaks for readability\n"
-    "- Total caption: 150-250 words. Be concise — don't over-explain\n"
+    "- Total caption: 150-250 words MAX. This is a HARD CEILING, not a suggestion. "
+    "Instagram users scroll fast — every sentence must earn its place. "
+    "If you can say it in 3 paragraphs, don't use 5.\n"
     "- Include 2-3 searchable keywords naturally in caption (Instagram SEO is keyword-based now)\n"
     "- CTA that drives saves and DM shares (top algorithm signals in 2026)\n"
     "- Emoji use: moderate, on-brand\n"
@@ -184,10 +190,17 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=5,
         caption_max=2200,
+        char_limits={"default": 1200, "video_first": 200, "story": 150},
         fold_at=125,
         image_aspect="1:1",
         is_portrait_video=True,
         derivative_types=["original", "carousel", "story", "video_first"],
+        voice=(
+            "Visual-first. Short, punchy sentences. Line breaks for rhythm. "
+            "Emojis sparingly (1-2 max, never as bullets). Speak like a trusted "
+            "friend sharing a tip, not a brand broadcasting. End with a question "
+            "or soft CTA, never 'Follow for more'."
+        ),
     ),
     "linkedin": PlatformSpec(
         key="linkedin",
@@ -199,9 +212,16 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=5,
         caption_max=3000,
+        char_limits={"default": 1800, "video_first": 500, "blog_snippet": 1200},
         fold_at=140,
         image_aspect="1.91:1",
         derivative_types=["original", "carousel", "blog_snippet", "video_first"],
+        voice=(
+            "Thought leadership. Open with a bold opinion or insight. Use 'I' and "
+            "'we' — personal, not corporate. Short paragraphs (1-2 sentences each). "
+            "Share a real lesson, mistake, or counterintuitive finding. End with a "
+            "question that invites professional discussion."
+        ),
     ),
     "x": PlatformSpec(
         key="x",
@@ -213,9 +233,14 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=1,
         caption_max=280,
-        hard_char_limit=280,
+        char_limits={"default": 280, "thread_hook": 1960},
         image_aspect="16:9",
         derivative_types=["original", "thread_hook", "video_first"],
+        voice=(
+            "Sharp, opinionated, concise. One idea per tweet. No filler words. "
+            "Contrarian takes perform well. Use threads for depth, single tweets "
+            "for hot takes."
+        ),
     ),
     "tiktok": PlatformSpec(
         key="tiktok",
@@ -227,9 +252,15 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=6,
         caption_max=2200,
+        char_limits={"default": 500, "video_first": 200, "carousel": 800},
         image_aspect="9:16",
         is_portrait_video=True,
         derivative_types=["original", "carousel", "video_first"],
+        voice=(
+            "Casual, direct, slightly irreverent. Caption is secondary to video "
+            "— keep it ultra-short. Use hooks that create curiosity about the "
+            "video content."
+        ),
     ),
     "facebook": PlatformSpec(
         key="facebook",
@@ -241,8 +272,14 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=3,
         caption_max=63206,
+        char_limits={"default": 1500, "video_first": 500, "story": 150},
         image_aspect="1.91:1",
         derivative_types=["original", "carousel", "story", "video_first"],
+        voice=(
+            "Community-first. Warm, conversational, like talking to a neighbor. "
+            "Ask genuine questions. Reference local events or shared experiences. "
+            "End with an invitation to comment or share a story."
+        ),
     ),
     "threads": PlatformSpec(
         key="threads",
@@ -254,10 +291,15 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=3,
         caption_max=500,
-        hard_char_limit=500,
+        char_limits={"default": 500},
         image_aspect="1:1",
         is_portrait_video=True,
         derivative_types=["original", "video_first"],
+        voice=(
+            "Authentic, conversation-starting. Write to spark replies, not "
+            "broadcast. Hot takes and genuine questions perform best. "
+            "Anti-promotional — add value or don't post."
+        ),
     ),
     "pinterest": PlatformSpec(
         key="pinterest",
@@ -269,9 +311,15 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=0,
         caption_max=500,
+        char_limits={"default": 500, "pin": 500},
         image_aspect="2:3",
         is_portrait_video=True,
         derivative_types=["original", "pin", "video_first"],
+        voice=(
+            "SEO-optimized, aspirational, helpful. Title is keyword-rich and "
+            "benefit-driven. Description uses natural language with target "
+            "keywords woven in. No emoji, no hashtags."
+        ),
     ),
     "youtube_shorts": PlatformSpec(
         key="youtube_shorts",
@@ -283,9 +331,15 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=5,
         caption_max=5000,
+        char_limits={"default": 300, "video_first": 200},
         image_aspect="9:16",
         is_portrait_video=True,
         derivative_types=["original", "video_first"],
+        voice=(
+            "Punchy teaser that makes viewers want to watch. Caption supports "
+            "video, doesn't replace it. Searchable keywords for evergreen "
+            "discovery. Direct and concise."
+        ),
     ),
     "mastodon": PlatformSpec(
         key="mastodon",
@@ -297,9 +351,14 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=5,
         caption_max=500,
-        hard_char_limit=500,
+        char_limits={"default": 500},
         image_aspect="16:9",
         derivative_types=["original", "video_first"],
+        voice=(
+            "Community-first, genuine, respectful of instance norms. Earn boosts "
+            "by being useful. No aggressive promotion, no engagement bait. "
+            "CamelCase hashtags for accessibility."
+        ),
     ),
     "bluesky": PlatformSpec(
         key="bluesky",
@@ -311,9 +370,14 @@ REGISTRY: dict[str, PlatformSpec] = {
         ),
         hashtag_limit=3,
         caption_max=300,
-        hard_char_limit=300,
+        char_limits={"default": 300, "thread_hook": 2100},
         image_aspect="16:9",
         derivative_types=["original", "thread_hook", "video_first"],
+        voice=(
+            "Authentic, conversational, specific. One clear thought per post. "
+            "Write for custom feeds — niche topics over generic platitudes. "
+            "Spark replies with specific questions."
+        ),
     ),
 }
 

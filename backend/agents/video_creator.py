@@ -82,7 +82,7 @@ def _build_prompt(caption: str, brand_profile: dict, platform: str,
 
 
 async def generate_video_clip(
-    hero_image_bytes: bytes,
+    hero_image_bytes: bytes | None,
     caption: str,
     brand_profile: dict,
     platform: str,
@@ -90,6 +90,9 @@ async def generate_video_clip(
     tier: str = "fast",
 ) -> dict:
     """Generate a video clip using Veo 3.1, upload to GCS, and return metadata.
+
+    Args:
+        hero_image_bytes: Image bytes for image-to-video, or None for text-to-video.
 
     Returns:
         {
@@ -100,19 +103,21 @@ async def generate_video_clip(
             "aspect_ratio": str,
         }
     """
-    model_name, aspect_ratio = _get_model_and_aspect(platform, tier, has_image=True)
+    has_image = hero_image_bytes is not None
+    model_name, aspect_ratio = _get_model_and_aspect(platform, tier, has_image=has_image)
 
     client = genai.Client(api_key=GOOGLE_API_KEY)
 
-    # Detect mime type from image bytes magic bytes
-    mime = "image/png" if hero_image_bytes[:4] == b'\x89PNG' else "image/jpeg"
-    hero_image = types.Image(image_bytes=hero_image_bytes, mime_type=mime)
+    hero_image = None
+    if has_image:
+        mime = "image/png" if hero_image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+        hero_image = types.Image(image_bytes=hero_image_bytes, mime_type=mime)
 
     prompt = _build_prompt(caption, brand_profile, platform, has_brand_refs=False)
 
     logger.info(
-        "Starting Veo video generation: model=%s aspect=%s mime=%s size=%d post_id=%s",
-        model_name, aspect_ratio, mime, len(hero_image_bytes), post_id,
+        "Starting Veo video generation: model=%s aspect=%s has_image=%s post_id=%s",
+        model_name, aspect_ratio, has_image, post_id,
     )
 
     loop = asyncio.get_running_loop()
@@ -122,23 +127,33 @@ async def generate_video_clip(
         number_of_videos=1,
     )
 
-    # Try with image first; if Veo rejects it (some models/tiers don't support
-    # image-to-video), fall back to text-only prompt generation.
-    try:
-        operation = await loop.run_in_executor(
-            None,
-            lambda: client.models.generate_videos(
-                model=model_name,
-                prompt=prompt,
-                image=hero_image,
-                config=config,
-            ),
-        )
-    except Exception as img_err:
-        logger.warning(
-            "Veo rejected image-to-video (%s), retrying text-only: %s",
-            model_name, img_err,
-        )
+    if has_image:
+        # Try with image first; if Veo rejects it, fall back to text-only.
+        try:
+            operation = await loop.run_in_executor(
+                None,
+                lambda: client.models.generate_videos(
+                    model=model_name,
+                    prompt=prompt,
+                    image=hero_image,
+                    config=config,
+                ),
+            )
+        except Exception as img_err:
+            logger.warning(
+                "Veo rejected image-to-video (%s), retrying text-only: %s",
+                model_name, img_err,
+            )
+            operation = await loop.run_in_executor(
+                None,
+                lambda: client.models.generate_videos(
+                    model=model_name,
+                    prompt=prompt,
+                    config=config,
+                ),
+            )
+    else:
+        # Text-to-video (video_first posts with no hero image)
         operation = await loop.run_in_executor(
             None,
             lambda: client.models.generate_videos(
@@ -169,6 +184,15 @@ async def generate_video_clip(
     logger.info("Veo operation complete, downloading video via files API...")
 
     # Use client.files.download() — Veo doesn't populate video_bytes directly
+    if (
+        operation.response is None
+        or operation.response.generated_videos is None
+        or len(operation.response.generated_videos) == 0
+    ):
+        raise RuntimeError(
+            f"Veo completed but returned no video for post {post_id}. "
+            "This usually means the prompt was filtered or the generation failed silently."
+        )
     gen_video = operation.response.generated_videos[0]
     video_bytes = await loop.run_in_executor(
         None,
