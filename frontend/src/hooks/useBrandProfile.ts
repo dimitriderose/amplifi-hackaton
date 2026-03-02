@@ -34,6 +34,21 @@ interface BrandProfile {
   social_voice_analyses?: Record<string, SocialVoiceAnalysis>
   social_voice_analysis?: SocialVoiceAnalysis
   social_voice_platform?: string
+  // Integrations (Notion, Buffer, etc.)
+  integrations?: {
+    notion?: {
+      access_token?: string
+      workspace_name?: string
+      database_id?: string
+      database_name?: string
+      connected_at?: string
+    }
+    buffer?: {
+      access_token?: string
+      connected_at?: string
+      channels?: { id: string; service: string; name: string }[]
+    }
+  }
 }
 
 export type { BrandProfile, SocialVoiceAnalysis }

@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 
 from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
+from backend.platforms import get as get_platform
 
 # Interleaved text+image generation requires an image-capable model
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
@@ -17,63 +18,6 @@ from backend.services.brand_assets import get_brand_reference_images
 
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GOOGLE_API_KEY)
-
-# Platform-specific formatting guides injected into every generation prompt
-PLATFORM_PROMPTS: dict[str, str] = {
-    "instagram": (
-        "PLATFORM FORMAT: Instagram caption.\n"
-        "- Hook in first line (≤125 chars — this appears above the 'more' fold, make it count)\n"
-        "- 2-3 short paragraphs with line breaks for readability\n"
-        "- Total caption: 150-250 words. Be concise — don't over-explain\n"
-        "- Call to action (comment, save, share)\n"
-        "- Emoji use: moderate, on-brand\n"
-        "HASHTAGS: 8-12 relevant hashtags at the end, separated from body"
-    ),
-    "linkedin": (
-        "PLATFORM FORMAT: LinkedIn post.\n"
-        "- Strong opening hook — first 140 chars appear above \"see more\", make them count\n"
-        "- Professional but personable tone\n"
-        "- 3-5 short paragraphs with line breaks\n"
-        "- Total length: 150-300 words\n"
-        "- End with a question or CTA to drive comments\n"
-        "- Emoji: 1-2 per post max, never decorative\n"
-        "HASHTAGS: 3-5 maximum (LinkedIn penalises over-hashtagging)"
-    ),
-    "twitter": (
-        "PLATFORM FORMAT: X (Twitter) post.\n"
-        "- Concise, punchy, conversational\n"
-        "- One clear idea per post\n"
-        "- Aim for 100-200 characters for maximum engagement\n"
-        "- Thread format ONLY if content truly needs it (indicate with \U0001f9f5)\n"
-        "HASHTAGS: 1-2 woven naturally into the text (not appended as a block)\n"
-        "Hard limit: 280 characters per tweet"
-    ),
-    "tiktok": (
-        "PLATFORM FORMAT: TikTok caption.\n"
-        "- Ultra-casual, trend-aware voice\n"
-        "- Hook immediately — first 3 words matter most\n"
-        "- Keep it SHORT: 50-150 characters total. The video does the talking\n"
-        "- CTA: 'Follow for more' or 'Save this for later'\n"
-        "HASHTAGS: 4-6 mix of brand hashtags and trending tags"
-    ),
-    "facebook": (
-        "PLATFORM FORMAT: Facebook post.\n"
-        "- Conversational, community-oriented tone\n"
-        "- Ask questions to drive comments\n"
-        "- Storytelling works well — 100-250 words\n"
-        "- Emoji use: moderate\n"
-        "HASHTAGS: 0-3 (optional — Facebook engagement doesn't depend on hashtags)"
-    ),
-}
-
-# Per-platform max hashtag counts for the sanitizer
-_HASHTAG_LIMITS: dict[str, int] = {
-    "instagram": 12,
-    "linkedin": 5,
-    "twitter": 2,
-    "tiktok": 6,
-    "facebook": 3,
-}
 
 # Common English stopwords that should never be hashtags
 _HASHTAG_STOPWORDS = frozenset({
@@ -87,9 +31,22 @@ _HASHTAG_STOPWORDS = frozenset({
 _VALID_HASHTAG_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
+def _enforce_char_limit(caption: str, platform: str) -> str:
+    """Truncate caption to the platform's hard character limit if set."""
+    spec = get_platform(platform)
+    limit = spec.hard_char_limit
+    if not limit or len(caption) <= limit:
+        return caption
+    truncated = caption[: limit - 1]
+    last_space = truncated.rfind(" ")
+    if last_space > limit // 2:
+        truncated = truncated[:last_space]
+    return truncated + "…"
+
+
 def _sanitize_hashtags(raw_tags: list[str], platform: str) -> list[str]:
     """Clean and validate hashtags, enforcing per-platform limits."""
-    limit = _HASHTAG_LIMITS.get(platform, 10)
+    limit = get_platform(platform).hashtag_limit
     clean = []
     for tag in raw_tags:
         tag = tag.strip().lstrip("#").strip()
@@ -268,9 +225,42 @@ async def generate_post(
             "  - One clear call to action (swipe up / reply / DM us)\n"
             "No hashtags in the body — add them in the HASHTAGS section only."
         ),
+        "pin": (
+            "FORMAT: Pinterest PIN\n"
+            "Write as two clearly labeled parts:\n"
+            "  PIN TITLE: ≤100 chars, keyword-rich, compelling headline\n"
+            "  PIN DESCRIPTION: 200-250 chars, SEO-optimized with natural keywords\n"
+            "No hashtags — use searchable keywords naturally."
+        ),
+        "video_first": (
+            "FORMAT: VIDEO-FIRST POST\n"
+            "Write a short, compelling caption to accompany a video clip.\n"
+            "The video is the main content — the caption supports it.\n"
+            "Keep the caption concise (under the platform's character limit).\n"
+            "Include a hook that makes people want to watch the video.\n"
+            "Do NOT describe the video — create curiosity or add context."
+        ),
     }
     derivative_instruction = _DERIVATIVE_INSTRUCTIONS.get(derivative_type, "")
-    platform_format = PLATFORM_PROMPTS.get(platform, "")
+    _spec = get_platform(platform)
+    platform_format = _spec.content_prompt
+    aspect_hint = f"Generate a {_spec.image_aspect} aspect ratio image." if _spec.image_aspect != "1:1" else ""
+
+    # Live platform trend intelligence (from strategy Phase 0)
+    platform_trends = day_brief.get("platform_trends")
+    trend_block = ""
+    if platform_trends:
+        trending_formats = platform_trends.get("trending_formats", [])
+        trending_hooks = platform_trends.get("trending_hooks", [])
+        algo_notes = platform_trends.get("algorithm_notes", "")
+        if trending_formats or algo_notes:
+            trend_block = (
+                f"\nLIVE PLATFORM INTELLIGENCE ({platform.upper()}):\n"
+                f"- What's working now: {', '.join(trending_formats[:3])}\n"
+                f"- Trending hooks: {', '.join(trending_hooks[:3])}\n"
+                f"- Algorithm notes: {algo_notes}\n"
+                "Use this intelligence to make the content more relevant and algorithm-friendly.\n"
+            )
     instruction_hint = (
         f"\n\nAdditional instructions for this generation: {instructions.strip()}"
         if instructions and instructions.strip()
@@ -364,7 +354,7 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
                 "event": "complete",
                 "data": {
                     "post_id": post_id,
-                    "caption": full_caption,
+                    "caption": _enforce_char_limit(full_caption, platform),
                     "hashtags": parsed_hashtags,
                     "image_url": image_url,
                     "image_gcs_uri": image_gcs_uri,
@@ -398,7 +388,7 @@ Brand tone: {tone}
 Visual style: {visual_style}
 {caption_style_directive}
 {social_voice_block}{image_style_directive}
-{style_ref_block}{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}
+{style_ref_block}{f"CONTENT FORMAT:{chr(10)}{derivative_instruction}{chr(10)}" if derivative_instruction else ""}{f"{platform_format}{chr(10)}" if platform_format else ""}{trend_block}
 Create a {platform} post for the "{pillar}" content pillar on the theme: "{content_theme}".
 
 Start with this hook: "{caption_hook}"
@@ -406,7 +396,7 @@ Key message: {key_message}
 
 Write the caption first (following the format above if specified), engaging and on-brand, ending with a call to action.
 Then generate a stunning {platform}-optimized image.
-
+{f"{aspect_hint}{chr(10)}" if aspect_hint else ""}
 {color_hint}
 Image visual: {image_prompt}
 {instruction_hint}
@@ -508,6 +498,7 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
             try:
                 img_prompt = (
                     f"Generate a stunning {platform}-optimized social media image.\n"
+                    f"{aspect_hint + chr(10) if aspect_hint else ''}"
                     f"Brand: {business_name}. Visual style: {visual_style}.\n"
                     f"{color_hint}\n"
                     f"Image visual: {image_prompt}\n"
@@ -591,11 +582,13 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
                         logger.error("Carousel slide upload failed: %s", upload_err)
 
         final_hashtags = parsed_hashtags if parsed_hashtags else hashtags_hint
+        # Enforce hard character limits (X=280, Bluesky=300, Threads/Mastodon=500)
+        final_caption = _enforce_char_limit(full_caption.strip(), platform)
         yield {
             "event": "complete",
             "data": {
                 "post_id": post_id,
-                "caption": full_caption.strip(),
+                "caption": final_caption,
                 "hashtags": final_hashtags,
                 "image_url": image_url,
                 "image_gcs_uri": image_gcs_uri,

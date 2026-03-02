@@ -11,25 +11,26 @@ from google import genai
 from google.genai import types
 
 from backend.config import GOOGLE_API_KEY
+from backend.platforms import get as get_platform
 from backend.services.storage_client import upload_video_to_gcs
-from backend.services.brand_assets import get_brand_reference_images
 
 logger = logging.getLogger(__name__)
 
 # Veo polling ceiling: 20 minutes
 _VEO_POLL_TIMEOUT_S = 20 * 60
 
-# Platforms that use 9:16 (portrait) aspect ratio
-_PORTRAIT_PLATFORMS = {"instagram", "tiktok", "reels", "story", "stories"}
 
-
-def _get_model_and_aspect(platform: str, tier: str) -> tuple[str, str]:
-    model = (
-        "veo-3.1-fast-generate-preview"
-        if tier == "fast"
-        else "veo-3.1-generate-preview"
-    )
-    aspect_ratio = "9:16" if platform.lower() in _PORTRAIT_PLATFORMS else "16:9"
+def _get_model_and_aspect(
+    platform: str, tier: str, has_image: bool = False,
+) -> tuple[str, str]:
+    # Image-to-video only works on the full model — the fast variant rejects it
+    if has_image:
+        model = "veo-3.1-generate-preview"
+    elif tier == "fast":
+        model = "veo-3.1-fast-generate-preview"
+    else:
+        model = "veo-3.1-generate-preview"
+    aspect_ratio = "9:16" if get_platform(platform).is_portrait_video else "16:9"
     return model, aspect_ratio
 
 
@@ -99,59 +100,53 @@ async def generate_video_clip(
             "aspect_ratio": str,
         }
     """
-    model_name, aspect_ratio = _get_model_and_aspect(platform, tier)
+    model_name, aspect_ratio = _get_model_and_aspect(platform, tier, has_image=True)
 
     client = genai.Client(api_key=GOOGLE_API_KEY)
 
-    # Build the image input for Veo
-    hero_image = types.Image(image_bytes=hero_image_bytes, mime_type="image/jpeg")
+    # Detect mime type from image bytes magic bytes
+    mime = "image/png" if hero_image_bytes[:4] == b'\x89PNG' else "image/jpeg"
+    hero_image = types.Image(image_bytes=hero_image_bytes, mime_type=mime)
 
-    # Fetch brand reference images (logo, product photos, style ref) for Veo
-    reference_images = []
-    try:
-        brand_refs = await get_brand_reference_images(brand_profile, max_images=3)
-        for ref_bytes, ref_mime in brand_refs:
-            reference_images.append(
-                types.VideoGenerationReferenceImage(
-                    image=types.Image(image_bytes=ref_bytes, mime_type=ref_mime),
-                    reference_type="asset",
-                )
-            )
-        if reference_images:
-            logger.info("Passing %d brand reference images to Veo", len(reference_images))
-    except Exception as e:
-        logger.warning("Failed to load brand reference images: %s", e)
-
-    # Build prompt — adapts instructions based on whether we have brand refs
-    prompt = _build_prompt(caption, brand_profile, platform,
-                           has_brand_refs=bool(reference_images))
+    prompt = _build_prompt(caption, brand_profile, platform, has_brand_refs=False)
 
     logger.info(
-        "Starting Veo video generation: model=%s aspect=%s post_id=%s",
-        model_name,
-        aspect_ratio,
-        post_id,
+        "Starting Veo video generation: model=%s aspect=%s mime=%s size=%d post_id=%s",
+        model_name, aspect_ratio, mime, len(hero_image_bytes), post_id,
     )
 
-    # Kick off the long-running video generation operation
     loop = asyncio.get_running_loop()
 
     config = types.GenerateVideosConfig(
         aspect_ratio=aspect_ratio,
         number_of_videos=1,
     )
-    if reference_images:
-        config.reference_images = reference_images
 
-    operation = await loop.run_in_executor(
-        None,
-        lambda: client.models.generate_videos(
-            model=model_name,
-            prompt=prompt,
-            image=hero_image,
-            config=config,
-        ),
-    )
+    # Try with image first; if Veo rejects it (some models/tiers don't support
+    # image-to-video), fall back to text-only prompt generation.
+    try:
+        operation = await loop.run_in_executor(
+            None,
+            lambda: client.models.generate_videos(
+                model=model_name,
+                prompt=prompt,
+                image=hero_image,
+                config=config,
+            ),
+        )
+    except Exception as img_err:
+        logger.warning(
+            "Veo rejected image-to-video (%s), retrying text-only: %s",
+            model_name, img_err,
+        )
+        operation = await loop.run_in_executor(
+            None,
+            lambda: client.models.generate_videos(
+                model=model_name,
+                prompt=prompt,
+                config=config,
+            ),
+        )
 
     logger.info("Veo operation started, polling for completion...")
 

@@ -3,13 +3,15 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 import zipfile
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Body, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from backend.config import CORS_ORIGINS, GCS_BUCKET_NAME
 from backend.models.brand import BrandProfileCreate, BrandProfile, BrandProfileUpdate
@@ -518,6 +520,7 @@ from pydantic import BaseModel as _PydanticBaseModel
 class CreatePlanBody(_PydanticBaseModel):
     num_days: int = 7
     business_events: str | None = None
+    platforms: list[str] | None = None
 
 
 @app.get("/api/brands/{brand_id}/plans")
@@ -537,7 +540,7 @@ async def create_plan(brand_id: str, body: CreatePlanBody = Body(CreatePlanBody(
     num_days = max(1, min(body.num_days, 30))
 
     try:
-        days = await run_strategy(brand_id, brand, num_days, business_events=body.business_events)
+        days = await run_strategy(brand_id, brand, num_days, business_events=body.business_events, platforms=body.platforms)
     except Exception as e:
         logger.error(f"Strategy agent error for brand {brand_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1341,6 +1344,350 @@ async def voice_coaching_ws(websocket: WebSocket, brand_id: str, context: str = 
             await websocket.send_json({"type": "error", "message": str(e)})
         except Exception:
             pass
+
+
+# ── Notion Integration ────────────────────────────────────────
+
+@app.get("/api/brands/{brand_id}/integrations/notion/auth-url")
+async def notion_auth_url(brand_id: str):
+    """Return the Notion OAuth authorize URL for the user to visit."""
+    from backend.config import NOTION_CLIENT_ID, NOTION_REDIRECT_URI
+
+    if not NOTION_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Notion integration not configured")
+
+    url = (
+        f"https://api.notion.com/v1/oauth/authorize"
+        f"?client_id={NOTION_CLIENT_ID}"
+        f"&response_type=code"
+        f"&owner=user"
+        f"&redirect_uri={NOTION_REDIRECT_URI}"
+        f"&state={brand_id}"
+    )
+    return {"auth_url": url}
+
+
+@app.get("/api/integrations/notion/callback")
+async def notion_callback(code: str = Query(...), state: str = Query(...)):
+    """OAuth callback — exchange code for tokens, store on brand profile."""
+    from backend.config import NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, NOTION_REDIRECT_URI
+    from backend.services.notion_client import exchange_code
+
+    brand_id = state
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    try:
+        token_data = await exchange_code(code, NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, NOTION_REDIRECT_URI)
+    except Exception as e:
+        logger.error("Notion OAuth token exchange failed: %s", e)
+        raise HTTPException(status_code=400, detail=f"Notion authorization failed: {e}")
+
+    # Store integration data on brand
+    from datetime import datetime as _dt
+    integrations = brand.get("integrations", {})
+    integrations["notion"] = {
+        "access_token": token_data.get("access_token"),
+        "bot_id": token_data.get("bot_id"),
+        "workspace_id": token_data.get("workspace_id"),
+        "workspace_name": token_data.get("workspace_name", ""),
+        "connected_at": _dt.utcnow().isoformat(),
+    }
+    await firestore_client.update_brand(brand_id, {"integrations": integrations})
+
+    # Redirect to dashboard with success param
+    return Response(
+        status_code=302,
+        headers={"Location": f"/dashboard/{brand_id}?notion=connected"},
+    )
+
+
+@app.post("/api/brands/{brand_id}/integrations/notion/disconnect")
+async def notion_disconnect(brand_id: str):
+    """Remove Notion integration from brand."""
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    integrations = brand.get("integrations", {})
+    integrations.pop("notion", None)
+    await firestore_client.update_brand(brand_id, {"integrations": integrations})
+    return {"status": "disconnected"}
+
+
+@app.get("/api/brands/{brand_id}/integrations/notion/databases")
+async def notion_databases(brand_id: str):
+    """List databases the Notion integration can access."""
+    from backend.services.notion_client import search_databases
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    notion = brand.get("integrations", {}).get("notion")
+    if not notion or not notion.get("access_token"):
+        raise HTTPException(status_code=400, detail="Notion not connected")
+
+    try:
+        databases = await search_databases(notion["access_token"])
+    except Exception as e:
+        logger.error("Failed to list Notion databases: %s", e)
+        raise HTTPException(status_code=502, detail=f"Could not fetch databases: {e}")
+
+    return {"databases": databases}
+
+
+@app.post("/api/brands/{brand_id}/integrations/notion/select-database")
+async def notion_select_database(
+    brand_id: str,
+    database_id: str = Body(..., embed=True),
+    database_name: str = Body("", embed=True),
+):
+    """Set the target Notion database for exports."""
+    from backend.services.notion_client import ensure_database_schema
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    notion = brand.get("integrations", {}).get("notion")
+    if not notion or not notion.get("access_token"):
+        raise HTTPException(status_code=400, detail="Notion not connected")
+
+    # Ensure database has the right columns
+    try:
+        await ensure_database_schema(notion["access_token"], database_id)
+    except Exception as e:
+        logger.warning("Could not update Notion database schema: %s", e)
+
+    integrations = brand.get("integrations", {})
+    integrations["notion"]["database_id"] = database_id
+    integrations["notion"]["database_name"] = database_name
+    await firestore_client.update_brand(brand_id, {"integrations": integrations})
+
+    return {"status": "selected", "database_id": database_id}
+
+
+@app.post("/api/brands/{brand_id}/plans/{plan_id}/export/notion")
+async def export_plan_to_notion(brand_id: str, plan_id: str):
+    """Export all posts from a plan to the connected Notion database."""
+    from backend.services.notion_client import create_page
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    notion = brand.get("integrations", {}).get("notion")
+    if not notion or not notion.get("access_token"):
+        raise HTTPException(status_code=400, detail="Notion not connected")
+    if not notion.get("database_id"):
+        raise HTTPException(status_code=400, detail="No Notion database selected")
+
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    posts = await firestore_client.list_posts(brand_id, plan_id)
+    if not posts:
+        raise HTTPException(status_code=404, detail="No posts found for this plan")
+
+    # Get day briefs for theme info
+    days = plan.get("days", [])
+    day_lookup = {d.get("day_index", i): d for i, d in enumerate(days)}
+
+    results = []
+    access_token = notion["access_token"]
+    database_id = notion["database_id"]
+
+    for post in posts:
+        post_id = post.get("post_id", "")
+        day_index = post.get("day_index", 0)
+        platform = post.get("platform", "instagram")
+
+        # Merge theme from day brief into post for property building
+        day_brief = day_lookup.get(day_index, {})
+        post_with_theme = {**post, "theme": day_brief.get("theme", "")}
+        if not post.get("content_type"):
+            post_with_theme["content_type"] = day_brief.get("content_type", "photo")
+
+        try:
+            page = await create_page(access_token, database_id, post_with_theme, day_index, platform)
+            notion_page_id = page.get("id", "")
+            results.append({"post_id": post_id, "status": "exported", "notion_page_id": notion_page_id})
+
+            # Update post's publish_status
+            publish_status = post.get("publish_status", {}) or {}
+            publish_status["notion"] = {
+                "status": "exported",
+                "notion_page_id": notion_page_id,
+                "published_at": datetime.utcnow().isoformat(),
+            }
+            await firestore_client.update_post(brand_id, post_id, {"publish_status": publish_status})
+
+        except Exception as e:
+            logger.error("Failed to export post %s to Notion: %s", post_id, e)
+            results.append({"post_id": post_id, "status": "failed", "error": str(e)})
+
+    exported = sum(1 for r in results if r["status"] == "exported")
+    return {
+        "exported": exported,
+        "total": len(posts),
+        "results": results,
+    }
+
+
+# ── .ics Calendar — Download + Email ──────────────────────────
+
+def _parse_posting_time(time_str: str) -> tuple[int, int]:
+    """Parse posting_time like '9:00 AM', '2:30 PM' into (hour, minute) 24h."""
+    m = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)", time_str.strip(), re.IGNORECASE)
+    if not m:
+        return (9, 0)  # default 9 AM
+    hour, minute, ampm = int(m.group(1)), int(m.group(2)), m.group(3).upper()
+    if ampm == "PM" and hour != 12:
+        hour += 12
+    elif ampm == "AM" and hour == 12:
+        hour = 0
+    return (hour, minute)
+
+
+def _ics_escape(text: str) -> str:
+    """Escape text for iCalendar DESCRIPTION field."""
+    return text.replace("\\", "\\\\").replace("\n", "\\n").replace(",", "\\,").replace(";", "\\;")
+
+
+def _build_ics(plan: dict, posts: list[dict], brand_name: str) -> str:
+    """Build an .ics (iCalendar) string from a content plan and its posts."""
+    days = plan.get("days", [])
+
+    # Determine base date: plan created_at or today
+    created = plan.get("created_at")
+    if isinstance(created, datetime):
+        base_date = created.date()
+    elif isinstance(created, str):
+        try:
+            base_date = datetime.fromisoformat(created.replace("Z", "+00:00")).date()
+        except Exception:
+            base_date = datetime.utcnow().date()
+    else:
+        base_date = datetime.utcnow().date()
+
+    # Build lookup: day_index -> day brief
+    day_lookup = {d.get("day_index", i): d for i, d in enumerate(days)}
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Amplifi//Content Plan//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{brand_name} Content Plan",
+    ]
+
+    for post in posts:
+        post_id = post.get("post_id", uuid.uuid4().hex[:8])
+        day_index = post.get("day_index", 0)
+        platform = post.get("platform", "post")
+        caption = post.get("caption", "")
+        hashtags = post.get("hashtags", [])
+        posting_time = post.get("posting_time", "")
+
+        # Get theme from day brief
+        day_brief = day_lookup.get(day_index, {})
+        theme = day_brief.get("theme", day_brief.get("content_theme", ""))
+
+        # Parse posting time
+        if not posting_time:
+            posting_time = day_brief.get("posting_time", "9:00 AM")
+        hour, minute = _parse_posting_time(posting_time)
+
+        # Event date
+        event_date = base_date + timedelta(days=day_index)
+        dt_start = datetime(event_date.year, event_date.month, event_date.day, hour, minute)
+        dt_end = dt_start + timedelta(minutes=30)
+
+        # Summary
+        platform_display = platform.capitalize()
+        summary = f"{platform_display} - {theme}" if theme else platform_display
+
+        # Description
+        desc_parts = [caption]
+        if hashtags:
+            tags = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            desc_parts.append(tags)
+        description = _ics_escape("\n\n".join(desc_parts))
+
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:post_{post_id}@amplifi",
+            f"DTSTART:{dt_start.strftime('%Y%m%dT%H%M%S')}",
+            f"DTEND:{dt_end.strftime('%Y%m%dT%H%M%S')}",
+            f"SUMMARY:{_ics_escape(summary)}",
+            f"DESCRIPTION:{description}",
+            f"CATEGORIES:{platform}",
+            "STATUS:CONFIRMED",
+            "END:VEVENT",
+        ])
+
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines)
+
+
+@app.get("/api/brands/{brand_id}/plans/{plan_id}/calendar.ics")
+async def download_calendar_ics(brand_id: str, plan_id: str):
+    """Download the content plan as an .ics calendar file."""
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    posts = await firestore_client.list_posts(brand_id, plan_id)
+    if not posts:
+        raise HTTPException(status_code=404, detail="No posts found for this plan")
+
+    brand_name = brand.get("business_name", "My Brand")
+    ics_content = _build_ics(plan, posts, brand_name)
+
+    return Response(
+        content=ics_content,
+        media_type="text/calendar",
+        headers={
+            "Content-Disposition": "attachment; filename=amplifi_content_plan.ics",
+        },
+    )
+
+
+@app.post("/api/brands/{brand_id}/plans/{plan_id}/calendar/email")
+async def email_calendar(
+    brand_id: str,
+    plan_id: str,
+    email: str = Body(..., embed=True),
+):
+    """Email the content plan .ics file to the specified address."""
+    from backend.services.email_client import send_calendar_email
+
+    brand = await firestore_client.get_brand(brand_id)
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    plan = await firestore_client.get_plan(plan_id, brand_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    posts = await firestore_client.list_posts(brand_id, plan_id)
+    if not posts:
+        raise HTTPException(status_code=404, detail="No posts found for this plan")
+
+    brand_name = brand.get("business_name", "My Brand")
+    ics_content = _build_ics(plan, posts, brand_name)
+
+    try:
+        await send_calendar_email(email, brand_name, ics_content)
+    except Exception as e:
+        logger.error("Failed to send calendar email to %s: %s", email, e)
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+
+    return {"status": "sent", "to": email}
 
 
 # ── Static frontend (production) ──────────────────────────────

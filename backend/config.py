@@ -21,6 +21,11 @@ META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
 X_CLIENT_ID = os.environ.get("X_CLIENT_ID", "")
 X_CLIENT_SECRET = os.environ.get("X_CLIENT_SECRET", "")
 
+# Notion OAuth (public integration)
+NOTION_CLIENT_ID = os.environ.get("NOTION_CLIENT_ID", "")
+NOTION_CLIENT_SECRET = os.environ.get("NOTION_CLIENT_SECRET", "")
+NOTION_REDIRECT_URI = os.environ.get("NOTION_REDIRECT_URI", "http://localhost:5173/auth/notion/callback")
+
 # Budget constants
 IMAGE_COST_PER_UNIT = 0.039   # ~$0.039 per generated image
 VIDEO_COST_FAST = 1.20         # $1.20 per 8-sec Veo Fast clip
