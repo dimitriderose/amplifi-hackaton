@@ -116,10 +116,16 @@ Distribute content across platforms strategically. Use a healthy mix of content 
 Platforms to use: instagram, linkedin, twitter, facebook
 Content pillars to use: education, inspiration, promotion, behind_the_scenes, user_generated
 
+INSTAGRAM CAROUSEL POSTS (IMPORTANT):
+For Instagram posts, decide whether the post works better as a SINGLE IMAGE or a CAROUSEL (3 slides).
+Use derivative_type "carousel" for Instagram posts with educational, how-to, tip-based, listicle, before/after, or multi-point content.
+Use derivative_type "original" for Instagram posts with single mood shots, announcements, quotes, or simple product features.
+Aim for roughly half of Instagram posts to be carousels across the week.
+
 CONTENT REPURPOSING (IMPORTANT — follow this carefully):
 Choose exactly 2 "hero" content ideas that will be repurposed across different platforms this week.
 For each hero idea:
-  - ONE day is the ORIGINAL hero post: derivative_type "original", ideally on Instagram or LinkedIn.
+  - ONE day is the ORIGINAL hero post: derivative_type "original" or "carousel" (if Instagram), ideally on Instagram or LinkedIn.
   - ONE OR TWO other days REPURPOSE that idea for a different platform and format:
       derivative_type must be one of: "carousel", "thread_hook", "blog_snippet", "story"
       - carousel: multi-slide visual breakdown (Instagram or LinkedIn)
@@ -128,7 +134,7 @@ For each hero idea:
       - story: Quick, punchy Instagram/Facebook story-format post
   - All days in the same repurposing group MUST share the same pillar_id string (e.g., "series_0").
   - Adapt content_theme, caption_hook, and image_prompt to suit the derivative platform/format.
-Remaining days (not part of any repurposing series) each get their own unique pillar_id (e.g., "series_2", "series_3", …) and derivative_type "original".
+Remaining days (not part of any repurposing series) each get their own unique pillar_id (e.g., "series_2", "series_3", …) and derivative_type "original" (or "carousel" if Instagram and content fits).
 
 Each day brief MUST have these exact fields:
 - day_index: integer (0-based, so first day is 0, last day is {num_days - 1})
