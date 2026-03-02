@@ -1,18 +1,101 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 from google import genai
 from google.genai import types
 from backend.config import GOOGLE_API_KEY, GEMINI_MODEL
+from backend.platforms import keys as platform_keys, get as get_platform
 from backend.services import firestore_client
 
 logger = logging.getLogger(__name__)
 
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
-PLATFORMS = ["instagram", "linkedin", "twitter", "facebook"]
 PILLARS = ["education", "inspiration", "promotion", "behind_the_scenes", "user_generated"]
-DERIVATIVE_TYPES = ["original", "carousel", "thread_hook", "blog_snippet", "story"]
+DERIVATIVE_TYPES = [
+    "original", "carousel", "thread_hook", "blog_snippet", "story",
+    "pin", "video_first",
+]
+
+
+# ── Platform intelligence ─────────────────────────────────────────────────────
+
+async def _research_best_platforms(
+    brand_profile: dict,
+    available_platforms: list[str],
+) -> list[dict]:
+    """Research which social platforms are best for this business.
+
+    Uses Google Search grounding to get current data on platform demographics
+    and effectiveness for this specific industry + audience.
+
+    Returns ranked list: [{"platform": "instagram", "reason": "...", "priority": 1}, ...]
+    """
+    business_type = brand_profile.get("business_type", "")
+    industry = brand_profile.get("industry", "")
+    target_audience = brand_profile.get("target_audience", "")
+    content_themes = brand_profile.get("content_themes", [])
+    tone = brand_profile.get("tone", "")
+
+    # Check Firestore cache first (keyed by industry + business_type, TTL 7 days)
+    try:
+        cached = await firestore_client.get_platform_recommendations(industry, business_type)
+        if cached:
+            logger.info("Platform recommendations cache hit: %s / %s", industry, business_type)
+            return cached
+    except Exception:
+        pass
+
+    prompt = (
+        f"Research the best social media platforms for a {business_type} "
+        f"in the {industry} industry.\n"
+        f"Target audience: {target_audience}\n"
+        f"Brand tone: {tone}\n"
+        f"Content themes: {', '.join(content_themes[:5]) if content_themes else 'general'}\n\n"
+        f"Available platforms: {', '.join(available_platforms)}\n\n"
+        "Based on current data (2025-2026), rank the TOP 5 platforms for this "
+        "specific business type and audience. Consider:\n"
+        "- Which platforms does this target audience actually use?\n"
+        "- Which platforms favor this type of content/industry?\n"
+        "- Where are similar businesses seeing the most engagement?\n"
+        "- Platform demographics alignment with the target audience\n\n"
+        "Return ONLY a valid JSON array of objects, ranked best to worst:\n"
+        '[{"platform": "instagram", "reason": "Why this platform fits", "priority": 1}, ...]'
+    )
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        recommendations = json.loads(raw.strip())
+
+        # Validate — only keep platforms from our available list
+        valid = [r for r in recommendations if r.get("platform") in available_platforms]
+
+        # Cache for 7 days (best-effort)
+        try:
+            await firestore_client.save_platform_recommendations(industry, business_type, valid)
+        except Exception:
+            pass
+
+        return valid[:5]
+    except Exception as e:
+        logger.warning("Platform recommendation research failed: %s", e)
+        return []
 
 
 async def _research_platform_trends(platform: str, industry: str) -> dict | None:
@@ -33,15 +116,17 @@ async def _research_platform_trends(platform: str, industry: str) -> dict | None
     # Fetch from Gemini with Google Search grounding
     try:
         prompt = (
-            f"Research the current trending content patterns on {platform} "
-            f"for the {industry} industry. What's working right now (this week/month)?\n"
-            "- Trending formats (carousel, short video, text post, etc.)\n"
-            "- Trending topics or hooks\n"
-            "- Algorithm preferences (what's being boosted?)\n"
-            "- Best posting time recommendations\n\n"
+            f"Research the current content strategy best practices on {platform} "
+            f"for the {industry} industry. What's working right now?\n"
+            "- What content FORMATS are getting the most engagement? (carousel, video, text, etc.)\n"
+            "- Trending topics or hooks for this industry\n"
+            "- Algorithm preferences (what's being boosted vs suppressed?)\n"
+            "- Best posting time recommendations\n"
+            "- Character/length sweet spots for captions\n\n"
             'Return ONLY a valid JSON object with these keys: '
             '{"trending_formats": [...], "trending_hooks": [...], '
-            '"algorithm_notes": "...", "best_posting_times": [...]}'
+            '"algorithm_notes": "...", "best_posting_times": [...], '
+            '"best_content_format": "...", "caption_sweet_spot": "..."}'
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
@@ -73,7 +158,134 @@ async def _research_platform_trends(platform: str, industry: str) -> dict | None
         return None
 
 
-async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, business_events: str | None = None) -> list[dict]:
+async def _research_industry_hooks(industry: str, platforms: list[str]) -> str:
+    """Search for best-performing hook patterns for this industry across all platforms.
+
+    Returns a text block with hook examples/patterns, or "" on failure.
+    Called once per plan (not per post) to amortize latency.
+    """
+    if not industry:
+        return ""
+    platform_str = ", ".join(platforms[:5])
+    try:
+        prompt = (
+            f"Research the most effective social media hooks and opening lines for "
+            f"{industry} businesses on {platform_str}.\n"
+            "What types of hooks stop the scroll and drive engagement for this industry?\n"
+            "- Specific hook structures that work (contrarian, story, number, question)\n"
+            "- Real examples of high-performing opening lines\n"
+            "- What makes a hook specific to this industry vs generic\n\n"
+            "Return a concise summary (under 200 words) of the best hook patterns."
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        result = response.text.strip()
+        logger.info("Industry hook research completed for %s", industry)
+        return result
+    except Exception as e:
+        logger.warning("Industry hook research failed (%s): %s", industry, e)
+        return ""
+
+
+# ── Format-aware planning notes ───────────────────────────────────────────────
+
+_FORMAT_GUIDE = """PLATFORM FORMAT GUIDANCE (match content format to what works on each platform):
+
+INSTAGRAM — Reels FIRST, then Carousel:
+  - Reels get 2x the reach of static posts. Always consider video_first.
+  - Assign derivative_type "video_first" for at least 1 out of every 3 Instagram posts.
+  - Carousels remain #1 for educational content — use for how-to/tip content.
+  - Static image posts (derivative_type "original") only for announcements or quotes.
+  - DM shares and saves are the #1 algorithm signals.
+
+LINKEDIN — Video for thought leadership, Carousel for education:
+  - Video gets 5x engagement vs text-only posts.
+  - Use "video_first" for personal stories, behind-the-scenes, talking head content.
+  - Use "carousel" for frameworks, checklists, how-to content.
+  - Use "blog_snippet" for opinion pieces.
+  - NEVER include external links in captions.
+
+X/TWITTER — Video is dominant:
+  - 4 out of 5 sessions now include video. Video tweets get 10x engagement.
+  - Use derivative_type "video_first" for attention-grabbing content.
+  - Use "thread_hook" for multi-point educational content.
+  - Use "original" (text+image) for quick takes and replies.
+  - Single tweets: keep under 200 chars, designed to spark quick replies.
+
+TIKTOK — Video FIRST, then Photo Carousel:
+  - Video is the dominant format. Use "video_first" for most TikTok content.
+  - Photo carousels getting algorithm-boosted reach for educational content.
+  - Use "carousel" for TikTok educational/list content.
+  - Problem-solution and behind-the-scenes content outperforms polished.
+
+FACEBOOK — Reels growing fast, Carousel for engagement:
+  - Reels are prioritized in the algorithm. Use "video_first" for broad reach.
+  - Use "carousel" for storytelling and educational content.
+  - Use "original" for community-oriented question posts.
+  - Shares/saves worth 50x likes. NEVER include external links in captions.
+
+THREADS — Conversation Starter + Image:
+  - Image posts get 60% more engagement than text-only.
+  - Algorithm SUPPRESSES promotional content — be authentic.
+  - Video growing as Meta pushes Reels infrastructure. Use "video_first" for dynamic content.
+  - End with a question or hot take.
+
+PINTEREST — SEO Pin + Visual:
+  - Idea Pins (multi-image) get 4x engagement of standard pins.
+  - Idea Pin video growing fast — use "video_first" for how-to and behind-the-scenes.
+  - Pinterest is a SEARCH ENGINE — keyword-rich titles and descriptions.
+  - Use derivative_type "pin" — caption format is PIN TITLE + PIN DESCRIPTION.
+
+YOUTUBE SHORTS — Video Only:
+  - Video-first platform. Our job is to generate the description/caption.
+  - ALWAYS use derivative_type "video_first".
+  - First 125 chars appear in search — include primary keyword.
+
+MASTODON — Text + Essential Hashtags:
+  - NO algorithm — hashtags ARE the only discovery mechanism.
+  - Community-first, anti-spam. Earn boosts by being genuinely useful.
+  - Video supported — use "video_first" sparingly for impactful content.
+  - CamelCase hashtags are critical for accessibility and discovery.
+
+BLUESKY — Thread or Short Take + Image:
+  - Threads get 3x engagement vs single posts.
+  - Custom feeds drive 5x impressions. Video supported — early mover advantage.
+  - Replies are the #1 metric, not likes.
+  - Use "thread_hook" for multi-point content.
+  - 300 char limit, so single posts must be ultra-concise.
+
+VIDEO vs IMAGE DECISION:
+Choose derivative_type "video_first" when the content is:
+- Behind-the-scenes / day-in-the-life (movement matters)
+- Before/after transformations
+- Quick tips or tutorials (show, don't tell)
+- Personal stories or testimonials
+- Trending topics that benefit from urgency/energy
+
+Choose IMAGE-based types ("original", "carousel") when the content is:
+- Data-heavy / infographic (static is easier to read)
+- Step-by-step guides (carousel with slides)
+- Quotes or announcements
+- SEO-focused content (Pinterest, long-form LinkedIn)
+"""
+
+
+# ── Main strategy agent ──────────────────────────────────────────────────────
+
+async def run_strategy(
+    brand_id: str,
+    brand_profile: dict,
+    num_days: int = 7,
+    business_events: str | None = None,
+    platforms: list[str] | None = None,
+) -> list[dict]:
     """Run the Strategy Agent to generate a multi-day content plan.
 
     Args:
@@ -81,77 +293,290 @@ async def run_strategy(brand_id: str, brand_profile: dict, num_days: int = 7, bu
         brand_profile: Full brand profile dict from Firestore.
         num_days: Number of day briefs to generate (default 7).
         business_events: Optional string describing real business events this week.
+        platforms: Optional list of platform keys. If None, AI recommends platforms.
 
     Returns:
         List of day brief dicts, each describing one day's content.
     """
-    # Fetch platform trend intelligence (best-effort, non-blocking)
     industry = brand_profile.get("industry", "")
-    primary_platform = PLATFORMS[0]  # Instagram as primary trend lookup
-    trends = await _research_platform_trends(primary_platform, industry)
-    trends_context = ""
-    if trends:
-        trends_context = f"""
-CURRENT PLATFORM TRENDS ({primary_platform.upper()} · {industry}):
-- Trending formats: {', '.join(trends.get('trending_formats', [])[:4])}
-- Trending hooks: {', '.join(trends.get('trending_hooks', [])[:4])}
-- Algorithm notes: {trends.get('algorithm_notes', 'N/A')}
-- Best posting times: {', '.join(trends.get('best_posting_times', [])[:3])}
+    all_platforms = platform_keys()
 
-Incorporate these trends where they fit the brand. Don't force them — only use what is authentic to this brand.
-"""
+    # ── Phase 0a: Determine platforms ─────────────────────────────────────────
+    platform_reasoning = ""
+    if platforms:
+        # User specified platforms — validate and use them directly
+        platforms = [p for p in platforms if p in all_platforms or p == "twitter"]
+        if not platforms:
+            platforms = ["instagram", "linkedin"]
+        logger.info("User-selected platforms for %s: %s", brand_id, platforms)
+    else:
+        # AI selects best platforms for this business
+        recommendations = await _research_best_platforms(brand_profile, all_platforms)
+        if recommendations:
+            platforms = [r["platform"] for r in recommendations]
+            platform_reasoning = "\n".join(
+                f"- {r['platform'].upper()}: {r['reason']}" for r in recommendations
+            )
+            logger.info("AI-recommended platforms for %s: %s", brand_id, platforms)
+        else:
+            platforms = ["instagram", "linkedin", "x", "facebook"]
+            platform_reasoning = ""
+
+    # ── Phase 0b: Fetch trends + industry hooks for selected platforms ────────
+    trend_platforms = platforms[:5]  # Limit to 5 to avoid rate limits
+    trend_results = await asyncio.gather(
+        *[_research_platform_trends(p, industry) for p in trend_platforms],
+        _research_industry_hooks(industry, platforms),
+        return_exceptions=True,
+    )
+    # Last result is the hook research; the rest are per-platform trends
+    hook_research_result = trend_results[-1]
+    hook_research: str = hook_research_result if isinstance(hook_research_result, str) else ""
+    trend_results = trend_results[:-1]
+    trends_context = ""
+    platform_trends_map: dict[str, dict] = {}
+    for p, result in zip(trend_platforms, trend_results):
+        if isinstance(result, dict):
+            platform_trends_map[p] = result
+            trends_context += (
+                f"\nCURRENT TRENDS ({p.upper()} · {industry}):\n"
+                f"- Trending formats: {', '.join(result.get('trending_formats', [])[:4])}\n"
+                f"- Trending hooks: {', '.join(result.get('trending_hooks', [])[:4])}\n"
+                f"- Algorithm notes: {result.get('algorithm_notes', 'N/A')}\n"
+                f"- Best posting times: {', '.join(result.get('best_posting_times', [])[:3])}\n"
+            )
+    if trends_context:
+        trends_context += (
+            "\nIncorporate these trends where they fit the brand. "
+            "Don't force them — only use what is authentic.\n"
+        )
+
+    # Add hook research to trends context if available
+    hook_research_block = ""
+    if hook_research:
+        hook_research_block = (
+            f"\nINDUSTRY HOOK RESEARCH ({industry}):\n{hook_research}\n"
+            "Use these hook patterns as inspiration for caption_hook values. "
+            "Adapt them to be specific to this brand, not generic.\n"
+        )
+
+    # ── Build strategy prompt ─────────────────────────────────────────────────
+    platform_list = ", ".join(platforms)
+    platform_rec_block = ""
+    if platform_reasoning:
+        platform_rec_block = (
+            f"\nRECOMMENDED PLATFORMS (based on industry + audience research):\n"
+            f"{platform_reasoning}\n"
+        )
+
+    # Temporal awareness
+    now = datetime.now()
+    _month = now.month
+    _season = (
+        "Winter" if _month in (12, 1, 2) else
+        "Spring" if _month in (3, 4, 5) else
+        "Summer" if _month in (6, 7, 8) else "Fall"
+    )
+    temporal_context = (
+        f"TODAY: {now.strftime('%A, %B %d, %Y')} (Week {now.isocalendar()[1]})\n"
+        f"SEASON: {_season}\n"
+        "Make content time-relevant. Reference the current season, upcoming holidays, "
+        "or industry events happening this week. Generic 'evergreen' content for every day is lazy.\n"
+    )
+
+    # Curated brand profile (not raw JSON dump)
+    curated_profile = (
+        f"Business: {brand_profile.get('business_name', 'Brand')}\n"
+        f"Industry: {brand_profile.get('industry', '')}\n"
+        f"Type: {brand_profile.get('business_type', '')}\n"
+        f"Tone: {brand_profile.get('tone', '')}\n"
+        f"Target audience: {brand_profile.get('target_audience', '')}\n"
+        f"Content themes: {', '.join(brand_profile.get('content_themes', []))}\n"
+        f"Visual style: {brand_profile.get('visual_style', '')}\n"
+        f"Colors: {', '.join(brand_profile.get('colors', []))}\n"
+    )
+
+    # ── Social proof tier → pillar + format guidance ──
+    _has_years = bool(brand_profile.get("years_in_business"))
+    _has_clients = bool(brand_profile.get("client_count"))
+    if _has_years and _has_clients:
+        _proof_tier = "data_rich"
+    elif _has_years or _has_clients:
+        _proof_tier = "partial_data"
+    else:
+        _proof_tier = "thin_profile"
+
+    _pillar_guidance = ""
+    if _proof_tier == "thin_profile":
+        _pillar_guidance = (
+            "\nPILLAR DISTRIBUTION — THIN PROFILE (this brand has NO client reviews, "
+            "testimonials, years-in-business, or client count):\n"
+            f"Education is this brand's PRIMARY trust-builder. In a {num_days}-day plan:\n"
+            "- MINIMUM 4 education posts — teach specific, actionable insights that prove expertise\n"
+            "- Maximum 1 promotion post — focus on the service itself, NOT social proof or results\n"
+            "- behind_the_scenes: allowed on Facebook (max 1-2), max 1 on other platforms\n"
+            "- Do NOT assign 'inspiration' with client success stories — this brand has ZERO client "
+            "data. If using inspiration, frame as INDUSTRY INSIGHT or professional philosophy.\n"
+            "- Do NOT assign 'user_generated' — there is no user content to reference.\n"
+            "Strategy: prove expertise through DEPTH OF KNOWLEDGE, not breadth of claims.\n\n"
+            "PLATFORM-SPECIFIC FORMAT RULES FOR THIN PROFILES:\n"
+            "- Instagram education → ALWAYS 'carousel'. Cap 'video_first' at 1/week on IG.\n"
+            "- LinkedIn → 'carousel' or 'original' (long-form). ALL LI posts = education. "
+            "Never 'video_first' on LinkedIn for this brand.\n"
+            "- X → 'thread_hook'. 1 post/week max. Always education.\n"
+            "- Facebook → 'original'. Conversational + local tone. Best platform for BTS. "
+            "MINIMUM 2 Facebook posts per week for local businesses — FB drives the most "
+            "community engagement for professional services.\n"
+            "- Facebook CTA: ALWAYS 'engagement' (genuine question).\n\n"
+            "CTA RULES FOR THIN PROFILES:\n"
+            "- Prefer 'implied' and 'engagement' — these work without social proof\n"
+            "- Max 1 'conversion' per week — and only for a specific free resource (checklist, guide), "
+            "NOT 'book a consultation' (no proof = no conversion trust)\n"
+            "- 'none' is fine for pure educational threads\n"
+        )
+    elif _proof_tier == "partial_data":
+        _pillar_guidance = (
+            "\nPILLAR DISTRIBUTION — PARTIAL DATA:\n"
+            f"Education should anchor the calendar. In a {num_days}-day plan:\n"
+            "- At least 3 education posts\n"
+            "- Promotion posts should lean on available data only (don't inflate)\n"
+            "- Inspiration posts: use process authority, not fabricated client outcomes\n"
+        )
+
+    # ── Conditional angle list based on proof tier ──
+    _angle_list = (
+        "  - Teach a specific tip (name the actual thing, not just 'tips and tricks')\n"
+        "  - Myth-bust (a common misconception in the industry)\n"
+        "  - Behind-the-scenes or human moment (team, process, day-in-the-life)\n"
+        "  - Timely hook (upcoming deadline, seasonal event, industry news)\n"
+    )
+    if _proof_tier == "thin_profile":
+        _angle_list += (
+            "  - Common mistake (walk through a specific error and the correct approach)\n"
+            "  - Contrarian take (challenge conventional wisdom in the industry)\n"
+        )
+    else:
+        _angle_list += (
+            "  - Client perspective (anonymized pain point → resolution pattern)\n"
+            "  - Contrarian take (challenge conventional wisdom in the industry)\n"
+        )
+
+    # ── Format guide override for thin-profile brands ──
+    _format_override = ""
+    if _proof_tier == "thin_profile":
+        _format_override = (
+            "\nFORMAT GUIDE OVERRIDE — THIN PROFILE (supersedes general guidance above):\n"
+            "This brand has no face-on-camera talent, no testimonials, and no visual demos. "
+            "AI-generated video clips look generic and hurt credibility for professional services.\n"
+            "- LIMIT video_first to MAX 1 post across the ENTIRE week\n"
+            "- Prefer 'carousel' for education (save-worthy, high-reach format)\n"
+            "- Prefer 'thread_hook' on X (educational threads outperform video for B2B)\n"
+            "- Never use video_first on LinkedIn for this brand type\n"
+            "- 'Personal stories or testimonials' is NOT available as a video angle\n"
+        )
 
     prompt = f"""You are a social media strategy expert and creative director.
 
 Your job is to generate a {num_days}-day content calendar for the following brand.
 
+{temporal_context}
+
 BRAND PROFILE:
-{json.dumps(brand_profile, indent=2, default=str)}
-{trends_context}
-BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile."}
+{curated_profile}
+{platform_rec_block}{trends_context}{hook_research_block}
+BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile and current season/timing."}
 
 Generate exactly {num_days} day briefs. Each brief covers one day of social media content.
 
-Distribute content across platforms strategically. Use a healthy mix of content pillars.
-Platforms to use: instagram, linkedin, twitter, facebook
+CRITICAL — GO DEEP, NOT WIDE:
+You have {num_days} days of content and these platforms available: {platform_list}
+Do NOT spread across all platforms. Pick the TOP 2-4 platforms and give them multiple
+posts each. It's better to post 3x/week on Instagram than 1x on 5 different platforms.
+Most platform algorithms reward consistency (3-5 posts/week minimum).
+Prioritize the top-ranked platforms — they should get the majority of days.
+
 Content pillars to use: education, inspiration, promotion, behind_the_scenes, user_generated
+{_pillar_guidance}
+{_FORMAT_GUIDE}
+{_format_override}
+
+CAROUSEL POSTS (IMPORTANT):
+For Instagram and LinkedIn posts, decide whether the post works better as a SINGLE IMAGE or a CAROUSEL (3 slides).
+Use derivative_type "carousel" for posts with educational, how-to, tip-based, listicle, before/after, or multi-point content.
+Use derivative_type "original" for posts with single mood shots, announcements, quotes, or simple product features.
 
 CONTENT REPURPOSING (IMPORTANT — follow this carefully):
 Choose exactly 2 "hero" content ideas that will be repurposed across different platforms this week.
 For each hero idea:
-  - ONE day is the ORIGINAL hero post: derivative_type "original", ideally on Instagram or LinkedIn.
-  - ONE OR TWO other days REPURPOSE that idea for a different platform and format:
-      derivative_type must be one of: "carousel", "thread_hook", "blog_snippet", "story"
-      - carousel: multi-slide visual breakdown (Instagram or LinkedIn)
-      - thread_hook: Twitter/X thread opening + key points
-      - blog_snippet: LinkedIn thought-leadership excerpt (longer, professional tone)
-      - story: Quick, punchy Instagram/Facebook story-format post
+  - ONE day is the ORIGINAL hero post: derivative_type "original" or "carousel", ideally on the top-priority platform.
+  - EXACTLY ONE other day repurposes that idea for a different platform and format:
+      derivative_type must be one of: "carousel", "thread_hook", "blog_snippet", "story", "pin", "video_first"
   - All days in the same repurposing group MUST share the same pillar_id string (e.g., "series_0").
   - Adapt content_theme, caption_hook, and image_prompt to suit the derivative platform/format.
-Remaining days (not part of any repurposing series) each get their own unique pillar_id (e.g., "series_2", "series_3", …) and derivative_type "original".
+Remaining days (at least 3 of 7) each get their own UNIQUE topic — not a reword of the hero ideas.
+
+CTA VARIETY (CRITICAL):
+Each day's caption_hook and key_message must drive a DIFFERENT call to action. Track what you've used:
+- Day 0: question CTA ("What's your biggest challenge with X?")
+- Day 1: save CTA ("Save this for your next quarterly review")
+- Day 2: share CTA ("Tag someone who needs this")
+- Day 3: action CTA ("DM us 'GUIDE' for a free checklist")
+- Day 4: story CTA ("Tell us your experience in the comments")
+- Day 5+: mix from above, never repeat back-to-back
+NEVER use "Follow for more" or "Like and share" — these are engagement bait from 2019.
+
+CTA TYPE DEFINITIONS (assign one per day):
+- "engagement": a conversational question or discussion prompt (e.g., "What's your biggest challenge with X?")
+- "conversion": a direct action CTA (e.g., "DM us 'GUIDE'", "Book a call", "Save this")
+- "implied": the content implies the next step without explicitly asking (e.g., teaching something that naturally leads to wanting the service)
+- "none": no CTA — used for Mastodon, Threads, or pure educational content
+DISTRIBUTION: across a 5-day plan, use at least 2 different types. Never use "conversion" back-to-back. Mastodon MUST be "none". Threads MUST be "engagement" or "none".
+
+QUALITY STANDARDS FOR DAY BRIEFS:
+BAD content_theme: "Tips and insights for our industry" (vague, generic)
+GOOD content_theme: "3 hidden costs that eat into margins every Q1" (specific, timely, actionable)
+
+BAD caption_hook: "Something worth stopping for" (meaningless)
+BAD caption_hook: "Are you struggling with growth?" (banned pattern)
+BAD caption_hook: "Did you know most businesses miss this?" (banned pattern)
+GOOD caption_hook: "Most businesses lose 15% of revenue to this one overlooked process" (specific, creates curiosity)
+BANNED HOOK PATTERNS (the content generator will reject these — do NOT suggest them):
+  These patterns are banned ANYWHERE in the hook, not just at the start:
+  "Are you...?", "Did you know...?", "What if...?", "In today's...",
+  "As a...", "When it comes to...", "Here's the thing:", "The truth is:"
+GOOD hooks use: specific numbers, contrarian statements, or pattern-interrupts.
+
+BAD image_prompt: "Professional brand photo with clean composition"
+GOOD image_prompt: "Overhead flatlay of business documents, laptop, and coffee on a dark oak desk, warm lighting, brand accent color in a pen and notebook"
+
+ANGLE DIVERSITY (CRITICAL — this is what separates good content from spam):
+Each day MUST cover a DIFFERENT angle. Even if the brand only offers one core service,
+vary the ANGLE, not the message. Use these lenses:
+{_angle_list}SELF-CHECK: If two content_themes could be summarized as the same sentence, they are TOO SIMILAR. Rewrite one.
 
 Each day brief MUST have these exact fields:
 - day_index: integer (0-based, so first day is 0, last day is {num_days - 1})
-- platform: one of "instagram", "linkedin", "twitter", "facebook"
+- platform: one of {json.dumps(platforms)}
 - pillar: one of "education", "inspiration", "promotion", "behind_the_scenes", "user_generated"
-- pillar_id: string — repurposing group ID (e.g., "series_0"). Hero + derivatives share one ID; standalone days get their own unique ID.
-- content_theme: string — specific topic or angle for this post (concise, 5-10 words)
-- caption_hook: string — opening line designed to stop the scroll (under 15 words, punchy)
-- key_message: string — the main takeaway or value this post delivers (1-2 sentences)
-- image_prompt: string — detailed visual description for AI image generation (2-3 sentences, very specific about style, colors, composition, mood)
-- hashtags: array of 5-8 relevant hashtag strings (without the # symbol)
-- derivative_type: "original" for hero posts; "carousel", "thread_hook", "blog_snippet", or "story" for repurposed derivatives
-- event_anchor: string or null — short event name if this day's content is directly tied to a business event, otherwise null
+- pillar_id: string — repurposing group ID (e.g., "series_0")
+- content_theme: string — specific topic or angle (5-10 words)
+- caption_hook: string — opening line to stop the scroll (under 15 words)
+- key_message: string — main takeaway (1-2 sentences)
+- image_prompt: string — detailed visual description for AI image generation (2-3 sentences)
+- hashtags: array of relevant hashtag strings (without #). COUNT PER PLATFORM:
+  Instagram 3-5, LinkedIn 3-5, X 1-2, Facebook 3-5, TikTok 4-6,
+  Pinterest 2-5, YouTube Shorts 3-5, Threads 0-3, Mastodon 3-5 (CamelCase), Bluesky 1-3
+- derivative_type: one of "original", "carousel", "thread_hook", "blog_snippet", "story", "pin", "video_first"
+- event_anchor: string or null
+- cta_type: one of "engagement", "conversion", "implied", "none" — the CTA style for this post
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
 The image_prompt should reference the brand's visual style and colors if provided.
 
 EVENT-AWARE PLANNING:
-- If BUSINESS_EVENTS_THIS_WEEK is provided, identify 1-2 of the most impactful events and make them content pillars
-- Events become the "promotion" or "behind_the_scenes" day brief for the day they occur
-- Derivative posts can reference the event (e.g. "The launch is tomorrow — here's why we created this")
-- Add an "event_anchor" field to day briefs where the content is directly tied to a business event (value = short event name string, null otherwise)
-- Other days can build anticipation for or reflect on the event
+- If BUSINESS_EVENTS_THIS_WEEK is provided, identify 1-2 impactful events and make them content pillars
+- Events become the "promotion" or "behind_the_scenes" day brief
+- Add "event_anchor" field where content is tied to a business event (null otherwise)
 
 Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text.
 """
@@ -163,6 +588,7 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                temperature=0.4,
             ),
         )
 
@@ -182,28 +608,40 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
         # Normalize and validate each day
         validated = []
         for i, day in enumerate(days[:num_days]):
-            validated.append(_normalize_day(day, i, brand_profile))
+            validated.append(
+                _normalize_day(day, i, brand_profile, platforms, platform_trends_map, hook_research)
+            )
 
         # Pad if AI returned fewer days than requested
         while len(validated) < num_days:
-            validated.append(_fallback_day(len(validated), brand_profile))
+            validated.append(_fallback_day(len(validated), brand_profile, platforms))
 
-        # Cap group sizes: if LLM reuses the same pillar_id on too many days,
-        # break extras out as standalones so the UI grouping stays meaningful
+        # Cap group sizes
         validated = _enforce_group_size(validated)
+
+        # Enforce platform concentration (max 4 unique platforms)
+        validated = _enforce_platform_concentration(validated, platforms)
 
         return validated
 
     except Exception as e:
         logger.error(f"Strategy agent failed for brand {brand_id}: {e}")
-        return _fallback_plan(num_days, brand_profile)
+        return _fallback_plan(num_days, brand_profile, platforms)
 
 
-def _normalize_day(day: dict, index: int, brand_profile: dict) -> dict:
+def _normalize_day(
+    day: dict,
+    index: int,
+    brand_profile: dict,
+    platforms: list[str],
+    platform_trends_map: dict[str, dict] | None = None,
+    hook_research: str = "",
+) -> dict:
     """Ensure a day brief has all required fields with valid values."""
-    platform = day.get("platform", "").lower()
-    if platform not in PLATFORMS:
-        platform = PLATFORMS[index % len(PLATFORMS)]
+    all_platforms = platform_keys()
+    platform = get_platform(day.get("platform", "")).key
+    if platform not in platforms:
+        platform = platforms[index % len(platforms)]
 
     pillar = day.get("pillar", "").lower().replace(" ", "_")
     if pillar not in PILLARS:
@@ -219,7 +657,7 @@ def _normalize_day(day: dict, index: int, brand_profile: dict) -> dict:
     if derivative_type not in DERIVATIVE_TYPES:
         derivative_type = "original"
 
-    return {
+    result = {
         "day_index": int(day.get("day_index", index)),
         "platform": platform,
         "pillar": pillar,
@@ -233,12 +671,38 @@ def _normalize_day(day: dict, index: int, brand_profile: dict) -> dict:
         "event_anchor": day.get("event_anchor", None),
     }
 
+    # Normalize cta_type with platform overrides
+    cta_type = str(day.get("cta_type", "engagement")).lower()
+    if cta_type not in ("engagement", "conversion", "implied", "none"):
+        cta_type = "engagement"
+    if platform == "mastodon":
+        cta_type = "none"
+    elif platform == "threads" and cta_type == "conversion":
+        cta_type = "engagement"
+    result["cta_type"] = cta_type
 
-def _fallback_day(index: int, brand_profile: dict) -> dict:
+    # Attach platform trend intelligence for content creator
+    if platform_trends_map and platform in platform_trends_map:
+        result["platform_trends"] = platform_trends_map[platform]
+
+    # Attach industry hook research for content creator
+    if hook_research:
+        result["hook_research"] = hook_research
+
+    return result
+
+
+def _fallback_day(
+    index: int,
+    brand_profile: dict,
+    platforms: list[str] | None = None,
+) -> dict:
     """Generate a single fallback day brief when AI fails."""
+    if not platforms:
+        platforms = ["instagram", "linkedin", "x", "facebook"]
     business_name = brand_profile.get("business_name", "your brand")
     industry = brand_profile.get("industry", "business")
-    platform = PLATFORMS[index % len(PLATFORMS)]
+    platform = platforms[index % len(platforms)]
     pillar = PILLARS[index % len(PILLARS)]
 
     themes_by_pillar = {
@@ -280,6 +744,7 @@ def _fallback_day(index: int, brand_profile: dict) -> dict:
         ],
         "derivative_type": "original",
         "event_anchor": None,
+        "cta_type": "engagement",
     }
 
 
@@ -305,7 +770,38 @@ def _enforce_group_size(days: list[dict], max_group_size: int = 3) -> list[dict]
     return result
 
 
-def _fallback_plan(num_days: int, brand_profile: dict) -> list[dict]:
+def _enforce_platform_concentration(
+    days: list[dict],
+    platforms: list[str],
+    max_unique: int = 4,
+) -> list[dict]:
+    """Consolidate least-used platforms onto most-used if too many unique platforms appear."""
+    from collections import Counter
+
+    platform_counts = Counter(d["platform"] for d in days)
+    unique = list(platform_counts.keys())
+    if len(unique) <= max_unique:
+        return days
+
+    # Keep the top max_unique platforms by frequency
+    top_platforms = [p for p, _ in platform_counts.most_common(max_unique)]
+    result = []
+    for day in days:
+        if day["platform"] not in top_platforms:
+            # Reassign to the most frequent platform
+            old = day["platform"]
+            day = {**day, "platform": top_platforms[0]}
+            logger.info("Platform concentration: moved day %d from %s to %s",
+                        day["day_index"], old, top_platforms[0])
+        result.append(day)
+    return result
+
+
+def _fallback_plan(
+    num_days: int,
+    brand_profile: dict,
+    platforms: list[str] | None = None,
+) -> list[dict]:
     """Generate a complete fallback plan when AI strategy fails."""
     logger.warning("Using fallback content plan generation.")
-    return [_fallback_day(i, brand_profile) for i in range(num_days)]
+    return [_fallback_day(i, brand_profile, platforms) for i in range(num_days)]

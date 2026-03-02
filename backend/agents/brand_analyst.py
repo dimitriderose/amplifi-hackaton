@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import httpx
 from google import genai
 from google.genai import types
 from backend.tools.web_scraper import fetch_website
@@ -150,9 +151,17 @@ Analyze the provided information and extract:
 10. IMAGE_STYLE_DIRECTIVE: A 2-3 sentence visual identity fragment. Be EXTREMELY specific about colors, lighting, composition, textures. This will be prepended to every image generation prompt.
     BAD: "professional and clean"
     GOOD: "warm earth tones with terracotta and sage green accents, soft natural lighting with golden hour warmth, minimalist compositions with generous whitespace, organic textures like linen and raw wood, shot from slightly above at 30-degree angle"
-11. CAPTION_STYLE_DIRECTIVE: A 2-4 sentence writing rhythm guide. Describe structural patterns, not just adjectives.
-    BAD: "professional and friendly"
-    GOOD: "Open with a one-sentence hook under 10 words. Second beat is a personal anecdote or concrete example. Third beat delivers the counterintuitive insight or actionable takeaway. Close with a direct question to drive comments. Use em dashes liberally. Never use exclamation marks."
+11. CAPTION_STYLE_DIRECTIVE: A 2-4 sentence writing RHYTHM guide. Describe tone, cadence, and stylistic patterns.
+    INCLUDE: sentence length, punctuation style, paragraph rhythm, perspective (first/third person), vocabulary register, emoji usage policy
+    EXCLUDE: Do NOT include content structure instructions. These are handled separately by the content system:
+    - "start with a question" / "open with a question"
+    - "follow with a solution" / "describe how the brand helps"
+    - "include a call to action" / "end with a CTA"
+    - "share a story/insight" / "include a statistic"
+    - "use bullet points" / "use numbered lists"
+    - "mention competitors" / "reference industry trends"
+    BAD: "Start with a question about their pain point. Follow with how the brand solves it. End with a CTA."
+    GOOD: "One-sentence hooks under 10 words. Personal anecdotes as the second beat. Counterintuitive insights as the third beat. Em dashes liberally. Never use exclamation marks."
 12. IMAGE_GENERATION_RISK: Assess the risk of AI-generated images for this business type:
     - "high": food photography, fashion, real estate, jewelry, automotive, cosmetics, restaurants — industries where bad AI images are worse than no images. Authenticity is critical.
     - "medium": fitness, travel, education, events — AI images acceptable but user photos are strongly preferred for authenticity.
@@ -204,7 +213,52 @@ Return ONLY a valid JSON object with these exact keys:
         if style_ref_gcs_uri:
             profile["style_reference_gcs_uri"] = style_ref_gcs_uri
 
+    # Download logo from website if detected and no user-uploaded logo exists
+    scraped_logo_url = website_data.get("logo_url") if website_data else None
+    if scraped_logo_url and brand_id:
+        try:
+            logo_gcs_uri = await _download_website_logo(brand_id, scraped_logo_url)
+            if logo_gcs_uri:
+                profile["logo_url"] = logo_gcs_uri
+                logger.info("Saved website logo for brand %s: %s", brand_id, logo_gcs_uri)
+        except Exception as e:
+            logger.warning("Failed to download website logo: %s", e)
+
     return profile
+
+
+async def _download_website_logo(brand_id: str, logo_url: str) -> str | None:
+    """Download a logo image from a URL and upload to GCS. Returns GCS URI or None."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            resp = await client.get(logo_url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; AmplifiBot/1.0)"
+            })
+            resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        if not content_type.startswith("image/"):
+            logger.warning("Logo URL returned non-image content-type: %s", content_type)
+            return None
+
+        logo_bytes = resp.content
+        if len(logo_bytes) < 200:  # too small to be a real logo
+            return None
+
+        # Determine filename from content type
+        ext = "png"
+        if "jpeg" in content_type or "jpg" in content_type:
+            ext = "jpg"
+        elif "svg" in content_type:
+            ext = "svg"
+        elif "webp" in content_type:
+            ext = "webp"
+
+        gcs_uri = await upload_brand_asset(brand_id, logo_bytes, f"logo.{ext}", content_type)
+        return gcs_uri
+    except Exception as e:
+        logger.warning("Logo download failed from %s: %s", logo_url, e)
+        return None
 
 
 def _fallback_profile(description: str, website_url: str | None) -> dict:
@@ -222,7 +276,7 @@ def _fallback_profile(description: str, website_url: str | None) -> dict:
         "content_themes": ["behind the scenes", "tips and advice", "product highlights", "customer stories", "team culture"],
         "competitors": [],
         "image_style_directive": "clean, modern aesthetic with consistent brand colors, professional lighting, crisp compositions with generous whitespace",
-        "caption_style_directive": "Open with a compelling hook. Share a relevant insight or story. End with a clear call to action or question to drive engagement.",
+        "caption_style_directive": "Short punchy sentences under 15 words. Mix first-person and second-person perspective. Use em dashes for asides. Conversational register — write like a knowledgeable friend, not a brochure.",
         "image_generation_risk": "low",
         "byop_recommendation": "AI-generated images work well for this business type. For best results, upload your own photos when you have them.",
     }
