@@ -233,13 +233,25 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate,
       <div style={{ height: 3, background: pillarColor }} />
 
       {/* Generated post thumbnail + status bar */}
-      {isGenerated && post?.image_url ? (
+      {isGenerated && (post?.image_url || post?.video?.url) ? (
         <div>
-          <img
-            src={post.image_url}
-            alt="Generated post"
-            style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
-          />
+          {post.video?.url && !post.image_url ? (
+            <video
+              src={post.video.url}
+              muted
+              loop
+              playsInline
+              onMouseOver={e => (e.target as HTMLVideoElement).play()}
+              onMouseOut={e => { const v = e.target as HTMLVideoElement; v.pause(); v.currentTime = 0 }}
+              style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
+            />
+          ) : (
+            <img
+              src={post.image_url}
+              alt="Generated post"
+              style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
+            />
+          )}
           {/* Status + score bar below image */}
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',

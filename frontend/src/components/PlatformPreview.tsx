@@ -37,7 +37,7 @@ function CharBar({ len, max }: { len: number; max: number }) {
   )
 }
 
-function LinkedInPreview({ caption, imageUrl }: { caption: string; imageUrl?: string }) {
+function LinkedInPreview({ caption, imageUrl, videoUrl }: { caption: string; imageUrl?: string; videoUrl?: string }) {
   const spec = getPlatform('linkedin')
   const foldAt = spec.foldAt!
   const max = spec.captionMax
@@ -59,10 +59,13 @@ function LinkedInPreview({ caption, imageUrl }: { caption: string; imageUrl?: st
         </div>
       </div>
 
-      {/* Image at LinkedIn's 1.91:1 ratio */}
-      {imageUrl && (
+      {/* Media at LinkedIn's 1.91:1 ratio */}
+      {(imageUrl || videoUrl) && (
         <div style={{ width: '100%', aspectRatio: '1.91 / 1', overflow: 'hidden' }}>
-          <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          {videoUrl
+            ? <video src={videoUrl} controls muted loop style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          }
         </div>
       )}
 
@@ -166,9 +169,10 @@ function XPreview({ caption }: { caption: string }) {
   )
 }
 
-function InstagramPreview({ caption, imageUrl, structuredHashtagCount }: {
+function InstagramPreview({ caption, imageUrl, videoUrl, structuredHashtagCount }: {
   caption: string
   imageUrl?: string
+  videoUrl?: string
   structuredHashtagCount: number
 }) {
   const igSpec = getPlatform('instagram')
@@ -191,8 +195,12 @@ function InstagramPreview({ caption, imageUrl, structuredHashtagCount }: {
         <p style={{ fontSize: 11, fontWeight: 600, color: A.text, margin: 0 }}>Your Brand</p>
       </div>
 
-      {/* 1:1 square image crop */}
-      {imageUrl ? (
+      {/* 1:1 square media crop */}
+      {videoUrl ? (
+        <div style={{ width: '100%', aspectRatio: '1 / 1', overflow: 'hidden' }}>
+          <video src={videoUrl} controls muted loop style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </div>
+      ) : imageUrl ? (
         <div style={{ width: '100%', aspectRatio: '1 / 1', overflow: 'hidden' }}>
           <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
@@ -245,10 +253,11 @@ interface PlatformPreviewProps {
   platform: string
   caption: string
   imageUrl?: string
+  videoUrl?: string
   hashtagCount: number
 }
 
-export default function PlatformPreview({ platform, caption, imageUrl, hashtagCount }: PlatformPreviewProps) {
+export default function PlatformPreview({ platform, caption, imageUrl, videoUrl, hashtagCount }: PlatformPreviewProps) {
   const normalized = normalizePlatform(platform)
 
   return (
@@ -256,10 +265,10 @@ export default function PlatformPreview({ platform, caption, imageUrl, hashtagCo
       <p style={{ fontSize: 11, fontWeight: 500, color: A.textSoft, margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Platform Preview
       </p>
-      {normalized === 'linkedin' && <LinkedInPreview caption={caption} imageUrl={imageUrl} />}
+      {normalized === 'linkedin' && <LinkedInPreview caption={caption} imageUrl={imageUrl} videoUrl={videoUrl} />}
       {normalized === 'x' && <XPreview caption={caption} />}
       {normalized === 'instagram' && (
-        <InstagramPreview caption={caption} imageUrl={imageUrl} structuredHashtagCount={hashtagCount} />
+        <InstagramPreview caption={caption} imageUrl={imageUrl} videoUrl={videoUrl} structuredHashtagCount={hashtagCount} />
       )}
       {normalized !== 'linkedin' && normalized !== 'x' && normalized !== 'instagram' && (
         <GenericPreview caption={caption} platform={normalized} />

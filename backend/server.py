@@ -728,11 +728,23 @@ async def stream_generate(
             except Exception:
                 pass  # best-effort cleanup
 
+    # Extract prior hooks from already-generated posts for deduplication
+    prior_hooks = [
+        p.get("caption", "").split("\n")[0][:100]
+        for p in existing_posts
+        if p.get("status") in ("complete", "approved") and p.get("caption")
+        and p.get("day_index") != day_index  # exclude the post we just deleted
+    ]
+
     # Create a pending post record in Firestore.
     # save_post(brand_id, plan_id, data) generates and returns its own post_id.
     post_id = await firestore_client.save_post(brand_id, plan_id, {
         "day_index": day_index,
         "platform": day_brief.get("platform", "instagram"),
+        "pillar": day_brief.get("pillar"),
+        "format": day_brief.get("format"),
+        "cta_type": day_brief.get("cta_type"),
+        "derivative_type": day_brief.get("derivative_type", "original"),
         "status": "generating",
         "caption": "",
         "hashtags": [],
@@ -751,103 +763,137 @@ async def stream_generate(
         final_image_gcs_uri = None
 
         try:
-            async for event in generate_post(
-                plan_id, day_brief, brand, post_id,
-                custom_photo_bytes=custom_photo_bytes,
-                custom_photo_mime=custom_photo_mime,
-                instructions=instructions,
-            ):
-                event_name = event["event"]
-                event_data = event["data"]
+            # Heartbeat: sends "Still working..." every 15s if no events flowed
+            # recently. Keeps SSE alive during review gate (25s+) and image gen.
+            _last_event_time = asyncio.get_event_loop().time()
 
-                # Track final values
-                if event_name == "caption" and not event_data.get("chunk"):
-                    final_caption = event_data.get("text", "")
-                    final_hashtags = event_data.get("hashtags", [])
-                elif event_name == "image":
-                    final_image_url = event_data.get("url")
-                    final_image_gcs_uri = event_data.get("gcs_uri")
-                elif event_name == "complete":
-                    final_caption = event_data.get("caption", final_caption)
-                    final_hashtags = event_data.get("hashtags", final_hashtags)
-                    final_image_url = event_data.get("image_url", final_image_url)
-                    final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
+            async def _gen_heartbeat():
+                nonlocal _last_event_time
+                while True:
+                    await asyncio.sleep(15)
+                    if asyncio.get_event_loop().time() - _last_event_time > 12:
+                        await event_queue.put({
+                            "event": "status",
+                            "data": {"message": "Still working..."},
+                        })
 
-                    # Persist complete post to Firestore
-                    update_data: dict = {
-                        "status": "complete",
-                        "caption": final_caption,
-                        "hashtags": final_hashtags,
-                        "image_url": final_image_url,
-                    }
-                    if final_image_gcs_uri:
-                        update_data["image_gcs_uri"] = final_image_gcs_uri
-                    # Carousel: store all slide URLs
-                    carousel_urls = event_data.get("image_urls", [])
-                    carousel_gcs = event_data.get("image_gcs_uris", [])
-                    if carousel_urls:
-                        update_data["image_urls"] = carousel_urls
-                    if carousel_gcs:
-                        update_data["image_gcs_uris"] = carousel_gcs
-                    try:
-                        await firestore_client.update_post(brand_id, post_id, update_data)
-                    except Exception as fs_err:
-                        logger.error("Firestore update failed for post %s: %s", post_id, fs_err)
-                elif event_name == "error":
-                    try:
-                        await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
-                    except Exception as fs_err:
-                        logger.error("Firestore error-update failed for post %s: %s", post_id, fs_err)
+            gen_hb = asyncio.create_task(_gen_heartbeat())
+            try:
+                async for event in generate_post(
+                    plan_id, day_brief, brand, post_id,
+                    custom_photo_bytes=custom_photo_bytes,
+                    custom_photo_mime=custom_photo_mime,
+                    instructions=instructions,
+                    prior_hooks=prior_hooks,
+                ):
+                    _last_event_time = asyncio.get_event_loop().time()
+                    event_name = event["event"]
+                    event_data = event["data"]
 
-                await event_queue.put(event)
+                    # Track final values
+                    if event_name == "caption" and not event_data.get("chunk"):
+                        final_caption = event_data.get("text", "")
+                        final_hashtags = event_data.get("hashtags", [])
+                    elif event_name == "image":
+                        final_image_url = event_data.get("url")
+                        final_image_gcs_uri = event_data.get("gcs_uri")
+                    elif event_name == "complete":
+                        final_caption = event_data.get("caption", final_caption)
+                        final_hashtags = event_data.get("hashtags", final_hashtags)
+                        final_image_url = event_data.get("image_url", final_image_url)
+                        final_image_gcs_uri = event_data.get("image_gcs_uri", final_image_gcs_uri)
+
+                        # Persist complete post to Firestore
+                        update_data: dict = {
+                            "status": "complete",
+                            "caption": final_caption,
+                            "hashtags": final_hashtags,
+                            "image_url": final_image_url,
+                        }
+                        if final_image_gcs_uri:
+                            update_data["image_gcs_uri"] = final_image_gcs_uri
+                        # Carousel: store all slide URLs
+                        carousel_urls = event_data.get("image_urls", [])
+                        carousel_gcs = event_data.get("image_gcs_uris", [])
+                        if carousel_urls:
+                            update_data["image_urls"] = carousel_urls
+                        if carousel_gcs:
+                            update_data["image_gcs_uris"] = carousel_gcs
+                        # Save review from inline review gate (if present)
+                        gate_review = event_data.get("review")
+                        if gate_review:
+                            update_data["review"] = gate_review
+                        try:
+                            await firestore_client.update_post(brand_id, post_id, update_data)
+                        except Exception as fs_err:
+                            logger.error("Firestore update failed for post %s: %s", post_id, fs_err)
+                    elif event_name == "error":
+                        try:
+                            await firestore_client.update_post(brand_id, post_id, {"status": "failed"})
+                        except Exception as fs_err:
+                            logger.error("Firestore error-update failed for post %s: %s", post_id, fs_err)
+
+                    await event_queue.put(event)
+            finally:
+                gen_hb.cancel()
 
             # ── Video-first: trigger Veo after text-only caption ──────────
             if day_brief.get("derivative_type") == "video_first" and final_caption:
-                await event_queue.put({"event": "status", "data": {"message": "Generating video..."}})
-
-                # Heartbeat keeps SSE alive during long Veo generation (avg 2-5 min)
-                async def _heartbeat():
-                    while True:
-                        await asyncio.sleep(15)
-                        await event_queue.put({"event": "status", "data": {"message": "Generating video..."}})
-
-                heartbeat_task = asyncio.create_task(_heartbeat())
-                try:
-                    from backend.agents.video_creator import generate_video_clip
-                    video_result = await generate_video_clip(
-                        hero_image_bytes=None,  # text-to-video
-                        caption=final_caption,
-                        brand_profile=brand,
-                        platform=day_brief.get("platform", "instagram"),
-                        post_id=post_id,
-                        tier="fast",
-                    )
-                    # Update Firestore with video metadata
-                    await firestore_client.update_post(brand_id, post_id, {
-                        "video_url": video_result["video_url"],
-                        "video": {
-                            "url": video_result["video_url"],
-                            "video_gcs_uri": video_result.get("video_gcs_uri"),
-                            "duration_seconds": 8,
-                            "model": video_result.get("model", "veo-3.1"),
-                        },
-                    })
-                    await event_queue.put({
-                        "event": "video_complete",
-                        "data": {
-                            "video_url": video_result["video_url"],
-                            "video_gcs_uri": video_result.get("video_gcs_uri"),
-                            "audio_note": "Add trending audio before publishing — silent video underperforms on this platform.",
-                        },
-                    })
-                except Exception as video_err:
-                    logger.error("Video generation failed for video_first post %s: %s", post_id, video_err)
+                # Gate Veo on review score — skip if caption quality < 7
+                _veo_gate_score = (gate_review or {}).get("score", 0) if gate_review else 0
+                if _veo_gate_score < 7:
+                    logger.warning("Skipping Veo — review score %d < 7 for video_first post %s",
+                                   _veo_gate_score, post_id)
                     await event_queue.put({
                         "event": "video_error",
-                        "data": {"message": str(video_err)},
+                        "data": {"message": f"Video skipped — caption scored {_veo_gate_score}/10. Regenerate for a higher-quality result."},
                     })
-                finally:
-                    heartbeat_task.cancel()
+                else:
+                    await event_queue.put({"event": "status", "data": {"message": "Generating video..."}})
+
+                    # Heartbeat keeps SSE alive during long Veo generation (avg 2-5 min)
+                    async def _heartbeat():
+                        while True:
+                            await asyncio.sleep(15)
+                            await event_queue.put({"event": "status", "data": {"message": "Generating video..."}})
+
+                    heartbeat_task = asyncio.create_task(_heartbeat())
+                    try:
+                        from backend.agents.video_creator import generate_video_clip
+                        video_result = await generate_video_clip(
+                            hero_image_bytes=None,  # text-to-video
+                            caption=final_caption,
+                            brand_profile=brand,
+                            platform=day_brief.get("platform", "instagram"),
+                            post_id=post_id,
+                            tier="fast",
+                        )
+                        # Update Firestore with video metadata
+                        await firestore_client.update_post(brand_id, post_id, {
+                            "video_url": video_result["video_url"],
+                            "video": {
+                                "url": video_result["video_url"],
+                                "video_gcs_uri": video_result.get("video_gcs_uri"),
+                                "duration_seconds": 8,
+                                "model": video_result.get("model", "veo-3.1"),
+                            },
+                        })
+                        await event_queue.put({
+                            "event": "video_complete",
+                            "data": {
+                                "video_url": video_result["video_url"],
+                                "video_gcs_uri": video_result.get("video_gcs_uri"),
+                                "audio_note": "Add trending audio before publishing — silent video underperforms on this platform.",
+                            },
+                        })
+                    except Exception as video_err:
+                        logger.error("Video generation failed for video_first post %s: %s", post_id, video_err)
+                        await event_queue.put({
+                            "event": "video_error",
+                            "data": {"message": str(video_err)},
+                        })
+                    finally:
+                        heartbeat_task.cancel()
 
         except Exception as exc:
             logger.error("Generation task error for post %s: %s", post_id, exc)
@@ -869,7 +915,7 @@ async def stream_generate(
                     break
                 yield {
                     "event": event["event"],
-                    "data": json.dumps(event["data"]),
+                    "data": json.dumps(event["data"], ensure_ascii=False),
                 }
         except asyncio.CancelledError:
             # SSE closed (user navigated away) — generation task keeps running
@@ -935,17 +981,19 @@ async def review_post_endpoint(brand_id: str, post_id: str, force: bool = Query(
     if result.get("approved"):
         await firestore_client.update_post(brand_id, post_id, {"status": "approved"})
 
-    # If revised caption provided, update post
-    if result.get("revised_caption"):
+    # Store revision notes (specific edit instructions, not full rewrites)
+    if result.get("revision_notes"):
         await firestore_client.update_post(brand_id, post_id, {
-            "caption": result["revised_caption"],
-            "review_revised": True,
+            "revision_notes": result["revision_notes"],
         })
 
-    # If revised hashtags provided, auto-save the cleaned version
+    # If revised hashtags provided, sanitize before saving
     if result.get("revised_hashtags"):
+        from backend.agents.content_creator import _sanitize_hashtags
+        platform = post.get("platform", "instagram")
+        cleaned = _sanitize_hashtags(result["revised_hashtags"], platform)
         await firestore_client.update_post(brand_id, post_id, {
-            "hashtags": result["revised_hashtags"],
+            "hashtags": cleaned,
         })
 
     return {"review": result, "post_id": post_id}
@@ -972,7 +1020,7 @@ async def _run_video_generation(
     job_id: str,
     post_id: str,
     brand_id: str,
-    hero_image_bytes: bytes,
+    hero_image_bytes: bytes | None,
     post: dict,
     brand: dict,
     tier: str,
@@ -1035,19 +1083,15 @@ async def start_video_generation(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    # Download hero image from GCS
+    # Download hero image from GCS (optional — video_first posts have no image)
     image_gcs_uri = post.get("image_gcs_uri")
-    if not image_gcs_uri:
-        raise HTTPException(
-            status_code=400,
-            detail="Post has no hero image. Generate the post fully before requesting a video.",
-        )
-
-    try:
-        hero_image_bytes = await download_gcs_uri(image_gcs_uri)
-    except Exception as e:
-        logger.error("Failed to download hero image for post %s: %s", post_id, e)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch hero image: {e}")
+    hero_image_bytes: bytes | None = None
+    if image_gcs_uri:
+        try:
+            hero_image_bytes = await download_gcs_uri(image_gcs_uri)
+        except Exception as e:
+            logger.error("Failed to download hero image for post %s: %s", post_id, e)
+            raise HTTPException(status_code=500, detail=f"Failed to fetch hero image: {e}")
 
     # Create job record in Firestore
     job_id = await firestore_client.create_video_job(post_id, tier)

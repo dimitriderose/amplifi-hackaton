@@ -154,3 +154,24 @@ export function getPlatform(key: string): PlatformSpec {
 export function allPlatformKeys(): string[] {
   return Object.keys(PLATFORMS)
 }
+
+/* ── Video support by platform + derivative type ── */
+
+const NO_VIDEO: Record<string, string[]> = {
+  instagram: ['original', 'carousel', 'story'],
+  tiktok: ['carousel'],
+  pinterest: ['original', 'pin'],
+}
+
+export type VideoSupport = 'none' | 'primary' | 'optional'
+
+export function getVideoSupport(
+  platform: string,
+  derivativeType?: string,
+): VideoSupport {
+  if (derivativeType === 'video_first') return 'primary'
+  const key = (platform || '').toLowerCase()
+  const normalized = _ALIASES[key] ?? key
+  if (NO_VIDEO[normalized]?.includes(derivativeType || 'original')) return 'none'
+  return 'optional'
+}
