@@ -1,79 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { A } from '../theme'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../api/client'
-
-function AccountDropdown({ user, onSignOut }: {
-  user: { displayName: string | null; photoURL: string | null; email: string | null }
-  onSignOut: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '6px 12px', borderRadius: 10,
-          border: `1px solid ${A.border}`, background: A.surface,
-          cursor: 'pointer', fontSize: 13, fontWeight: 500, color: A.text,
-        }}
-      >
-        {user.photoURL ? (
-          <img src={user.photoURL} alt="" style={{ width: 24, height: 24, borderRadius: '50%' }} />
-        ) : (
-          <div style={{
-            width: 24, height: 24, borderRadius: '50%',
-            background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontSize: 11, fontWeight: 700,
-          }}>
-            {(user.displayName || user.email || '?')[0].toUpperCase()}
-          </div>
-        )}
-        {user.displayName || 'Account'}
-      </button>
-
-      {open && (
-        <div style={{
-          position: 'absolute', right: 0, top: '100%', marginTop: 6,
-          background: A.surface, border: `1px solid ${A.border}`,
-          borderRadius: 12, padding: 12, minWidth: 200,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.12)', zIndex: 100,
-        }}>
-          {user.email && (
-            <div style={{ fontSize: 12, color: A.textMuted, marginBottom: 10, padding: '0 4px' }}>
-              {user.email}
-            </div>
-          )}
-          <button
-            onClick={() => { setOpen(false); onSignOut() }}
-            style={{
-              width: '100%', padding: '8px 12px', borderRadius: 8,
-              border: 'none', background: 'transparent', cursor: 'pointer',
-              fontSize: 13, fontWeight: 500, color: A.text, textAlign: 'left',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = A.surfaceAlt)}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            Sign Out
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
 
 interface BrandSummary {
   brand_id: string
@@ -162,7 +91,7 @@ const PREVIEW_DAYS = [
 
 export default function LandingPage() {
   const navigate = useNavigate()
-  const { uid, user, isSignedIn, signIn, signOut } = useAuth()
+  const { uid, isSignedIn, signIn } = useAuth()
   const [myBrands, setMyBrands] = useState<BrandSummary[]>([])
 
   // Fetch user's brands once UID is available
@@ -188,30 +117,6 @@ export default function LandingPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: A.bg }}>
-
-      {/* ── Header ── */}
-      <header style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '12px 24px', maxWidth: 960, margin: '0 auto',
-      }}>
-        <span style={{ fontSize: 18, fontWeight: 800, color: A.text, letterSpacing: -0.5 }}>
-          Amplifi
-        </span>
-        {isSignedIn && user ? (
-          <AccountDropdown user={user} onSignOut={signOut} />
-        ) : (
-          <button
-            onClick={signIn}
-            style={{
-              padding: '6px 16px', borderRadius: 8,
-              border: `1px solid ${A.border}`, background: 'transparent',
-              cursor: 'pointer', fontSize: 13, fontWeight: 500, color: A.text,
-            }}
-          >
-            Sign in
-          </button>
-        )}
-      </header>
 
       {/* ── Welcome-back banner (returning users only) ── */}
       {hasBrands && (

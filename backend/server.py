@@ -1786,4 +1786,18 @@ async def email_calendar(
 # ── Static frontend (production) ──────────────────────────────
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist):
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    from starlette.responses import FileResponse as _FileResponse
+
+    _index_html = os.path.join(frontend_dist, "index.html")
+
+    # SPA catch-all: serve index.html for any non-API, non-file route
+    @app.get("/{full_path:path}")
+    async def _spa_fallback(full_path: str):
+        # If a real file exists, serve it (JS, CSS, images, etc.)
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.isfile(file_path):
+            return _FileResponse(file_path)
+        # Otherwise serve index.html so the SPA router handles it
+        return _FileResponse(_index_html)
+
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
