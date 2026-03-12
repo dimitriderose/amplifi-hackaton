@@ -216,14 +216,21 @@ gcloud services enable \
   storage.googleapis.com \
   aiplatform.googleapis.com
 
+# Create Artifact Registry repo (first time only)
+gcloud artifacts repositories create amplifi \
+  --repository-format=docker \
+  --location=us-central1
+
 # Build and push (note: --timeout is important, frontend build takes time)
-gcloud builds submit \
-  --tag gcr.io/$PROJECT_ID/amplifi \
-  --timeout=900
+# The Dockerfile requires Firebase build args — see §5.3 for the full
+# cloudbuild.yaml with --build-arg flags, or use the simpler form below
+# if your frontend/.env is committed (it's gitignored by default):
+export IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest
+gcloud builds submit --tag $IMAGE --timeout=900
 
 # Deploy
 gcloud run deploy amplifi \
-  --image gcr.io/$PROJECT_ID/amplifi \
+  --image $IMAGE \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
@@ -428,7 +435,9 @@ gemini_api_key = "your-gemini-api-key"
 
 ### 5.3 Build and Push the Docker Image
 
-Terraform provisions the infrastructure but doesn't build your Docker image. Build and push it first:
+Terraform provisions the infrastructure but doesn't build your Docker image. Build and push it first.
+
+**Important:** The Dockerfile accepts Firebase config as build args. Vite bakes `VITE_*` env vars into the JS bundle at build time, so they must be provided during `docker build`, not at runtime.
 
 ```bash
 # From repo root
@@ -436,7 +445,33 @@ export PROJECT_ID=your-gcp-project-id
 export IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest
 
 # Build and push (includes frontend build inside Docker)
-gcloud builds submit --tag $IMAGE --timeout=900
+# Replace the VITE_FIREBASE_* values with your Firebase project config
+gcloud builds submit --timeout=900 --config=/dev/stdin <<EOF
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '--build-arg'
+      - 'VITE_FIREBASE_API_KEY=your-firebase-api-key'
+      - '--build-arg'
+      - 'VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com'
+      - '--build-arg'
+      - 'VITE_FIREBASE_PROJECT_ID=your-firebase-project-id'
+      - '--build-arg'
+      - 'VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app'
+      - '--build-arg'
+      - 'VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id'
+      - '--build-arg'
+      - 'VITE_FIREBASE_APP_ID=your-app-id'
+      - '-t'
+      - '${IMAGE}'
+      - '.'
+images:
+  - '${IMAGE}'
+timeout: 900s
+EOF
 ```
 
 ### 5.4 Deploy Everything
@@ -459,17 +494,11 @@ bucket_name        = "your-project-amplifi-assets"
 firestore_database = "(default)"
 ```
 
-### 5.5 Post-Deploy: Set CORS
+### 5.5 Post-Deploy: CORS (Auto-Configured)
 
-After the first deploy, update `CORS_ORIGINS` with the Cloud Run URL from the output:
+Terraform automatically sets `CORS_ORIGINS` to the Cloud Run URL after deploy via a `null_resource` provisioner — no manual step needed.
 
-```bash
-gcloud run services update amplifi \
-  --region us-central1 \
-  --set-env-vars="CORS_ORIGINS=https://amplifi-abc123-uc.a.run.app"
-```
-
-The GCS bucket CORS is already configured by Terraform (wildcard origin — tighten to your Cloud Run URL in `main.tf` for production).
+The GCS bucket CORS is also configured by Terraform (wildcard origin — tighten to your Cloud Run URL in `main.tf` for production).
 
 ### 5.6 Tear Down (if needed)
 

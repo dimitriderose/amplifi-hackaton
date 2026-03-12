@@ -1,4 +1,3 @@
-import React from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { A } from '../theme'
 import PostLibrary from '../components/PostLibrary'

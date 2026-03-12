@@ -12,15 +12,6 @@ const PILLAR_COLORS: Record<string, string> = {
   user_generated: A.amber,
 }
 
-const DERIVATIVE_LABELS: Record<string, string> = {
-  carousel: 'Carousel',
-  thread_hook: 'Thread',
-  blog_snippet: 'Blog',
-  story: 'Story',
-  pin: 'Pin',
-  video_first: 'Video',
-}
-
 const STATUS_COLORS: Record<string, string> = {
   approved: A.emerald,
   complete: A.indigo,
@@ -164,9 +155,6 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate,
   const [photoError, setPhotoError] = useState('')
 
   const dayIndex = day.day_index
-  const isDerivative = day.derivative_type && day.derivative_type !== 'original'
-  const derivativeLabel = day.derivative_type ? DERIVATIVE_LABELS[day.derivative_type] : null
-
   const isGenerated = post && (post.status === 'complete' || post.status === 'approved')
   const isGenerating = post?.status === 'generating'
 

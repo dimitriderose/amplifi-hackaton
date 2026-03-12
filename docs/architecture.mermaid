@@ -32,6 +32,13 @@ graph TB
         end
     end
 
+    subgraph Infra["🏗️ Deployment Infrastructure"]
+        TF["📋 Terraform IaC<br/>main.tf<br/>One-Command Deploy<br/>7 Resources"]
+        CB["🔨 Cloud Build<br/>Multi-Stage Docker<br/>Node.js + Python<br/>Firebase Build Args"]
+        AR["📦 Artifact Registry<br/>Docker Images<br/>amplifi:latest"]
+        CORS["🔄 CORS Auto-Config<br/>null_resource<br/>Post-Deploy Update"]
+    end
+
     subgraph GCP["Google Cloud Platform"]
         FS[("🔥 Cloud Firestore<br/>Brand Profiles (owner_uid)<br/>Content Plans + Posts<br/>Video Jobs")]
         GCS[("📦 Cloud Storage<br/>Generated Images<br/>Generated Videos<br/>Uploaded Assets")]
@@ -83,6 +90,14 @@ graph TB
     VID -->|"Store Video"| GCS
     EX -->|"Download Media<br/>blob.download_as_bytes"| GCS
 
+    TF -->|"Provisions"| API
+    TF -->|"Provisions"| FS
+    TF -->|"Provisions"| GCS
+    TF -->|"Provisions"| AR
+    CB -->|"Builds Image"| AR
+    AR -->|"Deploys To"| API
+    CORS -->|"Sets CORS_ORIGINS"| API
+
     classDef browser fill:#1a1a2e,stroke:#e94560,color:#fff
     classDef cloud fill:#0f3460,stroke:#16213e,color:#fff
     classDef pipeline fill:#533483,stroke:#e94560,color:#fff
@@ -91,6 +106,7 @@ graph TB
     classDef gcp fill:#4285f4,stroke:#1a73e8,color:#fff
     classDef gemini fill:#1e88e5,stroke:#1565c0,color:#fff
     classDef auth fill:#ff9800,stroke:#f57c00,color:#fff
+    classDef infra fill:#2e7d32,stroke:#1b5e20,color:#fff
 
     class FE browser
     class AUTH auth
@@ -100,3 +116,4 @@ graph TB
     class WS,BT,HS,EX,IF,PR,BA_SVC,NC,EC tools
     class FS,GCS,FA gcp
     class GFlash,GLive gemini
+    class TF,CB,AR,CORS infra

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, MutableRefObject } from 'react'
+import { useState, useRef, useCallback, type MutableRefObject } from 'react'
 
 export type VoiceCoachStatus = 'idle' | 'connecting' | 'active' | 'error'
 

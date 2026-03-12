@@ -71,7 +71,7 @@ function PlatformCard({ platformKey, config, brandId, isConnected, existingAnaly
     setLoading(true)
     setError('')
     try {
-      const res = await api.connectSocial(brandId, platformKey, token.trim()) as {
+      const res = await api.connectSocial(brandId, platformKey, token.trim()) as unknown as {
         platform: string
         voice_analysis: VoiceAnalysis
       }

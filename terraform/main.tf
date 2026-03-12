@@ -11,6 +11,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -121,7 +125,7 @@ resource "google_cloud_run_v2_service" "amplifi" {
       }
       env {
         name  = "CORS_ORIGINS"
-        value = ""  # Updated after first deploy (see output)
+        value = ""  # Auto-updated by null_resource.set_cors after deploy
       }
     }
   }
@@ -144,10 +148,28 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   member   = "allUsers"
 }
 
+# ── Auto-set CORS_ORIGINS after deploy ────────────────────────────────────────
+
+resource "null_resource" "set_cors" {
+  triggers = {
+    service_uri = google_cloud_run_v2_service.amplifi.uri
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      gcloud run services update amplifi \
+        --region ${var.region} \
+        --update-env-vars "CORS_ORIGINS=${google_cloud_run_v2_service.amplifi.uri}"
+    EOT
+  }
+
+  depends_on = [google_cloud_run_v2_service.amplifi]
+}
+
 # ── Outputs ──────────────────────────────────────────────────────────────────
 
 output "service_url" {
-  description = "Cloud Run URL — set this as CORS_ORIGINS after first deploy"
+  description = "Cloud Run URL (CORS_ORIGINS is auto-configured)"
   value       = google_cloud_run_v2_service.amplifi.uri
 }
 

@@ -107,7 +107,7 @@ export default function LandingPage() {
       // Re-fetch brands after all claims settle
       Promise.allSettled(claims).then(() => {
         api.listBrands(uid)
-          .then((res) => setMyBrands((res as { brands: BrandSummary[] }).brands || []))
+          .then((res) => setMyBrands((res as unknown as { brands: BrandSummary[] }).brands || []))
           .catch(() => {})
       })
     } catch { /* localStorage unavailable */ }
@@ -117,7 +117,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (!uid) return
     api.listBrands(uid)
-      .then((res) => setMyBrands((res as { brands: BrandSummary[] }).brands || []))
+      .then((res) => setMyBrands((res as unknown as { brands: BrandSummary[] }).brands || []))
       .catch(() => {})
   }, [uid])
 

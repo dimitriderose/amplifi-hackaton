@@ -2,6 +2,8 @@
 
 **Your AI creative director. One brand. Infinite content.**
 
+**Live Demo:** [https://amplifi-962789190331.us-central1.run.app](https://amplifi-962789190331.us-central1.run.app)
+
 An AI-powered creative director that analyzes your brand and produces complete, ready-to-post social media content packages — captions, images, hashtags, and posting schedules — all generated together in a single interleaved output stream.
 
 ## What is this?
@@ -42,12 +44,13 @@ Amplifi uses Gemini's interleaved text + image output to generate copy and visua
 - **Email:** Resend API (calendar invite delivery)
 - **Integrations:** Notion API (OAuth + calendar export)
 - **Frontend:** React 19 + TypeScript + Vite 7
-- **Deployment:** Terraform + Cloud Build (CI/CD)
+- **Deployment:** Google Cloud Run (serverless) + Terraform IaC + Cloud Build (CI/CD)
+- **Infrastructure:** Terraform provisions all GCP resources in one command (APIs, Firestore, GCS, Artifact Registry, Cloud Run, CORS auto-config)
 
 ## Architecture
 
 ```
-User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
+User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI :8080)
                                        ├── ADK Sequential Pipeline
                                        │   ├── Brand Analyst Agent (temp 0.15)
                                        │   ├── Strategy Agent (social proof tiers)
@@ -67,6 +70,9 @@ User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
                                        │   └── responseModalities: ["TEXT", "IMAGE"]
                                        ├── Cloud Firestore (brands, plans, posts)
                                        └── Cloud Storage (images, videos, assets)
+
+Deployment: Terraform IaC → Cloud Build → Artifact Registry → Cloud Run
+            (one-command: terraform apply provisions all 7 GCP resources)
 ```
 
 See the full [architecture diagram](docs/architecture.mermaid) for agent interactions and data flows.
@@ -76,8 +82,9 @@ See the full [architecture diagram](docs/architecture.mermaid) for agent interac
 | Document | Description |
 |---|---|
 | [Product Requirements (PRD)](docs/PRD.md) | v1.3 — Full product spec with all P0/P1 shipped, P2 features (Platform Registry, Notion, Edit Brand, calendar export) shipped, social proof tier system, Buffer roadmap |
-| [Technical Design (TDD)](docs/TDD.md) | v1.3 — Implementation spec covering Platform Registry, Brand Assets Service, Notion/calendar integrations, calibrated review scoring, education-first strategy, voice coach awareness |
-| [Architecture Diagram](docs/architecture.mermaid) | Mermaid diagram — full agent pipeline, Platform Registry, Brand Assets, Notion/Email services, GCP data flows |
+| [Technical Design (TDD)](docs/TDD.md) | v1.4 — Implementation spec covering deployment architecture, Terraform IaC, Docker multi-stage build, Cloud Build pipeline, Platform Registry, Brand Assets Service, integrations, calibrated review scoring |
+| [Deployment Guide](docs/DEPLOYMENT.md) | Complete deployment guide — local dev setup, manual Cloud Run deploy, Terraform one-command deploy, environment variables, troubleshooting |
+| [Architecture Diagram](docs/architecture.mermaid) | Mermaid diagram — full agent pipeline, deployment infrastructure, Platform Registry, Brand Assets, Notion/Email services, GCP data flows |
 | [UI Mockup](docs/amplifi-ui.jsx) | Interactive React prototype — 6 screens (Landing, Onboard, Brand, Calendar, Content, Dashboard) |
 | [Integration Plan](docs/buffer-notion-integration-plan.md) | Buffer + Notion integration design — OAuth flows, database export, .ics calendar, email delivery. Buffer planned once API exits closed beta. |
 

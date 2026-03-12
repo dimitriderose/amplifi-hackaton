@@ -130,7 +130,7 @@ export default function ReviewPanel({ brandId, postId, reviewKey, onApproved, in
       {/* Review trigger */}
       {!review && (
         <button
-          onClick={runReview}
+          onClick={() => runReview()}
           disabled={loading}
           style={{
             padding: '10px 20px', borderRadius: 8, border: 'none', cursor: loading ? 'not-allowed' : 'pointer',

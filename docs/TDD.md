@@ -4,7 +4,7 @@
 **Category:** ✍️ Creative Storyteller
 **Author:** Software Architecture Team
 **Companion Document:** PRD — Amplifi v1.3
-**Version:** 1.3 | March 2, 2026 (updated from v1.2 Feb 25)
+**Version:** 1.4 | March 11, 2026 (updated from v1.3 March 2)
 
 ---
 
@@ -2131,32 +2131,61 @@ function PostGenerator({ planId, dayIndex }: Props) {
 
 # 10. Deployment & Infrastructure
 
-## 10.1 Docker Configuration
+## 10.1 Deployment Architecture
 
-**Frontend Serving Strategy:** Same as Fireside — single container. Vite builds to `frontend/dist/`, FastAPI serves it via `StaticFiles`. One Dockerfile, one Cloud Run service, same-origin eliminates CORS in production.
+Amplifi deploys as a single Docker container on Google Cloud Run. The multi-stage Dockerfile builds the React frontend (TypeScript + Vite 7) inside the image, then serves the compiled static assets alongside the FastAPI backend. This same-origin strategy eliminates CORS complexity in production — all requests hit a single Cloud Run URL.
+
+**Production topology:**
+
+```
+Internet → Cloud Run :8080
+             ├── /api/*       → FastAPI routes (REST + SSE streams)
+             ├── /health      → Health check endpoint
+             └── /*           → frontend/dist/ (compiled React SPA)
+```
+
+**Resource allocation rationale:**
+- **2 CPU / 2 GiB RAM** — Gemini interleaved output (text + image) responses can exceed 1 MB per post; a 7-day plan with carousel images requires buffering multiple concurrent generation results.
+- **300s timeout** — SSE content generation streams run 2-3 minutes for a full weekly calendar (Brand Analyst → Strategy → 7× Content Creator → Review per post).
+- **0-10 instances, scale-to-zero** — Hackathon/demo usage is bursty; no idle cost when unused.
+
+## 10.2 Docker Configuration
+
+The Dockerfile installs `ffmpeg` for video processing (Veo 3.1 clips) and accepts Firebase config as build-time arguments. Vite bakes `VITE_*` environment variables into the JavaScript bundle at build time — they cannot be injected at runtime.
 
 ```dockerfile
-# Dockerfile
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies (includes Node.js for frontend build)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl \
+    build-essential curl ffmpeg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Build frontend
 COPY frontend/ ./frontend/
+
+# Firebase config must be provided at build time (Vite inlines VITE_* vars)
+ARG VITE_FIREBASE_API_KEY=""
+ARG VITE_FIREBASE_AUTH_DOMAIN=""
+ARG VITE_FIREBASE_PROJECT_ID=""
+ARG VITE_FIREBASE_STORAGE_BUCKET=""
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID=""
+ARG VITE_FIREBASE_APP_ID=""
+
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
+    VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN \
+    VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID \
+    VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET \
+    VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID \
+    VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
+
 RUN cd frontend && npm ci && npm run build
 
-# Install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code
 COPY backend/ ./backend/
 
 ENV PORT=8080
@@ -2165,119 +2194,115 @@ EXPOSE 8080
 CMD ["uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-```txt
-# requirements.txt
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
-google-adk==0.5.0
-google-genai==1.0.0
-google-cloud-firestore==2.19.0
-google-cloud-storage==2.18.0
-httpx==0.27.0
-beautifulsoup4==4.12.3
-pydantic==2.9.0
-python-dotenv==1.0.0
-python-multipart==0.0.9
+Frontend static files are served by FastAPI's `StaticFiles` mount (`server.py:1786-1789`):
+
+```python
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 ```
 
-## 10.2 Terraform
+## 10.3 Terraform Infrastructure-as-Code
 
-```hcl
-# terraform/amplifi.tf
+The `terraform/` directory provisions the complete GCP infrastructure with a single `terraform apply`. This includes API enablement, data stores, container registry, and the Cloud Run service with a post-deploy CORS auto-configuration step.
 
-resource "google_cloud_run_v2_service" "amplifi" {
-  name     = "amplifi"
-  location = var.region
+**Resources provisioned:**
 
-  template {
-    containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/hackathon/amplifi:latest"
-      
-      ports {
-        container_port = 8080
-      }
-      
-      env {
-        name  = "GOOGLE_CLOUD_PROJECT"
-        value = var.project_id
-      }
-      env {
-        name  = "GCS_BUCKET"
-        value = google_storage_bucket.amplifi_assets.name
-      }
-      
-      resources {
-        limits = {
-          cpu    = "2"
-          memory = "1Gi"
-        }
-      }
-    }
-    
-    scaling {
-      min_instance_count = 0
-      max_instance_count = 5
-    }
-    
-    timeout = "300s"  # 5 min for long generation requests
-  }
-}
+| Resource | Purpose |
+|----------|---------|
+| `google_project_service.apis` (×6) | Enable Cloud Run, Cloud Build, Firestore, Storage, AI Platform, Artifact Registry |
+| `google_firestore_database.default` | Brand profiles, content plans, posts — Firestore Native mode |
+| `google_storage_bucket.assets` | Generated images, videos, uploaded brand assets — CORS-enabled |
+| `google_artifact_registry_repository.docker` | Docker image repository for Cloud Build pushes |
+| `google_cloud_run_v2_service.amplifi` | Application service — 2 CPU, 2 GiB, 300s timeout, 0-10 instances |
+| `google_cloud_run_v2_service_iam_member.public` | Unauthenticated access (public-facing demo) |
+| `null_resource.set_cors` | Post-deploy provisioner — auto-sets `CORS_ORIGINS` to the Cloud Run URL |
 
-resource "google_cloud_run_v2_service_iam_member" "amplifi_public" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.amplifi.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
+**CORS auto-configuration:** The Cloud Run URL is not known until the service is created. A `null_resource` with a `local-exec` provisioner runs `gcloud run services update` after deploy to set `CORS_ORIGINS` to the service URI, eliminating the manual post-deploy step.
 
-resource "google_storage_bucket" "amplifi_assets" {
-  name     = "${var.project_id}-amplifi-assets"
-  location = "US"
-  
-  uniform_bucket_level_access = true
-  
-  cors {
-    origin          = ["*"]
-    method          = ["GET"]
-    response_header = ["Content-Type"]
-    max_age_seconds = 3600
-  }
-}
-```
+**Terraform variables** (`variables.tf`):
 
-## 10.3 Cloud Build Pipeline
+| Variable | Type | Description |
+|----------|------|-------------|
+| `project_id` | `string` | GCP project ID |
+| `region` | `string` | GCP region (default: `us-central1`) |
+| `gemini_api_key` | `string` (sensitive) | Gemini API key from AI Studio |
+
+**Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `service_url` | Cloud Run URL (CORS auto-configured) |
+| `image_url` | Artifact Registry image path to push to |
+| `bucket_name` | GCS bucket name for generated assets |
+| `firestore_database` | Firestore database name |
+
+## 10.4 Cloud Build Pipeline
+
+Docker images are built remotely via Google Cloud Build. The build context is the repo root (not `backend/`), since the Dockerfile copies both `frontend/` and `backend/` directories. Firebase config is passed as `--build-arg` flags.
 
 ```yaml
-# cloudbuild-amplifi.yaml
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: 
-      - 'build'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/hackathon/amplifi:$SHORT_SHA'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/hackathon/amplifi:latest'
-      - './amplifi/backend'
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/hackathon/amplifi']
-
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     args:
-      - 'gcloud'
-      - 'run'
-      - 'deploy'
-      - 'amplifi'
-      - '--image'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/hackathon/amplifi:$SHORT_SHA'
-      - '--region'
-      - '${_REGION}'
-      - '--allow-unauthenticated'
-
-substitutions:
-  _REGION: 'us-central1'
+      - 'build'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '--build-arg'
+      - 'VITE_FIREBASE_API_KEY=${_FIREBASE_API_KEY}'
+      - '--build-arg'
+      - 'VITE_FIREBASE_AUTH_DOMAIN=${_FIREBASE_AUTH_DOMAIN}'
+      - '--build-arg'
+      - 'VITE_FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}'
+      - '--build-arg'
+      - 'VITE_FIREBASE_STORAGE_BUCKET=${_FIREBASE_STORAGE_BUCKET}'
+      - '--build-arg'
+      - 'VITE_FIREBASE_MESSAGING_SENDER_ID=${_FIREBASE_MESSAGING_SENDER_ID}'
+      - '--build-arg'
+      - 'VITE_FIREBASE_APP_ID=${_FIREBASE_APP_ID}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest'
+      - '.'
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest'
+timeout: 900s
 ```
+
+**Build timeout:** 900s (15 min) — the frontend TypeScript compile + Vite build + system dependency installation (Node.js 20, ffmpeg, Python packages) requires significant build time.
+
+## 10.5 Environment Variables
+
+**Runtime environment** (set on Cloud Run service):
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GOOGLE_API_KEY` | Yes | — | Gemini API key for all agents |
+| `GCP_PROJECT_ID` | Yes | — | GCP project ID |
+| `GCS_BUCKET_NAME` | Yes | — | Cloud Storage bucket for images/video |
+| `CORS_ORIGINS` | Yes | `http://localhost:5173` | Comma-separated allowed origins (auto-set by Terraform) |
+| `GEMINI_MODEL` | No | `gemini-2.5-flash` | Default Gemini model override |
+
+**Build-time environment** (Docker build args — baked into JS bundle):
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_FIREBASE_API_KEY` | Firebase Web API key |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
+| `VITE_FIREBASE_APP_ID` | Firebase app ID |
+
+## 10.6 GCP Services & Free Tier
+
+| Service | Purpose | Free Tier |
+|---------|---------|-----------|
+| **Gemini API** | Brand analysis, content creation, review, voice coach | Generous free tier |
+| **Cloud Firestore** | Brand profiles, content plans, posts | 1 GiB free |
+| **Cloud Storage** | Generated images, videos, uploaded assets | 5 GB free |
+| **Cloud Run** | Application hosting (serverless) | 2M requests/month free |
+| **Cloud Build** | CI/CD image builds | 120 build-min/day free |
+| **Artifact Registry** | Docker image storage | 500 MB free |
 
 ---
 

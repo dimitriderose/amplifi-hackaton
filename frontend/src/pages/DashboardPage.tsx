@@ -26,7 +26,7 @@ export default function DashboardPage() {
   const { brandId } = useParams<{ brandId: string }>()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { brand, loading: brandLoading, error: brandError, updateBrand, refetch: refetchBrand } = useBrandProfile(brandId)
+  const { brand, loading: brandLoading, error: brandError, updateBrand: _updateBrand, refetch: refetchBrand } = useBrandProfile(brandId)
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
   const { posts: calendarPosts } = usePostLibrary(brandId ?? '', plan?.plan_id)
   const [activeTab, setActiveTab] = useState<Tab>('calendar')

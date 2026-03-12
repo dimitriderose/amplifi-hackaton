@@ -32,6 +32,7 @@ export function usePostGeneration() {
     audioNote: null,
     postId: null,
     error: null,
+    review: null,
   })
 
   const eventSourceRef = useRef<EventSource | null>(null)
