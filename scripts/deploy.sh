@@ -53,10 +53,9 @@ for var in "${REQUIRED_VARS[@]}"; do
 done
 
 REGION="${GCP_REGION:-us-central1}"
-PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')
 
 echo "Deploying Amplifi to Cloud Run..."
-echo "  Project:  $GCP_PROJECT_ID ($PROJECT_NUMBER)"
+echo "  Project:  $GCP_PROJECT_ID"
 echo "  Region:   $REGION"
 echo ""
 
@@ -73,9 +72,12 @@ _VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET,\
 _VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID,\
 _VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID,\
 _GOOGLE_API_KEY=$GOOGLE_API_KEY,\
-_PROJECT_NUMBER=$PROJECT_NUMBER,\
+_CORS_ORIGINS=${CORS_ORIGINS:-*},\
 _REGION=$REGION"
+
+# Get the live URL from the deployed service
+LIVE_URL=$(gcloud run services describe amplifi --region="$REGION" --project="$GCP_PROJECT_ID" --format='value(status.url)' 2>/dev/null || echo "unknown")
 
 echo ""
 echo "Deploy complete! Your app is live at:"
-echo "  https://amplifi-$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)').${GCP_REGION:-us-central1}.run.app"
+echo "  $LIVE_URL"
