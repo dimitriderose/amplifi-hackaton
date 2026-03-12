@@ -5,7 +5,7 @@
 **Tagline:** Your AI creative director. One brand. Infinite content.
 **Core Technology:** Gemini Interleaved Output (text + image in one stream)
 
-Version 1.3 | March 2, 2026 (updated from v1.2 Feb 25)
+Version 1.4 | March 12, 2026 (updated from v1.3 March 2)
 Hackathon Deadline: **March 16, 2026 at 5:00 PM PDT**
 Prize Target: $10K (category) + $5K (subcategory)
 
@@ -69,6 +69,8 @@ The Creative Storyteller category specifically asks for projects that "leverage 
 
 | Step | What Happens | User Experience |
 |---|---|---|
+| **0. Sign In** | User clicks "Build My Brand Profile" on the landing page, which triggers Google Sign-In (popup). After authentication, the user is navigated to the Brands page (`/brands`). Returning users who are already signed in go directly to `/brands`. | One-click Google Sign-In popup. NavBar shows account dropdown with profile photo when signed in. Landing page is a pure marketing page (hero, features, how-it-works, CTA) — no brand list or user state. |
+| **0.5 Brand Management** | Brands page shows two sections: (1) "Create Your Brand" CTA card at top, (2) "Your Brands" list with pagination (5 per page). Each brand card shows avatar initial, business name, industry, status badge (Ready/Pending), and click-through to dashboard. | Paginated brand list with prev/next navigation. Empty state encourages first brand creation. "+ New Brand" button navigates to `/onboard`. |
 | **1. Onboarding** | User describes their business in free text (min 20 characters) as the primary input. URL is an optional enhancement ("Have a website? Paste it for deeper analysis"). Optionally uploads brand assets (photos, PDFs like brand guides or menus) to enrich the analysis. | Primary action is "describe your business." URL field is optional, not the default path. Brand asset upload zone accepts images and PDFs (max 3 files), clearly marked as optional. Analysis steps adapt based on whether a URL is provided. A pulsing "Finalizing your brand profile..." row appears after all analysis steps complete while the backend finalizes. Takes under 2 minutes. |
 | **2. Brand Analysis** | Brand Analyst Agent scrapes the website, analyzes uploaded assets, and extracts brand colors, tone of voice, target audience, competitive positioning, and content themes. **Deterministic analysis** (temperature 0.15) with constrained enums ensures consistent results across repeated runs of the same brand. Tone is selected from a fixed set of 15 adjectives (professional, friendly, authoritative, playful, warm, bold, minimal, luxurious, casual, inspiring, educational, witty, empathetic, confident, sophisticated). Visual style is selected from 7 presets (clean-minimal, warm-organic, bold-vibrant, dark-luxurious, bright-playful, professional-corporate, rustic-artisan). Analysis is weighted by business type — personal brands emphasize thought leadership; local businesses emphasize community and product. If a brand already has `analysis_status: complete`, re-analysis is skipped unless the user explicitly requests it. | Brand profile card appears with all extracted attributes. User can edit any field inline to correct or refine; save button shows loading state and inline error feedback on failure. |
 | **3. Strategy** | Strategy Agent takes the brand profile + user's goals (e.g., "launch spring menu") + optional business events this week (e.g., "new croissant Tuesday, farmer's market Saturday") and generates a 7-day content calendar. Identifies 1–2 pillar ideas per week and plans platform-specific derivatives. Real business events become pillar anchors automatically. | Interactive calendar view showing each day's planned content theme and platform. "What's happening this week?" text area above calendar — disabled with contextual message while brand analysis is still running. Calendar generation shows a 6-step animated progress sequence (understanding brand, mapping events, building pillars, scheduling platform mix, crafting repurposing chains, finalizing calendar). A confirmation dialog is shown before clearing an active plan. Pillar posts are visually grouped. |
@@ -137,8 +139,8 @@ The Content Creator Agent uses Gemini's `responseModalities: ["TEXT", "IMAGE"]` 
 | **Cloud Run** | Backend API + ADK agents | Serverless, auto-scaling. REST API + SSE for streaming interleaved output to the frontend. |
 | **Cloud Firestore** | Brand profiles, content plans, post history | Real-time data sync. Generous free tier (1 GiB). Hierarchical data model maps cleanly to brand→plan→day→post. |
 | **Cloud Storage** | Generated images, videos, uploaded brand assets | Store/serve generated images and Veo videos. Media downloaded directly via `blob.download_as_bytes()` for export ZIPs. Local dev uses a backend proxy (`/api/storage/serve/`) when signed URLs aren't available. |
-| **Firebase Auth** | Anonymous authentication | Zero-friction persistent identity. Brands linked to anonymous UIDs. No login flow required. |
-| **Cloud Build + Terraform** | CI/CD pipeline + IaC | Automated deployment for bonus points (+0.2). Push to main auto-deploys to Cloud Run. |
+| **Firebase Auth** | Google Sign-In | One-click Google authentication with persistent UID. Account dropdown with profile photo. Per-user brand isolation. |
+| **Cloud Build + Terraform** | CI/CD pipeline + IaC | Automated deployment via `scripts/deploy.sh` → Cloud Build 3-step pipeline (Docker build with Firebase build args → Artifact Registry push → Cloud Run deploy with runtime env vars). Terraform IaC provisions all GCP resources. |
 
 ## System Architecture
 
@@ -153,7 +155,7 @@ User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
                                        │   └── Review Agent (auto-clean hashtags)
                                        ├── Voice Coach (Gemini Live — BidiGenerateContent)
                                        ├── Video Creator (Veo 3.1)
-                                       ├── Firebase Anonymous Auth (persistent UID)
+                                       ├── Firebase Google Auth (persistent UID)
                                        ├── Gemini API (generateContent)
                                        │   └── responseModalities: ["TEXT", "IMAGE"]
                                        ├── Cloud Firestore (brands, plans, posts)
@@ -164,7 +166,7 @@ User Browser (React 19) ←REST + SSE→ Cloud Run (FastAPI)
 
 ```
 brands/{brandId}/
-  ├── owner_uid: "abc123..."             # Firebase Anonymous Auth UID
+  ├── owner_uid: "abc123..."             # Firebase Google Auth UID
   ├── business_name: "Sunrise Bakery"
   ├── website_url: "https://sunrisebakery.com"
   ├── industry: "Food & Beverage"
@@ -191,13 +193,15 @@ brands/{brandId}/
 ## Frontend (React Dashboard)
 
 ```
-/                → Landing page with "Your Brands" list (Firebase Anonymous Auth)
+/                → Marketing landing page (hero, features, how it works, CTA)
+/brands          → Brand list with pagination (5 per page) + "Create Your Brand" CTA
 /onboard         → Brand setup wizard (URL, upload logo, describe business)
-/dashboard       → Main content management view
+/dashboard/:id   → Main content management view
   ├── Tabs: Calendar | Posts | Export
   ├── Calendar   → Weekly content calendar (themes, platforms, timing, event badges)
   ├── Posts      → PostLibrary: all generated posts, filterable by platform/status
   └── Export     → Copy All clipboard, per-post ZIP, bulk plan ZIP
+/edit/:id        → Brand profile editor with asset management
 /generate/{planId}/{dayIndex}  → Single post generation view
   ├── Brief input (theme, platform, notes)
   ├── Live generation stream (text + images appearing together)
@@ -205,6 +209,8 @@ brands/{brandId}/
   ├── Video section (collapsible on text-first platforms)
   ├── Review panel (auto-triggers, shows score + suggestions)
   └── Approve button
+/export/:id      → Full export page (ZIP, Notion, .ics, email)
+/auth/notion/callback → Notion OAuth callback handler
 ```
 
 ---
@@ -249,8 +255,9 @@ brands/{brandId}/
 | Bring Your Own Photos mode | **P1 — Should Have** | Users upload their own photos for specific calendar days. The Content Creator Agent switches from "generate caption + image" to "generate caption + hashtags + strategy FOR this photo" using Gemini's image understanding. AI-generated images remain the fallback for days without a user photo. This is critical for small businesses where customers expect real product/location photos. The Brand Wizard gains a bulk photo upload step; the calendar gains a "drop photo here" zone per day card. Architecturally minimal: same Content Creator Agent, different prompt path based on whether `uploaded_photo` is present. |
 | Content repurposing (pillar → derivatives) | **P1 — Should Have** | Instead of 7 independent posts, the Strategy Agent generates 1–2 pillar content ideas per week and plans platform-specific derivatives. Example: Monday = LinkedIn long-form post about pricing strategy. Tuesday = X thread (same idea, condensed). Wednesday = Instagram carousel (same idea, visual tips). Each derivative links back to a `pillar_id` in the calendar schema. This is how successful solopreneurs actually operate and produces more coherent weekly content than unrelated daily posts. Implementation is primarily a Strategy Agent prompt change + a `pillar_id` field on day objects. |
 | Business description onboarding | **P1 — Should Have** | Free-text business description (min 20 characters) replaces rigid business type selector. User describes their business naturally ("I run a mobile dog grooming van in Austin, I specialize in anxious rescue dogs"). The Brand Analyst infers business type, audience, tone, and content opportunities from the description. No-website toggle provides an alternative path where description + optional brand asset uploads are the only inputs — no URL required. Brand asset upload zone accepts up to 3 files (images, PDFs like brand guides or menus) that are processed multimodally to enrich the brand profile. |
-| Firebase Anonymous Auth | **P1 — Should Have** | Zero-friction authentication via Firebase Anonymous Auth. Auto-creates a persistent UID on first visit — no login screen. Brands get an `owner_uid` field linking them to the anonymous user. On return, the app queries Firestore for all brands matching the UID and shows a "Your Brands" list on the landing page. Existing brands created before auth was added are grandfathered via a `PATCH /api/brands/{id}/claim` endpoint that sets `owner_uid` on first load. |
-| Landing page | **P1 — Should Have** | Marketing page: hero with gradient headline ("Your entire week of content. One click."), product preview showing mini calendar, 3-step how-it-works, 2×3 feature grid, testimonial placeholder, CTA footer. Desktop-first, clean creative studio aesthetic. CTA flows to onboarding. "Your Brands" section appears when the user has existing brands linked to their anonymous UID. |
+| Google Sign-In | **P1 — Should Have** | One-click Google authentication via Firebase `signInWithPopup` + `GoogleAuthProvider`. Account dropdown in NavBar shows profile photo and display name. Brands get an `owner_uid` field linking them to the authenticated Google user. On return, the app queries Firestore for all brands matching the UID and shows them on the dedicated Brands page (`/brands`). NavBar shows "My Brands" when signed in, "Get Started" when not. |
+| Brands page | **P1 — Should Have** | Dedicated brand management page at `/brands` with two sections: (1) "Create Your Brand" CTA card with gradient button navigating to `/onboard`, (2) paginated "Your Brands" list showing 5 brands per page with prev/next pagination. Each brand card displays avatar initial, business name, industry, analysis status badge (Ready/Pending), and click-through to `/dashboard/:brandId`. Empty state message when no brands exist. Auth guard redirects to `/` if not signed in. |
+| Landing page | **P1 — Should Have** | Pure marketing page: hero with gradient headline ("Your entire week of content. One click."), product preview showing mini calendar, 3-step how-it-works, 2×3 feature grid, CTA footer. Desktop-first, clean creative studio aesthetic. CTA triggers Google Sign-In (if needed) then navigates to `/brands`. No brand list or user state on this page — it's a conversion-focused landing page for all visitors. |
 | Event-aware calendar | **P1 — Should Have** | Optional "What's happening this week?" free-text field displayed BETWEEN the Brand Profile screen and the Calendar generation screen (or as a prominent input at the top of the Calendar screen before generation starts). User types real business events: "launching lavender croissant Tuesday, farmer's market booth Saturday, staff birthday Wednesday." The Strategy Agent incorporates these events into the content plan — one pillar becomes the product launch, derivatives flow from there. Events appear as badges on the calendar (e.g., "📅 Event: Valentine's prix fixe (Tue)"). This is the difference between a generic AI calendar and one that feels like it was made by someone who works at the business. Zero new infrastructure: one text input, one prompt parameter (`business_events_this_week`) injected into the Strategy Agent. The UI entry point must be discoverable — users need to understand WHERE events come from when they see badges on the calendar. |
 | Visual identity seed | **P1 — Should Have** | During brand analysis, the Brand Analyst generates a persistent "image style directive" — a 2-3 sentence visual identity fragment (e.g., "warm earth tones, soft natural lighting, minimalist composition with generous whitespace, serif typography aesthetic"). This directive is prepended to EVERY Content Creator image generation call for that brand, ensuring stylistic coherence across independently generated images. Not perfect grid consistency (that's P2), but a massive improvement over completely uncoordinated generations. One new field on brand profile: `image_style_directive`. Costs nothing extra — pure prompt engineering. |
 | Caption style directive | **P1 — Should Have** | The textual equivalent of the visual identity seed. During brand analysis, the Brand Analyst generates a persistent "caption style directive" — a 2-4 sentence writing rhythm guide (e.g., "Open with a one-sentence hook under 10 words. Use personal anecdotes as the second beat. Deliver the counterintuitive insight by paragraph three. End with a direct question. Prefer em dashes. Never use exclamation marks."). This directive is prepended to EVERY Content Creator caption generation call. Ensures every post sounds like the same person wrote it, even across different platforms and pillar derivatives. One new field on brand profile: `caption_style_directive`. Same architecture as image_style_directive — Brand Analyst generates it, user can edit it, Content Creator consumes it. |
@@ -301,7 +308,7 @@ brands/{brandId}/
 9. **Brand analysis from URL** — paste your website, AI builds your brand profile automatically. Deterministic (temperature 0.15) with constrained enums for consistency
 10. **AI creative director pipeline** — strategy + creation + review in one automated workflow. Review Agent auto-cleans hashtags
 11. **Voice coaching via Gemini Live** — multi-turn voice sessions where AI coaches through brand voice and content strategy verbally
-12. **Zero-friction auth** — Firebase Anonymous Auth links brands to a persistent UID across sessions, no sign-up required
+12. **Google Sign-In** — one-click Google authentication with persistent UID, account dropdown with profile photo, per-user brand isolation via dedicated Brands page with pagination
 13. **Built on Gemini's native interleaved output + Gemini Live + Veo** — the category literally asks for these capabilities
 
 ---

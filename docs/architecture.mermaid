@@ -1,48 +1,49 @@
 graph TB
-    subgraph Browser["🖥️ User Browser (React 19 + TypeScript)"]
-        FE["Frontend<br/>React 19 + TypeScript<br/>Vite 7"]
-        AUTH["🔐 Firebase Anonymous Auth<br/>Persistent UID<br/>Zero-Friction"]
+    subgraph Browser["User Browser (React 19 + TypeScript)"]
+        FE["Frontend<br/>React 19 + TypeScript<br/>Vite 7<br/>React Router"]
+        AUTH["Firebase Google Auth<br/>signInWithPopup<br/>Account Dropdown<br/>Profile Photo"]
+        PAGES["Pages<br/>Landing (marketing)<br/>Brands (paginated list)<br/>Dashboard / Generate<br/>Export / Edit Brand"]
     end
 
-    subgraph CloudRun["☁️ Google Cloud Run"]
-        API["FastAPI Backend<br/>Port 8080<br/>REST + SSE Streaming"]
+    subgraph CloudRun["Google Cloud Run"]
+        API["FastAPI Backend<br/>Port 8080<br/>REST + SSE Streaming<br/>SPA Catch-All Routing"]
 
         subgraph Pipeline["ADK Sequential Pipeline"]
-            BA["🔍 Brand Analyst Agent<br/>URL Scraping + Brand DNA<br/>Colors, Tone, Audience<br/>Temperature 0.15"]
-            STR["📅 Strategy Agent<br/>7-Day Content Calendar<br/>Pillar-Based Planning<br/>Social Proof Tiers<br/>Event Integration"]
-            CC["✨ Content Creator Agent<br/>Gemini Interleaved Output<br/>Text + Image Together<br/>Carousel: 3-Slide Parallel Gen<br/>video_first: Caption-Only → Veo"]
-            RA["🔍 Review Agent<br/>Calibrated 1-10 Scoring<br/>5 Engagement Dimensions<br/>Platform-Specific Checks<br/>Engagement Prediction"]
+            BA["Brand Analyst Agent<br/>URL Scraping + Brand DNA<br/>Colors, Tone, Audience<br/>Temperature 0.15"]
+            STR["Strategy Agent<br/>7-Day Content Calendar<br/>Pillar-Based Planning<br/>Social Proof Tiers<br/>Event Integration"]
+            CC["Content Creator Agent<br/>Gemini Interleaved Output<br/>Text + Image Together<br/>Carousel: 3-Slide Parallel Gen<br/>video_first: Caption-Only then Veo"]
+            RA["Review Agent<br/>Calibrated 1-10 Scoring<br/>5 Engagement Dimensions<br/>Platform-Specific Checks<br/>Engagement Prediction"]
         end
 
         subgraph Support["Supporting Agents"]
-            VC["🗣️ Voice Coach<br/>Gemini Live API<br/>BidiGenerateContent<br/>Tier-Aware Strategy Context"]
-            VID["🎬 Video Creator<br/>Veo 3.1<br/>Reels / TikTok Clips"]
+            VC["Voice Coach<br/>Gemini Live API<br/>BidiGenerateContent<br/>Tier-Aware Strategy Context"]
+            VID["Video Creator<br/>Veo 3.1<br/>Reels / TikTok Clips"]
         end
 
         subgraph Services["Backend Services"]
-            WS["🌐 Web Scraper<br/>httpx + BeautifulSoup"]
-            BT["🏷️ Brand Tools<br/>ADK Tool Wrappers"]
-            HS["🧹 Hashtag Sanitizer<br/>Stopword Filter<br/>Per-Platform Limits"]
-            EX["📦 Export Service<br/>ZIP + Notion + .ics<br/>Direct GCS Download"]
-            IF["🖼️ Image Fallback<br/>Separate Image-Only Gen<br/>On Interleaved Failure"]
-            PR["📋 Platform Registry<br/>platforms.py<br/>10 Platforms<br/>PlatformSpec Dataclass"]
-            BA_SVC["🎨 Brand Assets Service<br/>brand_assets.py<br/>Logo + Product Photo Cache"]
-            NC["🔗 Notion Client<br/>notion_client.py<br/>OAuth + Database Export"]
-            EC["📧 Email Client<br/>email_client.py<br/>Resend API · .ics Delivery"]
+            WS["Web Scraper<br/>httpx + BeautifulSoup"]
+            BT["Brand Tools<br/>ADK Tool Wrappers"]
+            HS["Hashtag Sanitizer<br/>Stopword Filter<br/>Per-Platform Limits"]
+            EX["Export Service<br/>ZIP + Notion + .ics<br/>Direct GCS Download"]
+            IF["Image Fallback<br/>Separate Image-Only Gen<br/>On Interleaved Failure"]
+            PR["Platform Registry<br/>platforms.py<br/>10 Platforms<br/>PlatformSpec Dataclass"]
+            BA_SVC["Brand Assets Service<br/>brand_assets.py<br/>Logo + Product Photo Cache"]
+            NC["Notion Client<br/>notion_client.py<br/>OAuth + Database Export"]
+            EC["Email Client<br/>email_client.py<br/>Resend API / .ics Delivery"]
         end
     end
 
-    subgraph Infra["🏗️ Deployment Infrastructure"]
-        TF["📋 Terraform IaC<br/>main.tf<br/>One-Command Deploy<br/>7 Resources"]
-        CB["🔨 Cloud Build<br/>Multi-Stage Docker<br/>Node.js + Python<br/>Firebase Build Args"]
-        AR["📦 Artifact Registry<br/>Docker Images<br/>amplifi:latest"]
-        CORS["🔄 CORS Auto-Config<br/>null_resource<br/>Post-Deploy Update"]
+    subgraph CICD["CI/CD Pipeline"]
+        DS["deploy.sh<br/>One-Command Deploy<br/>Reads .env Config"]
+        CB["Cloud Build<br/>cloudbuild.yaml<br/>3-Step Pipeline"]
+        AR["Artifact Registry<br/>Docker Images<br/>amplifi:latest"]
+        TF["Terraform IaC<br/>main.tf<br/>GCP Resource Provisioning"]
     end
 
     subgraph GCP["Google Cloud Platform"]
-        FS[("🔥 Cloud Firestore<br/>Brand Profiles (owner_uid)<br/>Content Plans + Posts<br/>Video Jobs")]
-        GCS[("📦 Cloud Storage<br/>Generated Images<br/>Generated Videos<br/>Uploaded Assets")]
-        FA["🔐 Firebase Auth<br/>Anonymous Auth Provider<br/>Persistent UIDs"]
+        FS[("Cloud Firestore<br/>Brand Profiles (owner_uid)<br/>Content Plans + Posts<br/>Video Jobs")]
+        GCS[("Cloud Storage<br/>Generated Images<br/>Generated Videos<br/>Uploaded Assets")]
+        FA["Firebase Auth<br/>Google Sign-In Provider<br/>Persistent UIDs"]
     end
 
     subgraph Gemini["Google Gemini API"]
@@ -51,7 +52,8 @@ graph TB
     end
 
     FE <-->|"REST + SSE<br/>/api/*"| API
-    AUTH <-->|"Anonymous UID"| FA
+    AUTH <-->|"Google Sign-In<br/>UID + Profile"| FA
+    FE --- PAGES
 
     API --> BA
     BA --> STR
@@ -90,13 +92,12 @@ graph TB
     VID -->|"Store Video"| GCS
     EX -->|"Download Media<br/>blob.download_as_bytes"| GCS
 
-    TF -->|"Provisions"| API
+    DS -->|"Triggers"| CB
+    CB -->|"Step 1: Docker Build<br/>Step 2: Push"| AR
+    AR -->|"Step 3: Deploy"| API
     TF -->|"Provisions"| FS
     TF -->|"Provisions"| GCS
     TF -->|"Provisions"| AR
-    CB -->|"Builds Image"| AR
-    AR -->|"Deploys To"| API
-    CORS -->|"Sets CORS_ORIGINS"| API
 
     classDef browser fill:#1a1a2e,stroke:#e94560,color:#fff
     classDef cloud fill:#0f3460,stroke:#16213e,color:#fff
@@ -107,13 +108,15 @@ graph TB
     classDef gemini fill:#1e88e5,stroke:#1565c0,color:#fff
     classDef auth fill:#ff9800,stroke:#f57c00,color:#fff
     classDef infra fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef pages fill:#1a1a2e,stroke:#8ab4f8,color:#fff
 
     class FE browser
     class AUTH auth
+    class PAGES pages
     class API cloud
     class BA,STR,CC,RA pipeline
     class VC,VID support
     class WS,BT,HS,EX,IF,PR,BA_SVC,NC,EC tools
     class FS,GCS,FA gcp
     class GFlash,GLive gemini
-    class TF,CB,AR,CORS infra
+    class DS,CB,AR,TF infra

@@ -3,8 +3,8 @@
 
 **Category:** ✍️ Creative Storyteller
 **Author:** Software Architecture Team
-**Companion Document:** PRD — Amplifi v1.3
-**Version:** 1.4 | March 11, 2026 (updated from v1.3 March 2)
+**Companion Document:** PRD — Amplifi v1.4
+**Version:** 1.5 | March 12, 2026 (updated from v1.4 March 11)
 
 ---
 
@@ -12,7 +12,7 @@
 
 This Technical Design Document specifies the implementation architecture for Amplifi, an AI-powered creative director that produces complete social media content packages using Gemini's interleaved text and image output. It translates the PRD's product requirements into concrete engineering decisions, API contracts, data models, code structure, and deployment specifications.
 
-**Scope:** All P0 and P1 features from the PRD, plus shipped P2 features: brand analysis from URL (with deterministic analysis at temperature 0.15), content calendar generation with event integration and social proof tier system, interleaved post generation with carousel support, image fallback, video_first pipeline, and brand reference image injection, calibrated 1-10 review scoring with 5 engagement dimensions and platform-specific checks, React dashboard with tab-based navigation and Edit Brand page, image/video storage, streaming UI, Firebase Anonymous Auth, tier-aware Gemini Live voice coaching, Veo 3.1 video generation, full ZIP export with media, Platform Registry (10 platforms), Notion integration (OAuth + database export), calendar .ics export with email delivery, and platform-specific caption/hashtag enforcement.
+**Scope:** All P0 and P1 features from the PRD, plus shipped P2 features: brand analysis from URL (with deterministic analysis at temperature 0.15), content calendar generation with event integration and social proof tier system, interleaved post generation with carousel support, image fallback, video_first pipeline, and brand reference image injection, calibrated 1-10 review scoring with 5 engagement dimensions and platform-specific checks, React dashboard with tab-based navigation and Edit Brand page, image/video storage, streaming UI, Firebase Google Sign-In with account dropdown, dedicated Brands page with pagination (5 per page), tier-aware Gemini Live voice coaching, Veo 3.1 video generation, full ZIP export with media, Platform Registry (10 platforms), Notion integration (OAuth + database export), calendar .ics export with email delivery, platform-specific caption/hashtag enforcement, Cloud Build CI/CD pipeline with `deploy.sh`, and SPA catch-all routing for deep links on Cloud Run.
 
 **Out of scope (unspecified):** Post analytics dashboard (P3). Remaining P2 features are specified in §14.1. P3 features are additive and do not affect core architecture.
 
@@ -113,10 +113,15 @@ Generated images are extracted from the Gemini response, uploaded to Cloud Stora
 
 Rationale: Base64 images in Firestore would quickly exceed document size limits (1 MiB). Cloud Storage is purpose-built for binary objects. The backend proxy provides a reliable serving path that works identically in local dev and Cloud Run. For export, media is downloaded directly via `blob.download_as_bytes()` — bypassing URL resolution entirely.
 
-**Decision 5: Firebase Anonymous Auth for Brand Ownership**
-Firebase Anonymous Auth auto-creates a persistent UID on first visit. Brands get an `owner_uid` field linking them to the anonymous user. On return, the app queries Firestore for all brands matching the UID. Existing pre-auth brands are grandfathered via a `PATCH /api/brands/{id}/claim` endpoint.
+**Decision 5: Firebase Google Sign-In for Brand Ownership**
+Firebase Google Sign-In via `signInWithPopup` + `GoogleAuthProvider` provides one-click authentication. Brands get an `owner_uid` field linking them to the authenticated Google user. On return, the app queries Firestore for all brands matching the UID and shows them on the dedicated Brands page (`/brands`) with pagination (5 per page). NavBar shows "My Brands" when signed in, "Get Started" when not. Account dropdown displays profile photo and display name.
 
-Rationale: Users lose their brand on tab close without persistent identity. Anonymous auth provides zero-friction persistence (no login screen) while enabling multi-brand support and brand recovery on return.
+Rationale: Google Sign-In provides persistent identity with real user profiles (name, photo, email) while remaining low-friction (one click). The dedicated Brands page keeps the landing page clean for marketing/conversion while giving returning users a home for brand management.
+
+**Decision 5a: SPA Catch-All Routing on Cloud Run**
+The backend serves the React SPA via a catch-all route handler. All paths not matching `/api/*` or existing static files under `/assets/` are served `index.html`, letting React Router handle client-side routing. This ensures deep links (e.g., `/brands`, `/dashboard/xyz`, `/auth/notion/callback`) work on Cloud Run without 404s.
+
+Rationale: FastAPI's `StaticFiles(html=True)` doesn't serve `index.html` for deep SPA routes. The explicit catch-all route (`@app.get("/{full_path:path}")`) handles all SPA routes while still serving actual static assets.
 
 **Decision 6: Image Fallback on Interleaved Failure**
 If the Content Creator's interleaved output produces zero images (text-only response), a separate image-only generation call is made automatically. This is a two-tier fallback: (1) retry with explicit image instruction via `generate_post_fallback()`, (2) if still no image, emit an `IMAGE_GEN_FAILED` error event — caption is still saved.
@@ -743,11 +748,11 @@ Body: { website_url?: string, description: string, uploaded_assets?: string[], o
   // description: free-text business description (min 20 chars, required)
   // website_url: optional — omitted in no-website mode
   // uploaded_assets: optional array of Cloud Storage refs for brand assets (images, PDFs)
-  // owner_uid: Firebase Anonymous Auth UID — links this brand to the user
+  // owner_uid: Firebase Google Auth UID — links this brand to the user
 Response: { brand_id: string, status: "created" }
 
 GET /api/brands?owner_uid={uid}
-  // Returns all brands linked to this Firebase Anonymous Auth UID
+  // Returns all brands linked to this Firebase Google Auth UID
 Response: { brands: BrandProfile[] }
 
 PATCH /api/brands/{brandId}/claim
@@ -1259,7 +1264,7 @@ ref_images = await get_brand_reference_images(brand_profile, max_images=3)
 amplifi-db/
 ├── brands/
 │   └── {brandId}/                         # Auto-generated
-│       ├── owner_uid: string | null       # Firebase Anonymous Auth UID — links brand to user
+│       ├── owner_uid: string | null       # Firebase Google Auth UID — links brand to user
 │       ├── business_name: string          # "Sunrise Bakery"
 │       ├── business_type: string          # AI-inferred from description: "local_business" | "service" | "personal_brand" | "ecommerce"
 │       ├── website_url: string | null     # "https://sunrisebakery.com" — null in no-website mode
@@ -1897,15 +1902,26 @@ function VideoGenerateButton({ postId, contentType }: Props) {
 
 ```
 App (React Router)
-├── LandingPage (/)
+├── NavBar (sticky top bar)
+│   ├── Logo + "Amplifi" brand (click → /)
+│   ├── StaticLinks (Home | My Brands or Get Started — dynamic based on auth)
+│   ├── ExportLink (shown when activeBrandId is detected from URL)
+│   └── AccountDropdown (signed in: profile photo + name + sign out | not signed in: "Sign in" button)
+│
+├── LandingPage (/) — pure marketing page, no user state
 │   ├── HeroSection (gradient headline, value prop, dual CTAs)
-│   ├── YourBrands (Firebase Anonymous Auth — shows brands linked to current UID)
-│   │   └── BrandCard[] (name, industry, last updated — click to open dashboard)
-│   ├── ProductPreview (mini calendar preview with pillar tags)
+│   ├── PlatformStrip (Instagram, LinkedIn, X, Facebook badges)
 │   ├── HowItWorks (3-step cards: Describe → Strategy → Generate)
+│   ├── ProductPreview (mini calendar preview with pillar tags)
 │   ├── FeaturesGrid (2×3: brand-aware, multi-platform, BYOP, video, pillars, events)
-│   ├── Testimonial (social proof placeholder)
-│   └── FooterCTA (repeat start button)
+│   └── FooterCTA (repeat start button — triggers Google Sign-In then navigates to /brands)
+│
+├── BrandsPage (/brands) — requires sign-in, redirects to / if not authenticated
+│   ├── CreateBrandCard (prominent CTA: "+ New Brand" → /onboard)
+│   └── YourBrands (paginated list, 5 per page)
+│       ├── BrandCard[] (avatar initial, name, industry, status badge, click → /dashboard/:id)
+│       ├── EmptyState ("No brands yet — create your first brand")
+│       └── Pagination (Previous | Page X of Y | Next)
 │
 ├── OnboardPage (/onboard)
 │   └── BrandWizard
@@ -2237,38 +2253,33 @@ The `terraform/` directory provisions the complete GCP infrastructure with a sin
 | `bucket_name` | GCS bucket name for generated assets |
 | `firestore_database` | Firestore database name |
 
-## 10.4 Cloud Build Pipeline
+## 10.4 Cloud Build CI/CD Pipeline
 
-Docker images are built remotely via Google Cloud Build. The build context is the repo root (not `backend/`), since the Dockerfile copies both `frontend/` and `backend/` directories. Firebase config is passed as `--build-arg` flags.
+The CI/CD pipeline is defined in `cloudbuild.yaml` and triggered via `scripts/deploy.sh`. The deploy script reads config from `.env` (gitignored), validates required variables, and submits a Cloud Build job with substitutions.
 
-```yaml
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-f'
-      - 'backend/Dockerfile'
-      - '--build-arg'
-      - 'VITE_FIREBASE_API_KEY=${_FIREBASE_API_KEY}'
-      - '--build-arg'
-      - 'VITE_FIREBASE_AUTH_DOMAIN=${_FIREBASE_AUTH_DOMAIN}'
-      - '--build-arg'
-      - 'VITE_FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}'
-      - '--build-arg'
-      - 'VITE_FIREBASE_STORAGE_BUCKET=${_FIREBASE_STORAGE_BUCKET}'
-      - '--build-arg'
-      - 'VITE_FIREBASE_MESSAGING_SENDER_ID=${_FIREBASE_MESSAGING_SENDER_ID}'
-      - '--build-arg'
-      - 'VITE_FIREBASE_APP_ID=${_FIREBASE_APP_ID}'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest'
-      - '.'
-images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest'
-timeout: 900s
+**Pipeline steps:**
+
+| Step | Action | Key Details |
+|------|--------|-------------|
+| 1. Docker Build | Build multi-stage image | Firebase `VITE_*` vars passed as `--build-arg` (baked into JS bundle by Vite) |
+| 2. Push | Push to Artifact Registry | `{region}-docker.pkg.dev/{project}/amplifi/amplifi:latest` |
+| 3. Deploy | Deploy to Cloud Run | Runtime env vars: `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` |
+
+**Usage:**
+```bash
+# One-command deploy (reads all config from .env)
+./scripts/deploy.sh
 ```
 
-**Build timeout:** 900s (15 min) — the frontend TypeScript compile + Vite build + system dependency installation (Node.js 20, ffmpeg, Python packages) requires significant build time.
+The `deploy.sh` script:
+1. Sources `.env` from project root
+2. Validates required variables (`VITE_FIREBASE_*`, `GCP_PROJECT_ID`, `GOOGLE_API_KEY`)
+3. Runs `gcloud builds submit` with all substitutions
+4. Prints the live Cloud Run URL after deploy
+
+**Build-time vs runtime environment variables:**
+- **Build-time** (`--build-arg`): `VITE_FIREBASE_*` — baked into the JS bundle by Vite at `npm run build`. Cannot be changed after build. These configure Firebase Google Sign-In.
+- **Runtime** (`--set-env-vars`): `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` — read by the Python backend at startup via `os.environ`.
 
 ## 10.5 Environment Variables
 
@@ -2279,8 +2290,12 @@ timeout: 900s
 | `GOOGLE_API_KEY` | Yes | — | Gemini API key for all agents |
 | `GCP_PROJECT_ID` | Yes | — | GCP project ID |
 | `GCS_BUCKET_NAME` | Yes | — | Cloud Storage bucket for images/video |
-| `CORS_ORIGINS` | Yes | `http://localhost:5173` | Comma-separated allowed origins (auto-set by Terraform) |
+| `CORS_ORIGINS` | Yes | `http://localhost:5173` | Comma-separated allowed origins |
 | `GEMINI_MODEL` | No | `gemini-2.5-flash` | Default Gemini model override |
+| `RESEND_API_KEY` | No | `""` | Resend API key for email delivery (.ics calendar) |
+| `NOTION_CLIENT_ID` | No | `""` | Notion OAuth client ID |
+| `NOTION_CLIENT_SECRET` | No | `""` | Notion OAuth client secret |
+| `NOTION_REDIRECT_URI` | No | `""` | Notion OAuth redirect URI (must match Cloud Run URL) |
 
 **Build-time environment** (Docker build args — baked into JS bundle):
 
@@ -2309,24 +2324,22 @@ timeout: 900s
 # 11. Repository Structure
 
 ```
-amplifi/
+amplifi-hackaton/
 ├── backend/
 │   ├── agents/
-│   │   ├── __init__.py
 │   │   ├── brand_analyst.py       # Brand Analyst Agent + system prompt
 │   │   ├── strategy_agent.py      # Strategy Agent + calendar generation (social proof tiers)
 │   │   ├── content_creator.py     # Content Creator Agent (interleaved output, video_first)
-│   │   ├── video_creator.py       # Video Creator (Veo 3.1 integration, P1)
+│   │   ├── video_creator.py       # Video Creator (Veo 3.1 integration)
 │   │   ├── review_agent.py        # Review Agent (calibrated 1-10 scoring, platform checks)
-│   │   └── voice_coach.py         # Voice Coach prompt builder (tier-aware strategy)
+│   │   ├── voice_coach.py         # Voice Coach prompt builder (tier-aware strategy)
+│   │   ├── social_voice_agent.py  # Platform voice analysis
+│   │   └── video_repurpose_agent.py # Video clip repurposing
 │   ├── tools/
-│   │   ├── __init__.py
 │   │   ├── web_scraper.py         # fetch_website, extract colors
-│   │   ├── brand_tools.py         # analyze_brand_colors, extract_brand_voice
-│   │   └── review_tools.py        # check_brand_consistency, validate_hashtags
+│   │   └── brand_tools.py         # analyze_brand_colors, extract_brand_voice
 │   ├── platforms.py               # Platform Registry — 10 platforms, PlatformSpec dataclass
 │   ├── services/
-│   │   ├── __init__.py
 │   │   ├── firestore_client.py    # All Firestore CRUD operations
 │   │   ├── storage_client.py      # Cloud Storage upload + signed URLs
 │   │   ├── budget_tracker.py      # Image generation budget tracking
@@ -2334,56 +2347,71 @@ amplifi/
 │   │   ├── notion_client.py       # Notion OAuth + database export
 │   │   └── email_client.py        # Resend API — .ics calendar email delivery
 │   ├── models/
-│   │   ├── __init__.py
 │   │   ├── brand.py               # Pydantic models for BrandProfile
 │   │   ├── plan.py                # ContentPlan, DayBrief models
 │   │   ├── post.py                # Post, ReviewResult models
 │   │   └── api.py                 # Request/Response models
-│   ├── server.py                  # FastAPI app, all endpoints
+│   ├── server.py                  # FastAPI app (REST + SSE + SPA catch-all)
 │   ├── config.py                  # Environment variables, constants
 │   ├── requirements.txt
-│   ├── Dockerfile
+│   ├── Dockerfile                 # Multi-stage: Node.js frontend build + Python runtime
 │   └── .env.example
 ├── frontend/
-│   ├── public/
-│   │   └── index.html
 │   ├── src/
-│   │   ├── App.jsx
-│   │   ├── platformRegistry.ts    # Frontend mirror of Platform Registry
-│   │   ├── pages/
-│   │   │   ├── OnboardPage.jsx
-│   │   │   ├── DashboardPage.jsx
-│   │   │   ├── EditBrandPage.jsx  # Full brand profile editor + asset management
-│   │   │   ├── GeneratePage.jsx
-│   │   │   └── ExportPage.jsx
-│   │   ├── components/
-│   │   │   ├── BrandWizard.jsx
-│   │   │   ├── BrandProfileCard.jsx
-│   │   │   ├── ContentCalendar.jsx
-│   │   │   ├── DayCard.jsx
-│   │   │   ├── PostGenerator.jsx    # SSE consumer, generation stream
-│   │   │   ├── ReviewPanel.jsx
-│   │   │   ├── PostLibrary.jsx
-│   │   │   ├── PostCard.jsx
-│   │   │   ├── PlatformPreview.jsx # Live character counts + fold indicators
-│   │   │   └── ActionBar.jsx
+│   │   ├── App.tsx                # React Router (/, /brands, /onboard, /dashboard/:id, ...)
+│   │   ├── pages/                 # Route-level page components
+│   │   │   ├── LandingPage.tsx    # Marketing landing page (hero, features, CTA)
+│   │   │   ├── BrandsPage.tsx     # Brand list with pagination + "Create" CTA
+│   │   │   ├── OnboardPage.tsx    # Brand creation wizard
+│   │   │   ├── DashboardPage.tsx  # Brand dashboard (calendar, posts, export tabs)
+│   │   │   ├── EditBrandPage.tsx  # Brand profile editor + asset management
+│   │   │   ├── GeneratePage.tsx   # Per-day content generation with SSE
+│   │   │   ├── ExportPage.tsx     # Bulk export (ZIP, Notion, .ics)
+│   │   │   ├── NotionCallbackPage.tsx # Notion OAuth callback handler
+│   │   │   ├── TermsPage.tsx      # Terms of Service
+│   │   │   └── PrivacyPage.tsx    # Privacy Policy
+│   │   ├── components/            # Reusable UI components
+│   │   │   ├── NavBar.tsx         # Sticky nav (Home, My Brands, Export, Account dropdown)
+│   │   │   ├── PostCard.tsx       # Individual post display
+│   │   │   ├── PostGenerator.tsx  # SSE consumer, generation stream
+│   │   │   ├── PostLibrary.tsx    # Post list with "Copy All" clipboard
+│   │   │   ├── ReviewPanel.tsx    # AI review scores and suggestions
+│   │   │   ├── ContentCalendar.tsx # 7-day calendar grid
+│   │   │   ├── EventsInput.tsx    # Business events input
+│   │   │   ├── BrandProfileCard.tsx # Brand profile display
+│   │   │   ├── BrandSummaryBar.tsx  # Compact brand info bar
+│   │   │   ├── PlatformPreview.tsx  # Platform-specific post preview
+│   │   │   ├── VoiceCoach.tsx     # Gemini Live voice coaching UI
+│   │   │   ├── VideoRepurpose.tsx # Video generation controls
+│   │   │   ├── IntegrationConnect.tsx # Notion/email integration UI
+│   │   │   └── SocialConnect.tsx  # Social platform OAuth (future)
 │   │   ├── hooks/
-│   │   │   ├── usePostGeneration.ts # SSE hook
-│   │   │   ├── usePostLibrary.ts    # Post listing with auto-poll
-│   │   │   ├── useVideoGeneration.ts # Veo polling hook (P1)
-│   │   │   ├── useBrandProfile.ts
-│   │   │   └── useContentPlan.ts
+│   │   │   └── useAuth.ts        # Firebase Google Auth hook (signIn, signOut, uid, user)
 │   │   ├── api/
-│   │   │   └── client.ts           # REST API client (fetch wrapper)
-│   │   └── utils/
-│   │       └── format.ts           # Date formatting, hashtag parsing
-│   ├── package.json
-│   └── vite.config.js
+│   │   │   ├── client.ts         # REST API client (fetch wrapper)
+│   │   │   └── firebase.ts       # Firebase config + Google Sign-In
+│   │   └── theme.ts              # Design system tokens (colors, spacing)
+│   ├── package.json              # React 19 + react-router-dom + Vite 7
+│   ├── tsconfig.json             # TypeScript config
+│   ├── vite.config.ts            # Proxy /api → :8080
+│   └── index.html
+├── scripts/
+│   └── deploy.sh                 # One-command Cloud Build deploy
+├── cloudbuild.yaml               # Cloud Build CI/CD pipeline (3 steps)
 ├── terraform/
-│   ├── amplifi.tf
-│   ├── variables.tf
-│   └── outputs.tf
-├── cloudbuild-amplifi.yaml
+│   ├── main.tf                   # All GCP resource definitions
+│   ├── variables.tf              # Input variables
+│   └── terraform.tfvars.example  # Secret values template
+├── .env.example                  # Root-level deploy config template
+├── docs/
+│   ├── PRD.md
+│   ├── TDD.md
+│   ├── DEPLOYMENT.md
+│   ├── architecture.mermaid
+│   ├── amplifi-ui.jsx
+│   ├── playtest-personas.md
+│   ├── future-enhancements.md
+│   └── buffer-notion-integration-plan.md
 ├── README.md
 └── LICENSE (MIT)
 ```
@@ -3493,23 +3521,45 @@ RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # 15. Environment Variable Manifest
 
+### Server-Side (Runtime — Cloud Run `--set-env-vars`)
+
 | Variable | Required | Description | Example |
 |---|---|---|---|
-| `GOOGLE_CLOUD_PROJECT` | ✓ | GCP project ID | `amplifi-hackathon-2026` |
-| `GEMINI_API_KEY` | ✓ | Gemini API key (or use ADC) | `AIzaSy...` |
-| `GCS_BUCKET` | ✓ | Cloud Storage bucket for brand assets + generated images | `amplifi-hackathon-2026-amplifi-assets` |
-| `FIRESTORE_DATABASE` | | Firestore database ID (default: `(default)`) | `(default)` |
-| `PORT` | | Server port (Cloud Run provides this) | `8080` |
-| `BUDGET_LIMIT_USD` | | Override budget cap (default: `100`) | `80` |
+| `GOOGLE_API_KEY` | ✓ | Gemini API key for all agents | `AIzaSy...` |
+| `GCP_PROJECT_ID` | ✓ | GCP project ID | `amplifi-488503-a0bd0` |
+| `GCS_BUCKET_NAME` | ✓ | Cloud Storage bucket for images/video | `amplifi-488503-a0bd0-amplifi-assets` |
+| `CORS_ORIGINS` | ✓ | Comma-separated allowed origins | `https://amplifi-xxxxx-uc.a.run.app` |
+| `GEMINI_MODEL` | | Default Gemini model (default: `gemini-2.5-flash`) | `gemini-2.5-flash` |
+| `RESEND_API_KEY` | | Resend API key for .ics email delivery | `re_...` |
+| `NOTION_CLIENT_ID` | | Notion OAuth client ID | `315d872b-...` |
+| `NOTION_CLIENT_SECRET` | | Notion OAuth client secret | `secret_...` |
+| `NOTION_REDIRECT_URI` | | Notion OAuth redirect URI | `https://your-url/auth/notion/callback` |
+
+### Client-Side (Build-Time — Docker `--build-arg`)
+
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY` | ✓ | Firebase Web API key |
+| `VITE_FIREBASE_AUTH_DOMAIN` | ✓ | Firebase auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | ✓ | Firebase project ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | ✓ | Firebase storage bucket |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | ✓ | Firebase messaging sender ID |
+| `VITE_FIREBASE_APP_ID` | ✓ | Firebase app ID |
+
+### Deploy Config (`.env` in repo root — read by `deploy.sh`)
 
 ```bash
 # .env.example
-GOOGLE_CLOUD_PROJECT=amplifi-hackathon-2026
-GEMINI_API_KEY=your-api-key-here
-GCS_BUCKET=amplifi-hackathon-2026-amplifi-assets
-FIRESTORE_DATABASE=(default)
-PORT=8080
-BUDGET_LIMIT_USD=100
+GCP_PROJECT_ID=your-gcp-project-id
+GCP_REGION=us-central1
+GOOGLE_API_KEY=
+CORS_ORIGINS=*
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
 ```
 
 ---
@@ -3529,7 +3579,9 @@ For engineers working on both projects, here is a comparison of the key architec
 | **Cloud Run Config** | Session affinity ON, 3600s timeout, WebSocket | No session affinity needed, 300s timeout, HTTP |
 | **Firestore Role** | Real-time game state (players, votes, phases) | Persistent content storage (brands, plans, posts) |
 | **Cloud Storage Role** | Scene images (stretch goal) | Core feature — all generated images |
-| **Frontend** | Mobile-first PWA, audio playback, real-time updates | Dashboard, SSE streaming, image gallery |
+| **Auth** | None (anonymous game codes) | Firebase Google Sign-In (persistent UID, profile photo) |
+| **Frontend** | Mobile-first PWA, audio playback, real-time updates | Dashboard, SSE streaming, image gallery, paginated brand list |
+| **CI/CD** | Manual deploy | Cloud Build pipeline + `deploy.sh` |
 | **Concurrent Users** | 3–6 players per game, 1 game at a time (demo) | 1 user at a time (demo) |
 | **Budget Concern** | Minimal (voice is cheap) | Moderate (~$0.039/image, tracked) |
 

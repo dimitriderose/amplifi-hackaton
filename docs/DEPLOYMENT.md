@@ -9,7 +9,7 @@
 | npm | 10+ | Frontend package manager |
 | Google Cloud SDK (`gcloud`) | Latest | GCP services + deployment |
 | Docker | 24+ | Container builds (production) |
-| Terraform | 1.5+ | Infrastructure as code (optional, see Part 5) |
+| Terraform | 1.5+ | Infrastructure as code (optional, see Part 6) |
 | ffmpeg | 6+ | Video processing (installed in Docker, needed locally for video features) |
 | Git | 2.x | Source control |
 
@@ -22,6 +22,7 @@
 | **Cloud Storage** | Generated images, uploaded assets, video clips | Yes — 5 GB free |
 | **Cloud Run** | Backend hosting (production) | Yes — 2M requests/month |
 | **Cloud Build** | CI/CD pipeline (production) | Yes — 120 build-min/day |
+| **Firebase Auth** | Google Sign-In (user authentication) | Yes — unlimited |
 
 ---
 
@@ -63,7 +64,10 @@ pip install -r requirements.txt
 
 ### 1.3 Environment Variables
 
+**Backend** — copy `backend/.env.example` to `backend/.env`:
+
 ```bash
+cd backend
 cp .env.example .env
 ```
 
@@ -82,34 +86,44 @@ CORS_ORIGINS=http://localhost:5173
 
 # === OPTIONAL: Gemini model override ===
 GEMINI_MODEL=gemini-2.5-flash
+```
 
-# === OPTIONAL: Social OAuth (future) ===
-LINKEDIN_CLIENT_ID=
-LINKEDIN_CLIENT_SECRET=
-META_APP_ID=
-META_APP_SECRET=
-X_CLIENT_ID=
-X_CLIENT_SECRET=
+**Frontend** — create `frontend/.env.local` with your Firebase config:
+
+```env
+VITE_FIREBASE_API_KEY=your-firebase-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+VITE_FIREBASE_APP_ID=your-app-id
 ```
 
 **Getting credentials:**
 
 1. **Gemini API Key:** Go to [Google AI Studio](https://aistudio.google.com/apikey) → Create API Key
 2. **GCP Project:** `gcloud projects create amplifi-hackathon` (or use existing)
-3. **Authentication (local dev):**
+3. **Firebase Project:** Go to [Firebase Console](https://console.firebase.google.com) → Add Project (or link existing GCP project) → Enable Google Sign-In under Authentication → Providers → Copy web app config
+4. **Authentication (local dev):**
    ```bash
    gcloud auth application-default login
    ```
    This uses ADC (Application Default Credentials) — no service account file needed locally.
-4. **Cloud Storage Bucket:**
+5. **Cloud Storage Bucket:**
    ```bash
    gcloud storage buckets create gs://YOUR_PROJECT_ID-amplifi-assets \
      --location=us-central1 \
      --uniform-bucket-level-access
    ```
-5. **Firestore:**
+6. **Firestore:**
    ```bash
-   gcloud firestore databases create --location=us-central1
+   gcloud firestore databases create --location=nam5 --type=firestore-native
+   ```
+7. **Firestore IAM (Cloud Run):**
+   ```bash
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+     --role="roles/datastore.user"
    ```
 
 ### 1.4 Start the Backend
@@ -142,10 +156,11 @@ This starts Vite on `http://localhost:5173` with HMR. The Vite config proxies:
 ### 1.6 Test Locally
 
 1. Open `http://localhost:5173` in your browser
-2. Click "Get Started" — no sign-up required
-3. Describe your business (or paste a URL)
-4. Watch brand analysis run → content calendar generates via SSE stream
-5. Review posts → Copy All to clipboard
+2. Click "Build My Brand Profile" → sign in with Google
+3. You'll land on the **Brands page** — click "+ New Brand"
+4. Describe your business (or paste a URL)
+5. Watch brand analysis run → content calendar generates via SSE stream
+6. Review posts → Copy All to clipboard
 
 **Architecture (local dev):**
 ```
@@ -158,19 +173,140 @@ Browser :5173 ──Vite proxy──→ FastAPI :8080
 
 ---
 
-## Part 2: Production Deployment (Cloud Run) — Manual
+## Part 2: Production Deployment — Cloud Build CI/CD (Recommended)
+
+The recommended deployment method uses `scripts/deploy.sh` which triggers a Cloud Build pipeline defined in `cloudbuild.yaml`. This is a **one-command deploy** that builds the Docker image with Firebase config baked in, pushes to Artifact Registry, and deploys to Cloud Run.
 
 ### 2.1 Architecture
 
-The Dockerfile builds both frontend and backend into a single image. The backend serves the compiled frontend:
-
 ```
+deploy.sh → Cloud Build (cloudbuild.yaml)
+               ├── Step 1: Docker build (with VITE_FIREBASE_* build args)
+               ├── Step 2: Push to Artifact Registry
+               └── Step 3: Deploy to Cloud Run (with runtime env vars)
+
 Internet → Cloud Run :8080
-             ├── /api/*  → FastAPI routes + SSE streams
-             └── /*      → frontend/dist/ (static React app)
+             ├── /api/*         → FastAPI routes + SSE streams
+             ├── /assets/*      → Static assets (JS, CSS, images)
+             └── /* (catch-all) → index.html (SPA routing)
 ```
 
-### 2.2 Build the Docker Image
+### 2.2 Setup
+
+**One-time GCP setup:**
+
+```bash
+export PROJECT_ID=your-gcp-project-id
+gcloud config set project $PROJECT_ID
+
+# Enable required APIs
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  firestore.googleapis.com \
+  storage.googleapis.com \
+  artifactregistry.googleapis.com
+
+# Create Artifact Registry repo
+gcloud artifacts repositories create amplifi \
+  --repository-format=docker \
+  --location=us-central1
+
+# Create Firestore database
+gcloud firestore databases create --location=nam5 --type=firestore-native
+
+# Create Cloud Storage bucket
+gcloud storage buckets create gs://$PROJECT_ID-amplifi-assets \
+  --location=us-central1 \
+  --uniform-bucket-level-access
+
+# Grant Firestore access to Cloud Run service account
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/datastore.user"
+```
+
+### 2.3 Configure `.env`
+
+Copy `.env.example` to `.env` in the **repo root** and fill in all values:
+
+```env
+# GCP project
+GCP_PROJECT_ID=your-gcp-project-id
+GCP_REGION=us-central1
+
+# Gemini API key (server-side, set as Cloud Run env var)
+GOOGLE_API_KEY=your-gemini-api-key
+
+# CORS origin (your Cloud Run URL)
+CORS_ORIGINS=https://amplifi-xxxxx-uc.a.run.app
+
+# Firebase config (client-side, baked into JS bundle at build time)
+VITE_FIREBASE_API_KEY=your-firebase-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+VITE_FIREBASE_APP_ID=your-app-id
+
+# Notion integration (optional)
+NOTION_CLIENT_ID=your-notion-client-id
+NOTION_CLIENT_SECRET=your-notion-client-secret
+NOTION_REDIRECT_URI=https://your-cloud-run-url/auth/notion/callback
+
+# Resend email (optional)
+RESEND_API_KEY=your-resend-api-key
+```
+
+> **Never commit `.env`** — it contains secrets. It's already in `.gitignore`.
+
+### 2.4 Deploy
+
+```bash
+./scripts/deploy.sh
+```
+
+This single command:
+1. Reads all config from `.env`
+2. Validates required variables
+3. Submits a Cloud Build job with substitutions
+4. Cloud Build builds the Docker image (with `VITE_FIREBASE_*` as build args)
+5. Pushes the image to Artifact Registry
+6. Deploys to Cloud Run with all runtime env vars (`GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL`)
+7. Prints the live URL
+
+### 2.5 Cloud Build Pipeline Details
+
+The `cloudbuild.yaml` defines a 3-step pipeline:
+
+| Step | What | Key Details |
+|------|------|-------------|
+| 1. Docker Build | Builds multi-stage image | Firebase `VITE_*` vars passed as `--build-arg` (baked into JS bundle) |
+| 2. Push | Pushes to Artifact Registry | `{region}-docker.pkg.dev/{project}/amplifi/amplifi:latest` |
+| 3. Deploy | Deploys to Cloud Run | Runtime env vars: `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` |
+
+**Build-time vs runtime env vars:**
+- **Build-time** (`--build-arg`): `VITE_FIREBASE_*` — baked into the JS bundle by Vite, cannot be changed after build
+- **Runtime** (`--set-env-vars`): `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` — read by the Python backend at startup
+
+### 2.6 Post-Deploy: Firebase Auth Domain
+
+After your first deploy, add your Cloud Run URL to Firebase's authorized domains:
+1. Go to [Firebase Console](https://console.firebase.google.com) → Authentication → Settings → Authorized domains
+2. Add your Cloud Run domain (e.g., `amplifi-xxxxx-uc.a.run.app`)
+
+### 2.7 SPA Routing
+
+The backend serves the React SPA with a catch-all route. All deep links (e.g., `/brands`, `/dashboard/xyz`, `/auth/notion/callback`) are handled by serving `index.html` and letting React Router resolve the route client-side. Static assets under `/assets/` are served directly.
+
+---
+
+## Part 3: Production Deployment (Cloud Run) — Manual
+
+If you prefer manual deployment without the CI/CD pipeline:
+
+### 3.1 Build the Docker Image
 
 From the **repo root**:
 
@@ -186,49 +322,13 @@ docker build -f backend/Dockerfile -t amplifi .
 5. Copies `backend/`
 6. Runs `uvicorn backend.server:app` on port 8080
 
-### 2.3 Test Docker Locally
+### 3.2 Deploy to Cloud Run
 
 ```bash
-docker run -p 8080:8080 \
-  -e GOOGLE_API_KEY=your-key \
-  -e GCP_PROJECT_ID=your-project-id \
-  -e GCS_BUCKET_NAME=your-project-id-amplifi-assets \
-  -e CORS_ORIGINS=http://localhost:8080 \
-  -e GOOGLE_APPLICATION_CREDENTIALS=/app/sa.json \
-  -v $(pwd)/service-account.json:/app/sa.json:ro \
-  amplifi
-```
-
-Visit `http://localhost:8080` — should serve the full app.
-
-### 2.4 Deploy to Cloud Run
-
-```bash
-# Set your project
 export PROJECT_ID=your-gcp-project-id
-gcloud config set project $PROJECT_ID
-
-# Enable required APIs
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  firestore.googleapis.com \
-  storage.googleapis.com \
-  aiplatform.googleapis.com
-
-# Create Artifact Registry repo (first time only)
-gcloud artifacts repositories create amplifi \
-  --repository-format=docker \
-  --location=us-central1
-
-# Build and push (note: --timeout is important, frontend build takes time)
-# The Dockerfile requires Firebase build args — see §5.3 for the full
-# cloudbuild.yaml with --build-arg flags, or use the simpler form below
-# if your frontend/.env is committed (it's gitignored by default):
 export IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest
 gcloud builds submit --tag $IMAGE --timeout=900
 
-# Deploy
 gcloud run deploy amplifi \
   --image $IMAGE \
   --platform managed \
@@ -240,7 +340,7 @@ gcloud run deploy amplifi \
   --min-instances 0 \
   --max-instances 10 \
   --timeout 300 \
-  --set-env-vars="GOOGLE_API_KEY=your-key,GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$PROJECT_ID-amplifi-assets,CORS_ORIGINS=https://amplifi-HASH.run.app"
+  --set-env-vars="GOOGLE_API_KEY=your-key,GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$PROJECT_ID-amplifi-assets,CORS_ORIGINS=https://your-url.run.app,GEMINI_MODEL=gemini-2.5-flash"
 ```
 
 **Critical flags:**
@@ -249,24 +349,13 @@ gcloud run deploy amplifi \
 - `--port 8080` — Matches Dockerfile
 - `CORS_ORIGINS` — Set to your Cloud Run URL after first deploy
 
-### 2.5 Post-Deploy: Set CORS
-
-Get your Cloud Run URL and update:
-
-```bash
-gcloud run services update amplifi \
-  --set-env-vars="CORS_ORIGINS=https://amplifi-abc123-uc.a.run.app"
-```
-
-### 2.6 Cloud Storage CORS (Required for Image Display)
-
-If generated images are stored in GCS and loaded directly by the browser, set CORS on the bucket:
+### 3.3 Cloud Storage CORS (Required for Image Display)
 
 ```bash
 cat > cors.json << 'EOF'
 [
   {
-    "origin": ["https://amplifi-abc123-uc.a.run.app", "http://localhost:5173"],
+    "origin": ["https://your-cloud-run-url.run.app", "http://localhost:5173"],
     "method": ["GET"],
     "responseHeader": ["Content-Type"],
     "maxAgeSeconds": 3600
@@ -277,32 +366,36 @@ EOF
 gcloud storage buckets update gs://$PROJECT_ID-amplifi-assets --cors-file=cors.json
 ```
 
-### 2.7 Custom Domain (Optional)
-
-```bash
-gcloud run domain-mappings create \
-  --service amplifi \
-  --domain app.amplifi.ai \
-  --region us-central1
-```
-
 ---
 
-## Part 3: Environment Variable Reference
+## Part 4: Environment Variable Reference
+
+### Server-Side (Runtime)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GOOGLE_API_KEY` | Yes | `""` | Gemini API key for all agents |
-| `GCP_PROJECT_ID` | Yes | `amplifi-hackathon` | GCP project ID |
+| `GCP_PROJECT_ID` | Yes | — | GCP project ID |
 | `GCS_BUCKET_NAME` | Yes | `{project}-amplifi-assets` | Cloud Storage bucket for images/video |
 | `CORS_ORIGINS` | Yes | `http://localhost:5173` | Comma-separated allowed origins |
 | `GEMINI_MODEL` | No | `gemini-2.5-flash` | Default Gemini model |
-| `LINKEDIN_CLIENT_ID` | No | `""` | LinkedIn OAuth (future) |
-| `LINKEDIN_CLIENT_SECRET` | No | `""` | LinkedIn OAuth (future) |
-| `META_APP_ID` | No | `""` | Meta/Facebook OAuth (future) |
-| `META_APP_SECRET` | No | `""` | Meta/Facebook OAuth (future) |
-| `X_CLIENT_ID` | No | `""` | X/Twitter OAuth (future) |
-| `X_CLIENT_SECRET` | No | `""` | X/Twitter OAuth (future) |
+| `RESEND_API_KEY` | No | `""` | Resend API key for email delivery (.ics calendar) |
+| `NOTION_CLIENT_ID` | No | `""` | Notion OAuth client ID |
+| `NOTION_CLIENT_SECRET` | No | `""` | Notion OAuth client secret |
+| `NOTION_REDIRECT_URI` | No | `""` | Notion OAuth redirect URI (must match Cloud Run URL) |
+
+### Client-Side (Build-Time)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_FIREBASE_API_KEY` | Yes | Firebase web API key |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Yes | Firebase auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Yes | Firebase storage bucket |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Yes | Firebase messaging sender ID |
+| `VITE_FIREBASE_APP_ID` | Yes | Firebase app ID |
+
+> **Note:** `VITE_*` variables are baked into the JS bundle at build time by Vite. They must be passed as Docker `--build-arg` flags (handled automatically by `deploy.sh` and `cloudbuild.yaml`).
 
 ### Budget Constants (hardcoded in `config.py`)
 
@@ -317,7 +410,7 @@ gcloud run domain-mappings create \
 
 ---
 
-## Part 4: Project Structure
+## Part 5: Project Structure
 
 ```
 amplifi-hackaton/
@@ -328,7 +421,7 @@ amplifi-hackaton/
 │   │   ├── content_creator.py        # Gemini interleaved text+image generation
 │   │   ├── review_agent.py           # Brand alignment review + revised captions
 │   │   ├── social_voice_agent.py     # Platform voice analysis (LinkedIn/IG/X)
-│   │   ├── voice_coach.py            # Ongoing brand voice coaching
+│   │   ├── voice_coach.py            # Gemini Live voice coaching
 │   │   ├── video_creator.py          # Veo 3.1 video generation
 │   │   └── video_repurpose_agent.py  # Video clip repurposing
 │   ├── models/
@@ -343,39 +436,64 @@ amplifi-hackaton/
 │   ├── tools/
 │   │   ├── web_scraper.py            # httpx + BeautifulSoup URL crawling
 │   │   └── brand_tools.py            # ADK tool wrappers for brand analysis
-│   ├── server.py                     # FastAPI app (REST + SSE + static mount)
+│   ├── server.py                     # FastAPI app (REST + SSE + SPA catch-all)
 │   ├── config.py                     # Environment config + budget constants
+│   ├── platforms.py                  # Platform Registry (10 platforms)
 │   ├── Dockerfile                    # Multi-stage: Node build + Python runtime
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
-│   │   ├── components/               # React components (TypeScript)
-│   │   │   ├── LandingPage.tsx
-│   │   │   ├── OnboardPage.tsx
-│   │   │   ├── DashboardPage.tsx
-│   │   │   ├── GeneratePage.tsx
-│   │   │   ├── PostGenerator.tsx
-│   │   │   ├── ReviewPanel.tsx
-│   │   │   ├── ExportPage.tsx
-│   │   │   ├── PostLibrary.tsx       # Copy All clipboard button
-│   │   │   ├── VoiceCoach.tsx
-│   │   │   ├── VideoRepurpose.tsx
-│   │   │   ├── BrandProfileCard.tsx
-│   │   │   └── EventsInput.tsx       # Analysis lock on edit
-│   │   └── ...
-│   ├── package.json                  # React 19 + react-router-dom + Vite 7
-│   ├── tsconfig.json                 # TypeScript config
-│   ├── vite.config.ts                # Proxy /api → :8080
+│   │   ├── pages/                    # Route-level page components
+│   │   │   ├── LandingPage.tsx       # Marketing landing page (hero, features, CTA)
+│   │   │   ├── BrandsPage.tsx        # Brand list with pagination + "Create" CTA
+│   │   │   ├── OnboardPage.tsx       # Brand creation wizard
+│   │   │   ├── DashboardPage.tsx     # Brand dashboard (calendar, posts, export)
+│   │   │   ├── GeneratePage.tsx      # Per-day content generation with SSE
+│   │   │   ├── EditBrandPage.tsx     # Brand profile editor + asset management
+│   │   │   ├── ExportPage.tsx        # Bulk export (ZIP, Notion, .ics)
+│   │   │   ├── NotionCallbackPage.tsx # Notion OAuth callback handler
+│   │   │   ├── TermsPage.tsx         # Terms of Service
+│   │   │   └── PrivacyPage.tsx       # Privacy Policy
+│   │   ├── components/               # Reusable UI components
+│   │   │   ├── NavBar.tsx            # Top nav (Home, My Brands/Get Started, Export, Account)
+│   │   │   ├── PostCard.tsx          # Individual post display
+│   │   │   ├── PostGenerator.tsx     # SSE streaming post generation
+│   │   │   ├── PostLibrary.tsx       # Post list with "Copy All" clipboard
+│   │   │   ├── ReviewPanel.tsx       # AI review scores and suggestions
+│   │   │   ├── ContentCalendar.tsx   # 7-day calendar grid
+│   │   │   ├── EventsInput.tsx       # Business events input
+│   │   │   ├── BrandProfileCard.tsx  # Brand profile display
+│   │   │   ├── BrandSummaryBar.tsx   # Compact brand info bar
+│   │   │   ├── PlatformPreview.tsx   # Platform-specific post preview
+│   │   │   ├── VoiceCoach.tsx        # Gemini Live voice coaching UI
+│   │   │   ├── VideoRepurpose.tsx    # Video generation controls
+│   │   │   ├── IntegrationConnect.tsx # Notion/email integration UI
+│   │   │   └── SocialConnect.tsx     # Social platform OAuth (future)
+│   │   ├── hooks/
+│   │   │   └── useAuth.ts           # Firebase Google Auth hook
+│   │   ├── api/
+│   │   │   ├── client.ts            # API client (REST calls to backend)
+│   │   │   └── firebase.ts          # Firebase config + Google Sign-In
+│   │   ├── theme.ts                 # Design system tokens (colors, spacing)
+│   │   └── App.tsx                  # Router (/, /brands, /onboard, /dashboard/:id, ...)
+│   ├── package.json                 # React 19 + react-router-dom + Vite 7
+│   ├── tsconfig.json                # TypeScript config
+│   ├── vite.config.ts               # Proxy /api → :8080
 │   └── index.html
-├── terraform/                        # Infrastructure as Code (Part 5)
+├── scripts/
+│   └── deploy.sh                    # One-command Cloud Build deploy
+├── cloudbuild.yaml                  # Cloud Build CI/CD pipeline (3 steps)
+├── terraform/                       # Infrastructure as Code (Part 6)
 │   ├── main.tf
 │   ├── variables.tf
 │   └── terraform.tfvars.example
+├── .env.example                     # Root-level deploy config template
+├── .env                             # Local deploy config (gitignored)
 └── docs/
     ├── PRD.md
     ├── TDD.md
-    ├── DEPLOYMENT.md                 # This file
+    ├── DEPLOYMENT.md                # This file
     ├── architecture.mermaid
     ├── amplifi-ui.jsx
     └── playtest-personas.md
@@ -383,11 +501,11 @@ amplifi-hackaton/
 
 ---
 
-## Part 5: Automated Deployment (Terraform)
+## Part 6: Automated Deployment (Terraform)
 
 > **Hackathon bonus:** This section demonstrates automated cloud deployment using infrastructure-as-code.
 
-Instead of running the manual `gcloud` commands in Part 2, you can provision everything with a single `terraform apply`. The Terraform config in `terraform/` creates:
+Instead of running the manual `gcloud` commands, you can provision everything with a single `terraform apply`. The Terraform config in `terraform/` creates:
 
 - All required GCP API enablements
 - Cloud Firestore database
@@ -396,7 +514,7 @@ Instead of running the manual `gcloud` commands in Part 2, you can provision eve
 - Cloud Run service with 300s SSE timeout
 - Public IAM policy (unauthenticated access)
 
-### 5.1 Prerequisites
+### 6.1 Prerequisites
 
 Install Terraform (v1.5+):
 
@@ -416,7 +534,7 @@ Authenticate with GCP:
 gcloud auth application-default login
 ```
 
-### 5.2 Configure Variables
+### 6.2 Configure Variables
 
 ```bash
 cd terraform
@@ -433,48 +551,7 @@ gemini_api_key = "your-gemini-api-key"
 
 > **Never commit `terraform.tfvars`** — it contains your API key. It's already in `.gitignore`.
 
-### 5.3 Build and Push the Docker Image
-
-Terraform provisions the infrastructure but doesn't build your Docker image. Build and push it first.
-
-**Important:** The Dockerfile accepts Firebase config as build args. Vite bakes `VITE_*` env vars into the JS bundle at build time, so they must be provided during `docker build`, not at runtime.
-
-```bash
-# From repo root
-export PROJECT_ID=your-gcp-project-id
-export IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/amplifi/amplifi:latest
-
-# Build and push (includes frontend build inside Docker)
-# Replace the VITE_FIREBASE_* values with your Firebase project config
-gcloud builds submit --timeout=900 --config=/dev/stdin <<EOF
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-f'
-      - 'backend/Dockerfile'
-      - '--build-arg'
-      - 'VITE_FIREBASE_API_KEY=your-firebase-api-key'
-      - '--build-arg'
-      - 'VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com'
-      - '--build-arg'
-      - 'VITE_FIREBASE_PROJECT_ID=your-firebase-project-id'
-      - '--build-arg'
-      - 'VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app'
-      - '--build-arg'
-      - 'VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id'
-      - '--build-arg'
-      - 'VITE_FIREBASE_APP_ID=your-app-id'
-      - '-t'
-      - '${IMAGE}'
-      - '.'
-images:
-  - '${IMAGE}'
-timeout: 900s
-EOF
-```
-
-### 5.4 Deploy Everything
+### 6.3 Deploy Everything
 
 ```bash
 cd terraform
@@ -494,19 +571,13 @@ bucket_name        = "your-project-amplifi-assets"
 firestore_database = "(default)"
 ```
 
-### 5.5 Post-Deploy: CORS (Auto-Configured)
-
-Terraform automatically sets `CORS_ORIGINS` to the Cloud Run URL after deploy via a `null_resource` provisioner — no manual step needed.
-
-The GCS bucket CORS is also configured by Terraform (wildcard origin — tighten to your Cloud Run URL in `main.tf` for production).
-
-### 5.6 Tear Down (if needed)
+### 6.4 Tear Down (if needed)
 
 ```bash
 terraform destroy   # Removes all provisioned resources
 ```
 
-### 5.7 What's in `terraform/`
+### 6.5 What's in `terraform/`
 
 | File | Purpose |
 |------|---------|
@@ -523,14 +594,18 @@ terraform destroy   # Removes all provisioned resources
 | `CORS error` in browser | `CORS_ORIGINS` doesn't include your frontend URL | Update `CORS_ORIGINS` env var (comma-separated) |
 | SSE stream hangs / times out | Cloud Run default timeout too short | Deploy with `--timeout 300` |
 | `ModuleNotFoundError: google.adk` | Missing ADK dependency | `pip install google-adk==0.5.0` |
-| Images not loading from GCS | Bucket CORS not configured | Set GCS CORS policy (see §2.6) or use Terraform (auto-configured) |
+| Images not loading from GCS | Bucket CORS not configured | Set GCS CORS policy (see §3.3) or use Terraform (auto-configured) |
 | `tsc -b` fails during Docker build | TypeScript compilation errors | Run `cd frontend && npm run build` locally first to catch errors |
 | `ffmpeg not found` locally | ffmpeg not installed on host | `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) — only needed for video features |
 | Brand analysis returns empty | URL not crawlable / description too short | Use "describe your business" with 2-3 sentences minimum |
 | Budget exceeded error | Session hit $100 cap | Budget resets per session; reduce image count or use caption-only mode |
 | `npm ci` fails in Docker | `package-lock.json` out of sync | Run `cd frontend && npm install` locally to regenerate lockfile, commit |
 | `terraform plan` fails with auth error | Not authenticated with GCP | Run `gcloud auth application-default login` |
-| `terraform apply` — image not found | Docker image not pushed yet | Build and push the image first (see §5.3), then `terraform apply` |
+| `terraform apply` — image not found | Docker image not pushed yet | Build and push the image first (see §6.3), then `terraform apply` |
+| Google Sign-In popup blocked | Cloud Run URL not in Firebase authorized domains | Add your Cloud Run domain in Firebase Console → Auth → Settings → Authorized domains |
+| Firestore `permission denied` (403) | Cloud Run service account missing role | Grant `roles/datastore.user` to the compute service account (see §2.2) |
+| SPA routes return 404 | Backend not serving `index.html` for deep links | Backend uses catch-all route — ensure you're on the latest `server.py` |
+| Notion OAuth callback 404 | Same as SPA routing issue | Backend catch-all serves `index.html` for `/auth/notion/callback` |
 
 ---
 
@@ -545,7 +620,9 @@ terraform destroy   # Removes all provisioned resources
 | React version | 18 | 19 |
 | Vite version | 5 | 7 |
 | Real-time | WebSocket | SSE (Server-Sent Events) |
+| Auth | None (anonymous) | Firebase Google Sign-In |
 | Agent framework | Direct Gemini API calls | Google ADK pipeline |
 | External storage | Firestore only | Firestore + Cloud Storage |
 | Dockerfile scope | Backend only | Full-stack (Node build + Python) |
+| CI/CD | Manual deploy | Cloud Build + deploy.sh |
 | Terraform extras | Firestore + Cloud Run | Firestore + GCS bucket + Cloud Run |
