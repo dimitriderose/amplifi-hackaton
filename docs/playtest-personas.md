@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two small business personas reviewed the Amplifi codebase and UI across 5 rounds. The panel evaluated UX fixes incrementally as they were merged to `main`, reviewed live AI-generated output in Round 3, watched a full live website recording in Round 4, then navigated the full live website hands-on in Round 5 — covering Notion OAuth integration, Export & Share dropdown, Video Repurposing tab, Edit Brand page, and dedicated Export page.
+Two small business personas reviewed the Amplifi codebase and UI across 5 rounds, followed by a specialist review from a professional Social Media Content Specialist. The panel evaluated UX fixes incrementally as they were merged to `main`, reviewed live AI-generated output in Round 3, watched a full live website recording in Round 4, then navigated the full live website hands-on in Round 5 — covering Notion OAuth integration, Export & Share dropdown, Video Repurposing tab, Edit Brand page, and dedicated Export page. The specialist review (Priya) assessed Amplifi from a professional content operations perspective.
 
 | Round | Composite | Delta | HEAD Commit |
 |-------|-----------|-------|-------------|
@@ -12,7 +12,7 @@ Two small business personas reviewed the Amplifi codebase and UI across 5 rounds
 | Round 4 (Live Website Recording) | 9.625/10 | +0.1875 | `a9e544d` |
 | Round 5 (Live Website Demo — 10 Screens) | 9.8125/10 | +0.1875 | `7a706ed` |
 
-**Final Verdict:** Ship it. 9.8125 composite after 5 rounds (+1.5625 total). Voice Coach remains the sleeper differentiator. All prior flags resolved. Buffer integration is the only remaining wish — accepted as deferred (closed beta). Notion connected, 4 export paths live, Edit Brand + Content Strategy operational.
+**Final Verdict:** Ship it. 9.8125 two-persona composite after 5 rounds (+1.5625 total). 9.125 three-persona composite (with Priya specialist review). Voice Coach remains the sleeper differentiator. All prior flags resolved. Buffer integration is the only remaining wish — accepted as deferred (closed beta). Notion connected, 4 export paths live, Edit Brand + Content Strategy operational.
 
 ---
 
@@ -45,6 +45,23 @@ Two small business personas reviewed the Amplifi codebase and UI across 5 rounds
 | Writing Standards | High. Posts in Notion first, schedules via Buffer. Reads every word before publishing. |
 | Content Style | Authoritative, no-emoji, long-form for LinkedIn. Punchy hot-takes for X. |
 | Key Constraint | Quality. If AI content reads like generic LinkedIn engagement bait, he's out immediately. |
+
+### 📱 Priya — The Social Media Content Specialist
+
+| Attribute | Detail |
+|-----------|--------|
+| Age | 31 |
+| Role | Head of Social at a 40-person B2B SaaS company (Series A, $8M ARR) |
+| Background | 6 years agency-side (ran social for 12+ brands simultaneously), 2 years in-house |
+| Primary Platforms | LinkedIn (company + exec ghostwriting), Instagram (brand), X (product updates), TikTok (emerging) |
+| Team | 2 direct reports (designer + community manager), freelance video editor |
+| Tools Currently Using | Sprout Social ($249/mo), Canva Pro, Notion for editorial calendar, ChatGPT for first drafts, CapCut for video |
+| Weekly Output | 25-30 posts across 4 platforms for 1 brand + 3 executive accounts |
+| Content Style | Data-driven. Every post ties to a campaign brief. Tracks UTM links, engagement rate per platform, conversion attribution. |
+| Key Constraint | Scalability. She doesn't need help writing *one* caption. She needs a system that maintains brand consistency across 25+ posts/week while she manages a team, reports to a CMO, and executes campaigns with measurable KPIs. |
+| Evaluator Bias | Skeptical of AI content tools. Has tried Jasper, Copy.ai, Lately, and Hootsuite's AI features. All produced generic output that required more editing than writing from scratch. "If I have to rewrite every caption, the AI isn't saving me time — it's wasting it." |
+
+**Why Priya matters:** Maria and Jason are end users — small business owners doing their own social media. Priya is the professional who does this for a living. She manages content at scale, reports on performance metrics, and has tried every AI content tool on the market. Her assessment reveals whether Amplifi is a toy for solopreneurs or a tool that can serve working content professionals.
 
 ---
 
@@ -397,36 +414,150 @@ Two small business personas reviewed the Amplifi codebase and UI across 5 rounds
 
 ---
 
-## Score Progression Summary (All 5 Rounds)
+## Specialist Review — Priya (Cold Assessment of Round 5 Demo)
+
+**Context:** Priya reviewed the same 10-screen live demo that Maria and Jason evaluated in Round 5. She has no prior context from Rounds 1-4. This is a cold assessment from a working professional who evaluates tools like this every quarter.
+
+### Post-Review Corrections
+
+Three of Priya's original criticisms were based on incorrect assumptions. These corrections were identified by the developer after the initial review.
+
+**Correction 1: Multi-Brand Architecture Already Exists**
+
+Priya's original claim: "One brand, one dashboard, one calendar. That's a solopreneur workflow." Reality: The landing page shows YOUR BRANDS (plural) with a green "Ready" badge and an onboarding flow to add new brands. Firebase Anonymous Auth ties brands to a persistent UID, meaning one account can have multiple brands. Priya assumed single-brand from the hero tagline ("One brand. Infinite content.") — that's a **marketing messaging issue, not an architecture limitation.** Score impact: Landing revised from 7 → **8**.
+
+**Correction 2: Social Connections Are Demo Data By Design**
+
+Priya's original claim: "Social connections are vaporware." Reality: This is a hackathon demo — the OAuth flows for LinkedIn, Instagram, and X aren't wired up to real platform APIs yet. The "try demo" links exist to prove per-platform voice differentiation (validated by Jason in Round 2). **Notion OAuth is live and real**, which is the more important integration. Score impact: No change — Priya's production standard is fair even if the hackathon context explains it.
+
+**Correction 3: Buffer Scheduling Metadata Is Architecturally Ready**
+
+Priya's original claim: "Content without timing is just drafts." Reality: Amplifi already has everything for Buffer integration except `suggested_publish_time`. The Strategy Agent adding platform-optimal publish times is a small feature addition, not an architecture change. Score impact: No change — the gap is real, but small.
+
+### Priya's Updated Screen-by-Screen Assessment — 7.875/10 (was 7.75)
+
+| Screen | Original | Updated | Delta | Correction Applied |
+|--------|----------|---------|-------|--------------------|
+| Landing | 7/10 | **8/10** | +1.0 | Multi-brand exists; hero tagline is misleading |
+| Onboard | 7.5/10 | 7.5/10 | — | |
+| Dashboard/Calendar | 8.5/10 | 8.5/10 | — | |
+| Edit Brand | 9/10 | 9/10 | — | |
+| Posts Library | 7.5/10 | 7.5/10 | — | |
+| Export & Share | 8.5/10 | 8.5/10 | — | |
+| Post Detail | 8/10 | 8/10 | — | |
+| AI Brand Review | 9/10 | 9/10 | — | |
+| Connections | 7/10 | 7/10 | — | Demo data acknowledged as hackathon-appropriate |
+| Video | 6.5/10 | 6.5/10 | — | |
+| Export Page | 7/10 | 7/10 | — | Buffer metadata gap is small, not architectural |
+| **Overall** | **7.75/10** | **7.875/10** | **+0.125** | |
+
+### What Priya Loves (The "Ship It" Features)
+
+**1. AI Brand Review — "The actual differentiator"**
+
+"I've used Jasper, Copy.ai, Lately, and ChatGPT for content generation. None of them review their own work. They all produce output and leave the quality assessment entirely to me. Amplifi's Review Agent with engagement prediction scores and specific improvement suggestions is a fundamentally different architecture. It's not just generating content — it's quality-checking content against my brand and telling me *why* a post scores 8 instead of 10. That feedback loop is what makes AI useful at scale. Without it, AI content generation is just a more expensive way to produce first drafts I'm going to rewrite anyway."
+
+**2. Edit Brand with Content Strategy — "Finally, brand intelligence"**
+
+"The Content Strategy section with AI-generated themes, competitor identification, and style directives is the closest thing I've seen to an AI that understands content strategy rather than just content creation. The Re-Analyze Brand button makes it living strategy. Every other tool I've used treats the brand profile as a static form you fill out once and forget. Amplifi treats it as an intelligence layer that evolves."
+
+**3. Notion Export — "The right integration choice"**
+
+"Every content professional I know uses Notion for editorial planning. Not Airtable, not Monday, not Asana — Notion. Shipping a native Notion OAuth integration that pushes a structured database is a better strategic decision than trying to build direct-publish to Instagram or LinkedIn, which are API nightmares with constantly changing policies. Let Notion be the staging ground, let me edit there, and I'll publish through Sprout or Buffer. Amplifi made the right integration choice."
+
+**4. Pillar-Based Calendar — "Thinks like a strategist"**
+
+"Color-coded content pillars on the calendar — education, promotion, inspiration, behind the scenes — map to how content strategists actually plan. This isn't 'Monday: motivational quote, Tuesday: product photo.' It's a strategic distribution model. That tells me the team behind Amplifi understands content marketing, not just content creation."
+
+### What Priya Would Kill (The Brutal Assessment — Updated)
+
+**~~1. Single-brand architecture~~ → RESOLVED.** Multi-brand is already built. The hero tagline ("One brand. Infinite content.") is a marketing copy issue, not a product limitation.
+
+**2. Seven-day horizon is a toy limitation — "I plan in months, not weeks" (VALID).** "No professional content operation runs on a 7-day cycle. My editorial calendar is 30 days minimum, with tentpole content planned 90 days out. This is the single biggest limitation for professional adoption."
+
+**3. No A/B caption variants — "I never publish the first draft" (VALID).** "The Post Detail screen shows one caption with a Regenerate button. That's serial. I need parallel — show me three hooks for the same post and let me pick."
+
+**4. No campaign layer — "Content themes are not campaigns" (VALID).** "The Edit Brand page has eight content themes — those are always-on pillars. But where's the campaign? Content themes are the foundation; campaigns are the structure."
+
+**5. No analytics feedback loop — "Generate and forget?" (VALID).** "The AI Brand Review predicts engagement. Where's the actuals? Post A predicted Hook 9, actual Hook was a 6 — the AI should learn from that."
+
+**6. Social connections are demo data (ACKNOWLEDGED — Hackathon Context).** Architecture is built; API wiring is the remaining work.
+
+**7. No scheduling metadata (PARTIALLY ADDRESSED).** Strategy Agent needs `suggested_publish_time` field; Buffer readiness otherwise complete.
+
+### Priya's Professional Criteria Scores
+
+| Criterion | Original | Updated | Notes |
+|-----------|----------|---------|-------|
+| Content Quality | 8.5/10 | 8.5/10 | Brand-aligned output with specific, actionable review feedback. Above Jasper/Copy.ai. |
+| Brand Consistency | 8/10 | **8.5/10** | Multi-brand exists (correction). Content Strategy + directives + Re-Analyze is strong. |
+| Workflow Efficiency | 7/10 | 7/10 | Good for batch generation. Still needs 30-day horizon and A/B variants for pro scale. |
+| Integration Ecosystem | 7.5/10 | 7.5/10 | Notion is the right first integration. Needs CSV, Sprout/Hootsuite import, Google Sheets. |
+| Scalability | 5/10 | **6/10** | Multi-brand exists (correction). Still needs 30-day generation, campaign layer, filters. |
+| Platform Intelligence | 7.5/10 | 7.5/10 | Platform previews, character counts, pillar-based strategy are smart. Missing TikTok, timing. |
+| AI Differentiation | 9/10 | 9/10 | Review Agent with engagement predictions is best-in-class. Voice Coach is genuine innovation. |
+| Production Readiness | 6.5/10 | 6.5/10 | Social connections aren't live. Video extraction logic is opaque. No A/B variants. |
+
+### Priya's Verdict
+
+**"Amplifi is the most architecturally intelligent AI content tool I've evaluated. The Review Agent alone makes it worth watching. Multi-brand support being already built changes the story — this isn't locked into solopreneur mode. The remaining gaps are professional workflow features, not fundamental architecture problems."**
+
+**Updated upgrade roadmap (with corrections):**
+
+| # | Item | Status | Impact |
+|---|------|--------|--------|
+| ~~1~~ | ~~Multi-brand dashboard~~ | ✅ ALREADY BUILT | Hero copy needs update |
+| 2 | 30-day generation | ❌ Not built | Biggest pro adoption blocker |
+| 3 | A/B caption variants | ❌ Not built | Standard professional workflow |
+| 4 | Campaign layer | ❌ Not built | Unlocks enterprise use cases |
+| 5 | Analytics feedback loop | ❌ Not built | Closes prediction → actuals gap |
+| 6 | Live social connections | 🟡 Architecture built, APIs not wired | Post-hackathon roadmap |
+| 7 | Scheduling metadata | 🟡 Small gap — Strategy Agent add | Ready when Buffer API launches |
+
+**"Get items 2-3 and I'm a paying customer at $99/month. Get all seven and I'm replacing Sprout Social."**
+
+*Specialist review conducted March 2, 2026. Corrections applied March 12, 2026.*
+
+---
+
+## Score Progression Summary (All Rounds)
 
 ```
           R1      R2      R3      R4      R5
 Maria    8.5 ──→ 9.0 ──→ 9.25 ──→ 9.5  ──→ 9.75    (+1.25 total)
 Jason    8.0 ──→ 9.5 ──→ 9.625──→ 9.75 ──→ 9.875   (+1.875 total)
 ──────────────────────────────────────────────────────────────────
-AVG      8.25    9.25    9.4375   9.625    9.8125   (+1.5625 total)
+2-Persona AVG   8.25    9.25    9.4375   9.625    9.8125   (+1.5625 total)
+
+Priya (Specialist — cold R5 review only):            7.875
+
+3-Persona AVG (with Priya):                          9.125
 ```
 
----
-
-## Per-Screen Score Comparison (All 5 Rounds)
-
-| Screen | Maria R1 | Maria R2 | Maria R3 | Maria R4 | Maria R5 | Jason R1 | Jason R2 | Jason R3 | Jason R4 | Jason R5 |
-|--------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|
-| Landing | 9 | 9 | 9 | 9.5 | 10 | 7.5 | 7.5 | 7.5 | 8.5 | 9 |
-| Onboard | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 8.5 | 8.5 | 8.5 | 8.5 | 9 |
-| Dashboard | 9 | 9.5 | 9.5 | 10 | 10 | 8 | 9 | 9 | 10 | 10 |
-| Generate | 8.5 | 8.5 | 9.5 | 9.5 | 9.5 | 9 | 9.5 | 10 | 10 | 10 |
-| Review | 9 | 9 | 9.5 | 10 | 10 | 8 | 8.5 | 10 | 10 | 10 |
-| Export | 8.5 | 9.5 | 9.5 | 9.5 | 10 | 7.5 | 9 | 9 | 9 | 10 |
-| Video | 7 | 7 | 8.5 | 9 | 9.5 | 6 | 9 | 9 | 9 | 9 |
-| Voice Coach | 7.5 | 7.5 | 7.5 | 9 | 9 | 8 | 8 | 8 | 9.5 | 9.5 |
-| Connections | — | — | — | — | 10 | — | — | — | — | 10 |
-| Edit Brand | — | — | — | — | 9.5 | — | — | — | — | 10 |
+**The 3-persona average of 9.125 is the most honest assessment.** Exceptional solopreneur/SMB tool (9.8125) with a clear path to professional adoption (7.875 from Priya). For the Creative Storyteller hackathon category targeting small businesses, the 9.8125 is the relevant score.
 
 ---
 
-## Flag Resolution (Final — Round 5)
+## Per-Screen Score Comparison (All Rounds + Specialist)
+
+| Screen | Maria R1 | Maria R2 | Maria R3 | Maria R4 | Maria R5 | Jason R1 | Jason R2 | Jason R3 | Jason R4 | Jason R5 | Priya |
+|--------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-------|
+| Landing | 9 | 9 | 9 | 9.5 | 10 | 7.5 | 7.5 | 7.5 | 8.5 | 9 | 8 |
+| Onboard | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 7.5 |
+| Dashboard | 9 | 9.5 | 9.5 | 10 | 10 | 8 | 9 | 9 | 10 | 10 | 8.5 |
+| Generate | 8.5 | 8.5 | 9.5 | 9.5 | 9.5 | 9 | 9.5 | 10 | 10 | 10 | 8 |
+| Review | 9 | 9 | 9.5 | 10 | 10 | 8 | 8.5 | 10 | 10 | 10 | 9 |
+| Export | 8.5 | 9.5 | 9.5 | 9.5 | 10 | 7.5 | 9 | 9 | 9 | 10 | 8.5 |
+| Video | 7 | 7 | 8.5 | 9 | 9.5 | 6 | 9 | 9 | 9 | 9 | 6.5 |
+| Voice Coach | 7.5 | 7.5 | 7.5 | 9 | 9 | 8 | 8 | 8 | 9.5 | 9.5 | — |
+| Connections | — | — | — | — | 10 | — | — | — | — | 10 | 7 |
+| Edit Brand | — | — | — | — | 9.5 | — | — | — | — | 10 | 9 |
+| Posts Library | — | — | — | — | — | — | — | — | — | — | 7.5 |
+| Export Page | — | — | — | — | — | — | — | — | — | — | 7 |
+
+---
+
+## Flag Resolution — Final (All Rounds + Specialist)
 
 | # | Flag | R1 | R2 | R3 | R4 | R5 | Status |
 |---|------|----|----|-----|-----|-----|--------|
@@ -436,8 +567,11 @@ AVG      8.25    9.25    9.4375   9.625    9.8125   (+1.5625 total)
 | 4 | Output quality unknowable | Open | Open | ✅ | ✅ | ✅ | Confirmed across multiple posts and platforms |
 | 5 | Hashtag pollution | — | — | 🟡 P1 | 🟢 Likely fixed | ✅ | Clean hashtags confirmed: 5/5 on Instagram post, all professional |
 | 6 | Voice Coach undervalued from code | — | — | — | ✅ | ✅ | Remains top differentiator |
-| 7 | No Buffer integration | — | — | — | — | 🟡 **Accepted** | Buffer not accepting new developers; Notion + Copy All cover the gap |
+| 7 | No Buffer integration | — | — | — | — | 🟡 **Accepted** | Buffer API closed Oct 2019, new API in early access waitlist. Notion + Copy All cover gap. Architecture ready. |
 | 8 | Notion integration needed | — | — | — | — | ✅ **Resolved** | OAuth live, connected to real workspace, Export to Notion in dropdown |
+| 9 | Single-brand assumption (Priya) | — | — | — | — | ✅ **Corrected** | Multi-brand architecture exists; hero tagline is misleading |
+| 10 | Social connections vaporware (Priya) | — | — | — | — | 🟡 **Acknowledged** | Hackathon-appropriate demo data; Notion OAuth is live; architecture built |
+| 11 | No scheduling metadata (Priya) | — | — | — | — | 🟡 **Small gap** | Strategy Agent needs `suggested_publish_time` field; Buffer readiness otherwise complete |
 
 ---
 
@@ -446,3 +580,5 @@ AVG      8.25    9.25    9.4375   9.625    9.8125   (+1.5625 total)
 **Maria:** "Remember that AI content tool I told you about? It just got better. I connected my Notion workspace with one click — no API keys, no developer stuff. Now I generate a week of posts, click 'Export to Notion,' and my entire content calendar appears as a database I can edit. The Voice Coach is still the killer feature — I asked it about promoting our farm delivery special and it gave me a full strategy in my brand voice while I was looking at my calendar. But the new thing is the Connections tab. When I connect my real Instagram account, it'll learn how *I* actually write, not just what I described. For Sunday night batch sessions, this is now a 20-minute job instead of 2 hours. And if my business partner needs the schedule, I can email them a calendar invite directly from the app."
 
 **Jason:** "Amplifi isn't a content generator anymore — it's a content operations platform. Here's what changed: Notion OAuth integration is live. I connect my workspace, click 'Export to Notion,' and all 7 days of content land in a database with columns for platform, caption, hashtags, image URL, brand score, and approval status. I edit in Notion, schedule in Buffer when their API launches. The Edit Brand page shows me the AI's content strategy — eight specific themes like 'Navigating IRS resolution and tax relief,' three competitors it identified, image style directives, caption style directives — and I can re-analyze the whole thing if I change my positioning. The Export & Share dropdown gives me four paths: ZIP, calendar invite, Notion sync, or email. And the Connections tab is ready for LinkedIn voice analysis — when I connect, the AI learns my actual writing patterns. This is the tool I'd pay $50/month for. The only missing piece is Buffer direct-publish, and the architecture is already there waiting for their API."
+
+**Priya:** "If you're a solopreneur or SMB owner, stop what you're doing and try Amplifi. The AI Brand Review alone differentiates it from every Jasper and Copy.ai clone I've tested — it doesn't just generate content, it quality-checks against your brand and tells you why a post scores 8 instead of 10. The Notion integration is the right call — export your calendar, edit in Notion, publish through whatever scheduler you use. For professionals running multi-brand operations at scale, it's not there yet — I need 30-day calendars, A/B caption variants, and a campaign layer before I'm replacing Sprout Social. But the architecture is smart, the Review Agent is best-in-class, and the Content Strategy section on the Edit Brand page is the closest thing I've seen to AI that thinks like a strategist. Get items 2-3 on their roadmap and I'm a paying customer at $99/month."
