@@ -225,6 +225,11 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNum
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
   --role="roles/datastore.user"
+
+# Grant Logs Writer to see Cloud Build logs (required for CLOUD_LOGGING_ONLY mode)
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/logging.logWriter"
 ```
 
 ### 2.3 Configure `.env`
@@ -288,7 +293,7 @@ The `cloudbuild.yaml` defines a 3-step pipeline:
 
 **Build-time vs runtime env vars:**
 - **Build-time** (`--build-arg`): `VITE_FIREBASE_*` — baked into the JS bundle by Vite, cannot be changed after build
-- **Runtime** (`--set-env-vars`): `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` — read by the Python backend at startup
+- **Runtime** (`--update-env-vars`): `GOOGLE_API_KEY`, `CORS_ORIGINS`, `RESEND_API_KEY`, `NOTION_*`, `GEMINI_MODEL` — read by the Python backend at startup. Uses `--update-env-vars` (not `--set-env-vars`) to preserve any existing env vars on the Cloud Run service
 
 ### 2.6 Post-Deploy: Firebase Auth Domain
 
@@ -340,7 +345,7 @@ gcloud run deploy amplifi \
   --min-instances 0 \
   --max-instances 10 \
   --timeout 300 \
-  --set-env-vars="GOOGLE_API_KEY=your-key,GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$PROJECT_ID-amplifi-assets,CORS_ORIGINS=https://your-url.run.app,GEMINI_MODEL=gemini-2.5-flash"
+  --update-env-vars="GOOGLE_API_KEY=your-key,GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=$PROJECT_ID-amplifi-assets,CORS_ORIGINS=https://your-url.run.app,GEMINI_MODEL=gemini-2.5-flash"
 ```
 
 **Critical flags:**
@@ -595,6 +600,7 @@ terraform destroy   # Removes all provisioned resources
 | SSE stream hangs / times out | Cloud Run default timeout too short | Deploy with `--timeout 300` |
 | `ModuleNotFoundError: google.adk` | Missing ADK dependency | `pip install google-adk==0.5.0` |
 | Images not loading from GCS | Bucket CORS not configured | Set GCS CORS policy (see §3.3) or use Terraform (auto-configured) |
+| Cloud Build logs empty / invisible | Service account missing Logs Writer role | Grant `roles/logging.logWriter` to the compute service account (see §2.2) |
 | `tsc -b` fails during Docker build | TypeScript compilation errors | Run `cd frontend && npm run build` locally first to catch errors |
 | `ffmpeg not found` locally | ffmpeg not installed on host | `brew install ffmpeg` (macOS) or `sudo apt install ffmpeg` (Linux) — only needed for video features |
 | Brand analysis returns empty | URL not crawlable / description too short | Use "describe your business" with 2-3 sentences minimum |
