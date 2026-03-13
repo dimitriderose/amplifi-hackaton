@@ -86,20 +86,6 @@ export default function NavBar() {
             Export
           </button>
         )}
-        {activeBrandId && (
-          <button
-            onClick={() => navigate(`/brands/${activeBrandId}/history`)}
-            style={{
-              padding: '5px 12px', borderRadius: 6,
-              background: historyMatch ? A.indigoLight : 'transparent',
-              border: 'none', cursor: 'pointer', fontSize: 13,
-              color: historyMatch ? A.indigo : A.textSoft,
-              fontWeight: historyMatch ? 600 : 400,
-            }}
-          >
-            History
-          </button>
-        )}
       </div>
 
       {/* Account */}
@@ -117,14 +103,14 @@ export default function NavBar() {
             {user.photoURL ? (
               <img src={user.photoURL} alt="" style={{ width: 22, height: 22, borderRadius: '50%' }} />
             ) : (
-              <div style={{
-                width: 22, height: 22, borderRadius: '50%',
-                background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'white', fontSize: 10, fontWeight: 700,
-              }}>
-                {(user.displayName || user.email || '?')[0].toUpperCase()}
-              </div>
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                <circle cx="11" cy="11" r="11" fill={`url(#acctGrad)`} />
+                <defs><linearGradient id="acctGrad" x1="0" y1="0" x2="22" y2="22">
+                  <stop stopColor={A.indigo} /><stop offset="1" stopColor={A.violet} />
+                </linearGradient></defs>
+                <circle cx="11" cy="8.5" r="3.5" fill="white" />
+                <path d="M4.5 19a6.5 6.5 0 0 1 13 0" fill="white" />
+              </svg>
             )}
             Account
           </button>

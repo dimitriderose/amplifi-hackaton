@@ -292,6 +292,24 @@ async def serve_storage_object(blob_path: str):
 
 # ── Posts ─────────────────────────────────────────────────────
 
+async def _refresh_signed_urls(post: dict) -> dict:
+    """Re-sign expired GCS URLs so images always load."""
+    gcs_uri = post.get("image_gcs_uri")
+    if gcs_uri:
+        try:
+            post["image_url"] = await get_signed_url(gcs_uri)
+        except Exception:
+            pass
+    for i, uri in enumerate(post.get("image_gcs_uris") or []):
+        try:
+            urls = post.setdefault("image_urls", [])
+            if i < len(urls):
+                urls[i] = await get_signed_url(uri)
+        except Exception:
+            pass
+    return post
+
+
 @app.get("/api/posts")
 async def list_posts_endpoint(
     brand_id: str = Query(...),
@@ -299,6 +317,7 @@ async def list_posts_endpoint(
 ):
     """List all posts for a brand, optionally filtered by plan."""
     posts = await firestore_client.list_posts(brand_id, plan_id)
+    await asyncio.gather(*[_refresh_signed_urls(p) for p in posts])
     return {"posts": posts}
 
 
@@ -311,6 +330,7 @@ async def get_post_endpoint(
     post = await firestore_client.get_post(brand_id, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    await _refresh_signed_urls(post)
     return post
 
 
@@ -727,10 +747,11 @@ async def stream_generate(
             logger.warning("Could not download custom photo for day %s: %s", day_index, e)
             custom_photo_bytes = None  # fall back to normal generation
 
-    # Delete any existing post for this plan+day (regeneration replaces, not duplicates)
+    # Delete any existing post for this plan+day+platform (regeneration replaces, not duplicates)
+    brief_platform = day_brief.get("platform", "instagram")
     existing_posts = await firestore_client.list_posts(brand_id, plan_id)
     for ep in existing_posts:
-        if ep.get("day_index") == day_index:
+        if ep.get("brief_index") == day_index and ep.get("platform", "") == brief_platform:
             try:
                 await firestore_client.delete_post(brand_id, ep["post_id"])
             except Exception:
@@ -741,13 +762,14 @@ async def stream_generate(
         p.get("caption", "").split("\n")[0][:100]
         for p in existing_posts
         if p.get("status") in ("complete", "approved") and p.get("caption")
-        and p.get("day_index") != day_index  # exclude the post we just deleted
+        and not (p.get("brief_index") == day_index and p.get("platform", "") == brief_platform)  # exclude the post we just deleted
     ]
 
     # Create a pending post record in Firestore.
     # save_post(brand_id, plan_id, data) generates and returns its own post_id.
     post_id = await firestore_client.save_post(brand_id, plan_id, {
-        "day_index": day_index,
+        "day_index": day_brief.get("day_index", day_index),
+        "brief_index": day_index,
         "platform": day_brief.get("platform", "instagram"),
         "pillar": day_brief.get("pillar"),
         "format": day_brief.get("format"),

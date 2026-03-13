@@ -29,6 +29,19 @@ const STATUS_LABELS: Record<string, string> = {
 // Colors for series groups (distinct from pillar colors)
 const SERIES_PALETTE = ['#f97316', '#06b6d4', '#ec4899', '#a78bfa']
 
+/** Parse "8:00 AM" / "1:30 PM" into minutes since midnight for sorting. */
+function parseTime(t?: string): number {
+  if (!t) return 9999
+  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (!m) return 9999
+  let h = parseInt(m[1], 10)
+  const min = parseInt(m[2], 10)
+  const pm = m[3].toUpperCase() === 'PM'
+  if (pm && h !== 12) h += 12
+  if (!pm && h === 12) h = 0
+  return h * 60 + min
+}
+
 export interface DayBrief {
   day_index: number
   platform: string
@@ -42,6 +55,7 @@ export interface DayBrief {
   derivative_type?: string
   event_anchor?: string | null
   custom_photo_url?: string | null
+  suggested_time?: string
 }
 
 interface Props {
@@ -83,11 +97,43 @@ export default function ContentCalendar({ plan, brandId, posts, onGeneratePost, 
 
   const hasAnySeries = seriesIds.length > 0
 
+  // Group days by day_index for column stacking, tracking original array position
+  const uniqueDayIndices: number[] = []
+  const dayGroups: Record<number, (DayBrief & { _arrayIndex: number })[]> = {}
+  for (let ai = 0; ai < plan.days.length; ai++) {
+    const day = plan.days[ai]
+    const idx = day.day_index ?? 0
+    if (!dayGroups[idx]) {
+      dayGroups[idx] = []
+      uniqueDayIndices.push(idx)
+    }
+    dayGroups[idx].push({ ...day, _arrayIndex: ai })
+  }
+  // Sort each day's cards by suggested_time (earliest first)
+  for (const idx of uniqueDayIndices) {
+    dayGroups[idx].sort((a, b) => {
+      const ta = parseTime(a.suggested_time)
+      const tb = parseTime(b.suggested_time)
+      return ta - tb
+    })
+  }
+  const numDays = uniqueDayIndices.length
+  const totalPosts = plan.days.length
+  const isMultiPlatform = totalPosts > numDays
+  const uniquePlatforms = new Set(plan.days.map(d => d.platform)).size
+
   return (
     <div>
       {/* Calendar header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>{plan.days.length}-Day Content Calendar</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>
+          {numDays}-Day Content Calendar
+          {isMultiPlatform && (
+            <span style={{ fontSize: 12, fontWeight: 400, color: A.textMuted, marginLeft: 8 }}>
+              · {totalPosts} posts across {uniquePlatforms} platforms
+            </span>
+          )}
+        </h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {Object.entries(PILLAR_COLORS).map(([pillar, color]) => (
             <span
@@ -107,28 +153,36 @@ export default function ContentCalendar({ plan, brandId, posts, onGeneratePost, 
         </div>
       </div>
 
-      {/* 7-day grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
-        {plan.days.map((day, i) => {
-          const seriesColor = day.pillar_id ? seriesColorMap[day.pillar_id] : undefined
-          const dayPost = postsByDayPlatform[`${day.day_index ?? i}_${day.platform || ''}`]
-            ?? postsByDayPlatform[`${day.day_index ?? i}_`]
+      {/* Day-column grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numDays}, 1fr)`, gap: 8 }}>
+        {uniqueDayIndices.map((dayIdx, colIndex) => {
+          const days = dayGroups[dayIdx]
           return (
-            <DayCard
-              key={`${day.day_index ?? i}_${day.platform || i}`}
-              day={day}
-              dayName={DAY_NAMES[i % 7]}
-              brandId={brandId}
-              planId={plan.plan_id}
-              seriesColor={seriesColor}
-              post={dayPost}
-              onGenerate={() => onGeneratePost?.(plan.plan_id, day.day_index ?? i)}
-              onViewPost={dayPost && onViewPost
-                ? () => onViewPost(plan.plan_id, day.day_index ?? i, dayPost.post_id)
-                : undefined
-              }
-              onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day.day_index ?? i, photoUrl)}
-            />
+            <div key={dayIdx} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {days.map((day, j) => {
+                const seriesColor = day.pillar_id ? seriesColorMap[day.pillar_id] : undefined
+                const dayPost = postsByDayPlatform[`${dayIdx}_${day.platform || ''}`]
+                  ?? postsByDayPlatform[`${dayIdx}_`]
+                return (
+                  <DayCard
+                    key={`${dayIdx}_${day.platform || j}`}
+                    day={day}
+                    dayName={j === 0 ? DAY_NAMES[colIndex % 7] : ''}
+                    brandId={brandId}
+                    planId={plan.plan_id}
+                    arrayIndex={day._arrayIndex}
+                    seriesColor={seriesColor}
+                    post={dayPost}
+                    onGenerate={() => onGeneratePost?.(plan.plan_id, day._arrayIndex)}
+                    onViewPost={dayPost && onViewPost
+                      ? () => onViewPost(plan.plan_id, day._arrayIndex, dayPost.post_id)
+                      : undefined
+                    }
+                    onPhotoUploaded={(photoUrl) => onPhotoUploaded?.(day._arrayIndex, photoUrl)}
+                  />
+                )
+              })}
+            </div>
           )
         })}
       </div>
@@ -141,6 +195,7 @@ interface DayCardProps {
   dayName: string
   brandId?: string
   planId?: string
+  arrayIndex: number
   seriesColor?: string
   post?: Post
   onGenerate: () => void
@@ -148,7 +203,7 @@ interface DayCardProps {
   onPhotoUploaded: (photoUrl: string | null) => void
 }
 
-function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate, onViewPost, onPhotoUploaded }: DayCardProps) {
+function DayCard({ day, dayName, brandId, planId, arrayIndex, seriesColor, post, onGenerate, onViewPost, onPhotoUploaded }: DayCardProps) {
   const pillarColor = PILLAR_COLORS[day.pillar] || A.indigo
   const platformSpec = getPlatform(day.platform)
   const PlatformIcon = platformSpec.icon
@@ -156,7 +211,7 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate,
   const [uploading, setUploading] = useState(false)
   const [photoError, setPhotoError] = useState('')
 
-  const dayIndex = day.day_index
+  const dayIndex = arrayIndex
   const isGenerated = post && (post.status === 'complete' || post.status === 'approved')
   const isGenerating = post?.status === 'generating'
 
@@ -313,7 +368,12 @@ function DayCard({ day, dayName, brandId, planId, seriesColor, post, onGenerate,
       <div style={{ padding: '10px 10px 12px' }}>
         {/* Day + platform */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: A.textSoft }}>{dayName}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSoft }}>{dayName}</span>
+            {day.suggested_time && (
+              <span style={{ fontSize: 10, color: A.textMuted, fontWeight: 400 }}>{day.suggested_time}</span>
+            )}
+          </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <PlatformIcon size={14} color={platformSpec.color} />
             <span style={{ fontSize: 10, color: platformSpec.color, fontWeight: 500 }}>

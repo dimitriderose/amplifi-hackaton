@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import PostCard from './PostCard'
 import { usePostLibrary } from '../hooks/usePostLibrary'
 
-type Filter = 'all' | 'approved' | 'complete' | 'generating' | 'failed'
+type Filter = 'all' | 'approved' | 'complete'
 
 interface Props {
   brandId: string
@@ -59,8 +59,6 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all', no
     { key: 'all', label: 'All' },
     { key: 'approved', label: '✓ Approved' },
     { key: 'complete', label: 'Ready' },
-    { key: 'generating', label: 'Generating' },
-    { key: 'failed', label: 'Failed' },
   ]
 
   const visiblePosts = posts.filter(p => !dismissed.has(p.post_id))
@@ -462,7 +460,7 @@ export default function PostLibrary({ brandId, planId, defaultFilter = 'all', no
               }
               onView={
                 (post.status === 'complete' || post.status === 'approved') && planId
-                  ? () => navigate(`/generate/${planId}/${post.day_index}?brand_id=${brandId}&post_id=${post.post_id}`)
+                  ? () => navigate(`/generate/${planId}/${post.brief_index ?? post.day_index}?brand_id=${brandId}&post_id=${post.post_id}`)
                   : undefined
               }
             />

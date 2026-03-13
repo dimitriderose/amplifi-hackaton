@@ -71,7 +71,6 @@ async def _research_best_platforms(
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                response_mime_type="application/json",
                 temperature=0.2,
             ),
         )
@@ -96,6 +95,89 @@ async def _research_best_platforms(
     except Exception as e:
         logger.warning("Platform recommendation research failed: %s", e)
         return []
+
+
+async def _research_posting_frequency(
+    brand_profile: dict,
+    platforms: list[str],
+) -> dict[str, dict]:
+    """Research optimal weekly posting frequency + best times per platform.
+
+    Uses Google Search grounding to get current best practices.
+    Returns: {"instagram": {"posts_per_week": 7, "best_times": ["6:00 PM", ...]}, ...}
+    """
+    business_type = brand_profile.get("business_type", "")
+    industry = brand_profile.get("industry", "")
+    target_audience = brand_profile.get("target_audience", "")
+
+    # Check Firestore cache (keyed by industry + business_type + platforms, TTL 7 days)
+    try:
+        cached = await firestore_client.get_posting_frequency(industry, business_type, platforms)
+        if cached:
+            logger.info("Posting frequency cache hit: %s / %s", industry, business_type)
+            return cached
+    except Exception:
+        pass
+
+    prompt = (
+        f"Research the optimal weekly posting frequency for a {business_type} "
+        f"in the {industry} industry on each of these platforms: {', '.join(platforms)}.\n"
+        f"Target audience: {target_audience}\n\n"
+        "Based on current data (2025-2026), for each platform provide:\n"
+        "1. Optimal posts per week (integer 1-7)\n"
+        "2. Best posting times (top 2-3 times in HH:MM AM/PM format)\n\n"
+        "Consider:\n"
+        "- Platform algorithm preferences for posting frequency\n"
+        "- Industry benchmarks for engagement vs frequency\n"
+        "- Audience expectations and peak activity times on each platform\n"
+        "- Quality vs quantity trade-offs\n\n"
+        "Return ONLY a valid JSON object:\n"
+        '{"instagram": {"posts_per_week": 7, "best_times": ["6:00 PM", "12:00 PM", "9:00 AM"]}, ...}'
+    )
+
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                temperature=0.2,
+            ),
+        )
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        freq = json.loads(raw.strip())
+
+        # Validate — clamp to 1-7, only keep selected platforms
+        result: dict[str, dict] = {}
+        for p in platforms:
+            entry = freq.get(p, {})
+            if isinstance(entry, (int, float)):
+                result[p] = {"posts_per_week": max(1, min(7, int(entry))), "best_times": []}
+            else:
+                result[p] = {
+                    "posts_per_week": max(1, min(7, int(entry.get("posts_per_week", 5)))),
+                    "best_times": [str(t) for t in entry.get("best_times", [])][:3],
+                }
+
+        # Cache (best-effort)
+        try:
+            await firestore_client.save_posting_frequency(industry, business_type, platforms, result)
+        except Exception:
+            pass
+
+        logger.info("Posting frequency researched for %s/%s: %s", industry, business_type,
+                     {p: v["posts_per_week"] for p, v in result.items()})
+        return result
+    except Exception as e:
+        logger.warning("Posting frequency research failed: %s", e)
+        # Fallback: all platforms daily
+        return {p: {"posts_per_week": 7, "best_times": []} for p in platforms}
 
 
 async def _research_platform_trends(platform: str, industry: str) -> dict | None:
@@ -300,6 +382,7 @@ async def run_strategy(
     """
     industry = brand_profile.get("industry", "")
     all_platforms = platform_keys()
+    original_platforms = platforms  # Save before mutation to track user-selected vs AI
 
     # ── Phase 0a: Determine platforms ─────────────────────────────────────────
     platform_reasoning = ""
@@ -322,13 +405,24 @@ async def run_strategy(
             platforms = ["instagram", "linkedin", "x", "facebook"]
             platform_reasoning = ""
 
-    # ── Phase 0b: Fetch trends + industry hooks for selected platforms ────────
+    # Track whether platforms were user-selected (vs AI-recommended)
+    user_selected_platforms = original_platforms is not None
+
+    # ── Phase 0b: Fetch trends + industry hooks + posting frequency ────────
     trend_platforms = platforms[:5]  # Limit to 5 to avoid rate limits
     trend_results = await asyncio.gather(
         *[_research_platform_trends(p, industry) for p in trend_platforms],
         _research_industry_hooks(industry, platforms),
+        _research_posting_frequency(brand_profile, platforms),
         return_exceptions=True,
     )
+    # Last two results: hook research, then posting frequency
+    freq_result_raw = trend_results[-1]
+    freq_result: dict[str, dict] = (
+        freq_result_raw if isinstance(freq_result_raw, dict)
+        else {p: {"posts_per_week": 7, "best_times": []} for p in platforms}
+    )
+    trend_results = trend_results[:-1]  # Remove freq from trend_results
     # Last result is the hook research; the rest are per-platform trends
     hook_research_result = trend_results[-1]
     hook_research: str = hook_research_result if isinstance(hook_research_result, str) else ""
@@ -359,6 +453,27 @@ async def run_strategy(
             "Use these hook patterns as inspiration for caption_hook values. "
             "Adapt them to be specific to this brand, not generic.\n"
         )
+
+    # ── Compute per-platform brief counts from researched frequency ──────────
+    num_platforms = len(platforms)
+    platform_briefs: dict[str, int] = {}
+    platform_times: dict[str, list[str]] = {}
+    for p in platforms:
+        entry = freq_result.get(p, {"posts_per_week": 5, "best_times": []})
+        weekly_freq = entry["posts_per_week"]
+        platform_briefs[p] = max(1, round(weekly_freq * num_days / 7))
+        platform_times[p] = entry.get("best_times", [])
+
+    total_briefs = sum(platform_briefs.values())
+
+    freq_context = "\n".join(
+        f"- {p.upper()}: {platform_briefs[p]} posts this {num_days}-day period "
+        f"({freq_result.get(p, {}).get('posts_per_week', 5)}x/week recommended)"
+        + (f" — best times: {', '.join(platform_times[p])}" if platform_times[p] else "")
+        for p in platforms
+    )
+
+    logger.info("Brief distribution for %s: %s (total=%d)", brand_id, platform_briefs, total_briefs)
 
     # ── Build strategy prompt ─────────────────────────────────────────────────
     platform_list = ", ".join(platforms)
@@ -478,6 +593,7 @@ async def run_strategy(
     prompt = f"""You are a social media strategy expert and creative director.
 
 Your job is to generate a {num_days}-day content calendar for the following brand.
+The brand publishes on {num_platforms} platform(s): {platform_list}.
 
 {temporal_context}
 
@@ -486,14 +602,19 @@ BRAND PROFILE:
 {platform_rec_block}{trends_context}{hook_research_block}
 BUSINESS_EVENTS_THIS_WEEK: {business_events or "None provided — generate thematic pillars based on brand profile and current season/timing."}
 
-Generate exactly {num_days} day briefs. Each brief covers one day of social media content.
+Generate exactly {total_briefs} day briefs across {num_days} days and {num_platforms} platforms.
 
-CRITICAL — GO DEEP, NOT WIDE:
-You have {num_days} days of content and these platforms available: {platform_list}
-Do NOT spread across all platforms. Pick the TOP 2-4 platforms and give them multiple
-posts each. It's better to post 3x/week on Instagram than 1x on 5 different platforms.
-Most platform algorithms reward consistency (3-5 posts/week minimum).
-Prioritize the top-ranked platforms — they should get the majority of days.
+POSTING FREQUENCY (researched for this business type):
+{freq_context}
+
+MULTI-PLATFORM DAY DISTRIBUTION:
+- Distribute each platform's posts across the {num_days} days as evenly as possible
+- High-frequency platforms (e.g. 7 posts) appear every day
+- Lower-frequency platforms (e.g. 3 posts) appear on select days — spread evenly, not clumped
+- Multiple briefs on the same day_index MUST have different platforms
+- Adapt content_theme, caption_hook, image_prompt, and derivative_type per platform
+- Posts on the same day may share a thematic angle but MUST differ in format, tone, and hook
+- Assign suggested_time from the platform's best posting times (rotate through them across the week)
 
 Content pillars to use: education, inspiration, promotion, behind_the_scenes, user_generated
 {_pillar_guidance}
@@ -569,6 +690,7 @@ Each day brief MUST have these exact fields:
 - derivative_type: one of "original", "carousel", "thread_hook", "blog_snippet", "story", "pin", "video_first"
 - event_anchor: string or null
 - cta_type: one of "engagement", "conversion", "implied", "none" — the CTA style for this post
+- suggested_time: string — best time to post this content (e.g. "6:00 PM"). Use the platform's researched best posting times, rotating through them.
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
 The image_prompt should reference the brand's visual style and colors if provided.
@@ -578,7 +700,7 @@ EVENT-AWARE PLANNING:
 - Events become the "promotion" or "behind_the_scenes" day brief
 - Add "event_anchor" field where content is tied to a business event (null otherwise)
 
-Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text.
+Return ONLY a valid JSON array of {total_briefs} objects. No markdown, no extra text.
 """
 
     try:
@@ -607,20 +729,19 @@ Return ONLY a valid JSON array of {num_days} objects. No markdown, no extra text
 
         # Normalize and validate each day
         validated = []
-        for i, day in enumerate(days[:num_days]):
+        for i, day in enumerate(days[:total_briefs]):
             validated.append(
                 _normalize_day(day, i, brand_profile, platforms, platform_trends_map, hook_research)
             )
 
-        # Pad if AI returned fewer days than requested
-        while len(validated) < num_days:
+        # Pad if AI returned fewer briefs than expected
+        while len(validated) < total_briefs:
             validated.append(_fallback_day(len(validated), brand_profile, platforms))
 
         # Cap group sizes
         validated = _enforce_group_size(validated)
 
-        # Enforce platform concentration (max 4 unique platforms)
-        validated = _enforce_platform_concentration(validated, platforms)
+        # Platform concentration no longer needed — frequency research handles distribution
 
         return validated
 
@@ -669,6 +790,7 @@ def _normalize_day(
         "hashtags": hashtags[:8],
         "derivative_type": derivative_type,
         "event_anchor": day.get("event_anchor", None),
+        "suggested_time": str(day.get("suggested_time", "")),
     }
 
     # Normalize cta_type with platform overrides

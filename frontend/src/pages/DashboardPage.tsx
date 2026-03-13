@@ -7,6 +7,7 @@ import { usePostLibrary } from '../hooks/usePostLibrary'
 import BrandSummaryBar from '../components/BrandSummaryBar'
 import ContentCalendar from '../components/ContentCalendar'
 import PostLibrary from '../components/PostLibrary'
+import PostHistory from '../components/PostHistory'
 import EventsInput from '../components/EventsInput'
 import VoiceCoach from '../components/VoiceCoach'
 import SocialConnect from '../components/SocialConnect'
@@ -30,6 +31,7 @@ export default function DashboardPage() {
   const { plan, generating, error: planError, generatePlan, setDayCustomPhoto, clearPlan } = useContentPlan(brandId ?? '')
   const { posts: calendarPosts } = usePostLibrary(brandId ?? '', plan?.plan_id)
   const [activeTab, setActiveTab] = useState<Tab>('calendar')
+  const [postsSubTab, setPostsSubTab] = useState<'weekly' | 'history'>('weekly')
 
   // H-8: Store planId in sessionStorage so NavBar can include it in the Export link.
   useEffect(() => {
@@ -250,30 +252,40 @@ export default function DashboardPage() {
 
       {/* ── Posts Tab ─────────────────────────────────────── */}
       {activeTab === 'posts' && (
-        <div style={{ padding: 24, borderRadius: 12, background: A.surface, border: `1px solid ${A.border}` }}>
-          {plan && brandId ? (
-            <>
-              <PostLibrary brandId={brandId} planId={plan.plan_id} notionReady={!!brand.integrations?.notion?.database_id} />
-              <div style={{ textAlign: 'center', marginTop: 16 }}>
-                <button
-                  onClick={() => navigate(`/brands/${brandId}/history`)}
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 13, color: A.indigo, fontWeight: 500,
-                  }}
-                >
-                  View all posts across all plans &rarr;
-                </button>
-              </div>
-            </>
-          ) : (
-            <div style={{
-              padding: 40, textAlign: 'center',
-              color: A.textMuted, fontSize: 13,
-            }}>
-              Generate a content plan first to see your posts here.
-            </div>
-          )}
+        <div style={{ borderRadius: 12, background: A.surface, border: `1px solid ${A.border}`, overflow: 'hidden' }}>
+          {/* Sub-tabs: Weekly / History */}
+          <div style={{ display: 'flex', borderBottom: `1px solid ${A.border}` }}>
+            {(['weekly', 'history'] as const).map(sub => (
+              <button
+                key={sub}
+                onClick={() => setPostsSubTab(sub)}
+                style={{
+                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: postsSubTab === sub ? 600 : 400,
+                  color: postsSubTab === sub ? A.indigo : A.textSoft,
+                  background: postsSubTab === sub ? A.indigoLight : 'transparent',
+                  borderBottom: postsSubTab === sub ? `2px solid ${A.indigo}` : '2px solid transparent',
+                }}
+              >
+                {sub === 'weekly' ? 'Weekly Plan' : 'All History'}
+              </button>
+            ))}
+          </div>
+          <div style={{ padding: 24 }}>
+            {postsSubTab === 'weekly' ? (
+              plan && brandId ? (
+                <PostLibrary brandId={brandId} planId={plan.plan_id} notionReady={!!brand.integrations?.notion?.database_id} />
+              ) : (
+                <div style={{ padding: 40, textAlign: 'center', color: A.textMuted, fontSize: 13 }}>
+                  Generate a content plan first to see your posts here.
+                </div>
+              )
+            ) : (
+              brandId ? (
+                <PostHistory brandId={brandId} />
+              ) : null
+            )}
+          </div>
         </div>
       )}
 

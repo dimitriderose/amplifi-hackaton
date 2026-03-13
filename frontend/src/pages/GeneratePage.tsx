@@ -102,9 +102,10 @@ export default function GeneratePage() {
   const isViewMode = !!viewPostId
 
   // H-3: Subtitle uses platform + content_theme from dayBrief instead of raw UUID
+  const displayDay = dayBrief?.day_index !== undefined ? dayBrief.day_index + 1 : currentDayIdx + 1
   const subtitle = dayBrief
-    ? `Day ${currentDayIdx + 1} · ${dayBrief.platform} · ${dayBrief.content_theme}`
-    : `Day ${currentDayIdx + 1}`
+    ? `Day ${displayDay} · ${dayBrief.platform} · ${dayBrief.content_theme}`
+    : `Day ${displayDay}`
 
   return (
     <div style={{
@@ -178,7 +179,7 @@ export default function GeneratePage() {
                   color: 'white', fontSize: 13, fontWeight: 600,
                 }}
               >
-                Next Day → Day {currentDayIdx + 2}
+                Next Post →
               </button>
             </div>
           )}

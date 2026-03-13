@@ -5,6 +5,7 @@ export interface Post {
   post_id: string
   plan_id: string
   day_index: number
+  brief_index?: number
   status: 'draft' | 'generating' | 'complete' | 'failed' | 'approved'
   caption?: string
   hashtags?: string[]

@@ -323,3 +323,41 @@ async def save_platform_recommendations(
         "fetched_at": now,
         "expires_at": now + timedelta(days=7),
     })
+
+
+# ── Posting frequency cache ───────────────────────────────────
+
+async def get_posting_frequency(
+    industry: str, business_type: str, platforms: list[str]
+) -> Optional[dict]:
+    """Return cached posting frequency data if not expired (7-day TTL)."""
+    db = get_client()
+    plat_key = "_".join(sorted(platforms))
+    doc_id = f"{industry}_{business_type}_{plat_key}".lower().replace(" ", "_")
+    snap = await db.collection("posting_frequency").document(doc_id).get()
+    if not snap.exists:
+        return None
+    data = snap.to_dict()
+    expires_at = data.get("expires_at")
+    if expires_at:
+        if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > expires_at:
+            return None
+    return data.get("frequency")
+
+
+async def save_posting_frequency(
+    industry: str, business_type: str, platforms: list[str], frequency: dict
+) -> None:
+    """Cache posting frequency with a 7-day TTL."""
+    db = get_client()
+    plat_key = "_".join(sorted(platforms))
+    doc_id = f"{industry}_{business_type}_{plat_key}".lower().replace(" ", "_")
+    now = datetime.now(timezone.utc)
+    await db.collection("posting_frequency").document(doc_id).set({
+        "frequency": frequency,
+        "platforms": platforms,
+        "fetched_at": now,
+        "expires_at": now + timedelta(days=7),
+    })
