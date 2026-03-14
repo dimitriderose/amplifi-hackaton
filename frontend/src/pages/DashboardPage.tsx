@@ -234,9 +234,11 @@ export default function DashboardPage() {
               plan={{ plan_id: plan.plan_id, days: plan.days }}
               brandId={brandId ?? ''}
               posts={calendarPosts}
-              onGeneratePost={(planId, dayIndex) =>
-                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}`)
-              }
+              defaultImageStyle={brand?.default_image_style}
+              onGeneratePost={(planId, dayIndex, imageStyle) => {
+                const styleParam = imageStyle ? `&image_style=${encodeURIComponent(imageStyle)}` : ''
+                navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}${styleParam}`)
+              }}
               onViewPost={(planId, dayIndex, postId) =>
                 navigate(`/generate/${planId}/${dayIndex}?brand_id=${brandId ?? ''}&post_id=${postId}`)
               }

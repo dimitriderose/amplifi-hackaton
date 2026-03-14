@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { A } from '../theme'
 import { getPlatform } from '../platformRegistry'
 import { api } from '../api/client'
+import { IMAGE_STYLE_GROUPS } from '../imageStyleOptions'
 import type { Post } from '../hooks/usePostLibrary'
 
 const PILLAR_COLORS: Record<string, string> = {
@@ -62,7 +63,8 @@ interface Props {
   plan: { plan_id: string; days: DayBrief[] }
   brandId?: string
   posts?: Post[]
-  onGeneratePost?: (planId: string, dayIndex: number) => void
+  defaultImageStyle?: string
+  onGeneratePost?: (planId: string, dayIndex: number, imageStyle?: string) => void
   onViewPost?: (planId: string, dayIndex: number, postId: string) => void
   onPhotoUploaded?: (dayIndex: number, photoUrl: string | null) => void
   trendSummary?: {
@@ -74,7 +76,7 @@ interface Props {
   onRefreshResearch?: () => void
 }
 
-export default function ContentCalendar({ plan, brandId, posts, onGeneratePost, onViewPost, onPhotoUploaded, trendSummary, onRefreshResearch }: Props) {
+export default function ContentCalendar({ plan, brandId, posts, defaultImageStyle, onGeneratePost, onViewPost, onPhotoUploaded, trendSummary, onRefreshResearch }: Props) {
   const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   // Map posts by day_index+platform — use the latest post per (day, platform)
@@ -217,7 +219,8 @@ export default function ContentCalendar({ plan, brandId, posts, onGeneratePost, 
                     arrayIndex={day._arrayIndex}
                     seriesColor={seriesColor}
                     post={dayPost}
-                    onGenerate={() => onGeneratePost?.(plan.plan_id, day._arrayIndex)}
+                    defaultImageStyle={defaultImageStyle}
+                    onGenerate={(imageStyle) => onGeneratePost?.(plan.plan_id, day._arrayIndex, imageStyle)}
                     onViewPost={dayPost && onViewPost
                       ? () => onViewPost(plan.plan_id, day._arrayIndex, dayPost.post_id)
                       : undefined
@@ -242,18 +245,34 @@ interface DayCardProps {
   arrayIndex: number
   seriesColor?: string
   post?: Post
-  onGenerate: () => void
+  defaultImageStyle?: string
+  onGenerate: (imageStyle?: string) => void
   onViewPost?: () => void
   onPhotoUploaded: (photoUrl: string | null) => void
 }
 
-function DayCard({ day, dayName, brandId, planId, arrayIndex, seriesColor, post, onGenerate, onViewPost, onPhotoUploaded }: DayCardProps) {
+function DayCard({ day, dayName, brandId, planId, arrayIndex, seriesColor, post, defaultImageStyle, onGenerate, onViewPost, onPhotoUploaded }: DayCardProps) {
   const pillarColor = PILLAR_COLORS[day.pillar] || A.indigo
   const platformSpec = getPlatform(day.platform)
   const PlatformIcon = platformSpec.icon
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [photoError, setPhotoError] = useState('')
+  const [showStylePicker, setShowStylePicker] = useState(false)
+  const [selectedStyle, setSelectedStyle] = useState(defaultImageStyle || '')
+  const stylePickerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { setSelectedStyle(defaultImageStyle || '') }, [defaultImageStyle])
+  // Close style picker on click outside
+  useEffect(() => {
+    if (!showStylePicker) return
+    const handler = (e: MouseEvent) => {
+      if (stylePickerRef.current && !stylePickerRef.current.contains(e.target as Node)) {
+        setShowStylePicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showStylePicker])
 
   const dayIndex = arrayIndex
   const isGenerated = post && (post.status === 'complete' || post.status === 'approved')
@@ -482,23 +501,69 @@ function DayCard({ day, dayName, brandId, planId, arrayIndex, seriesColor, post,
 
         {/* Primary action: Generate (ungenerated) or View Post (generated) */}
         {!isGenerated && !isGenerating && (
-          <button
-            onClick={onGenerate}
-            style={{
-              width: '100%',
-              padding: '6px 0',
-              borderRadius: 6,
-              border: 'none',
-              background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
-              color: 'white',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginBottom: brandId && !day.custom_photo_url ? 6 : 0,
-            }}
-          >
-            {day.custom_photo_url ? 'Generate with photo' : 'Generate'}
-          </button>
+          <div ref={stylePickerRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowStylePicker(prev => !prev)}
+              style={{
+                width: '100%',
+                padding: '6px 0',
+                borderRadius: 6,
+                border: 'none',
+                background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
+                color: 'white',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginBottom: brandId && !day.custom_photo_url ? 6 : 0,
+              }}
+            >
+              {day.custom_photo_url ? 'Generate with photo' : 'Generate'}
+            </button>
+            {showStylePicker && (
+              <div style={{
+                position: 'absolute', bottom: '100%', left: 0, right: 0,
+                marginBottom: 4, padding: 10, borderRadius: 8,
+                background: A.surface, border: `1px solid ${A.border}`,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 20,
+                minWidth: 180,
+              }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: A.textSoft, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Image Style
+                </label>
+                <select
+                  value={selectedStyle}
+                  onChange={e => setSelectedStyle(e.target.value)}
+                  style={{
+                    width: '100%', padding: '5px 8px', borderRadius: 6,
+                    border: `1px solid ${A.border}`, fontSize: 11, color: A.text,
+                    background: A.surface, outline: 'none', marginBottom: 8,
+                  }}
+                >
+                  <option value="">Auto (AI chooses)</option>
+                  {IMAGE_STYLE_GROUPS.map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    setShowStylePicker(false)
+                    onGenerate(selectedStyle || undefined)
+                  }}
+                  style={{
+                    width: '100%', padding: '6px 0', borderRadius: 6,
+                    border: 'none',
+                    background: `linear-gradient(135deg, ${A.indigo}, ${A.violet})`,
+                    color: 'white', fontSize: 11, fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Generate
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {isGenerated && onViewPost && (

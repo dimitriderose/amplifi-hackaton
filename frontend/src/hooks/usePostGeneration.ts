@@ -37,7 +37,7 @@ export function usePostGeneration() {
 
   const eventSourceRef = useRef<EventSource | null>(null)
 
-  const generate = useCallback((planId: string, dayIndex: number, brandId: string, instructions?: string) => {
+  const generate = useCallback((planId: string, dayIndex: number, brandId: string, instructions?: string, imageStyle?: string) => {
     // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -60,7 +60,8 @@ export function usePostGeneration() {
     })
 
     const instructionsParam = instructions ? `&instructions=${encodeURIComponent(instructions)}` : ''
-    const url = `/api/generate/${planId}/${dayIndex}?brand_id=${encodeURIComponent(brandId)}${instructionsParam}`
+    const imageStyleParam = imageStyle ? `&image_style=${encodeURIComponent(imageStyle)}` : ''
+    const url = `/api/generate/${planId}/${dayIndex}?brand_id=${encodeURIComponent(brandId)}${instructionsParam}${imageStyleParam}`
     const es = new EventSource(url)
     eventSourceRef.current = es
 

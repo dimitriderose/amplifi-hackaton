@@ -29,6 +29,7 @@ class BrandProfileUpdate(BaseModel):
     ui_preferences: Optional[dict] = None
     selected_platforms: Optional[List[str]] = None
     platform_mode: Optional[str] = None
+    default_image_style: Optional[str] = None
 
 
 class BrandProfile(BaseModel):
@@ -52,6 +53,7 @@ class BrandProfile(BaseModel):
     product_photos: List[str] = []
     uploaded_assets: List[dict] = []
     integrations: dict = {}  # { "notion": { access_token, ... }, "buffer": { ... } }
+    default_image_style: Optional[str] = None  # key from _IMAGE_STYLE_MAP (e.g. "editorial", "anime")
     analysis_status: str = "pending"  # pending | analyzing | complete | failed
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

@@ -4,6 +4,7 @@ import { A } from '../theme'
 import { api } from '../api/client'
 import { useBrandProfile } from '../hooks/useBrandProfile'
 import { PLATFORMS } from '../platformRegistry'
+import { IMAGE_STYLE_GROUPS } from '../imageStyleOptions'
 
 /** Convert a gs:// URI to a proxy-servable URL. */
 function gcsToUrl(gcsUri: string): string {
@@ -42,6 +43,7 @@ export default function EditBrandPage() {
   const [competitors, setCompetitors] = useState<string[]>([])
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [platformMode, setPlatformMode] = useState<'ai' | 'manual'>('ai')
+  const [defaultImageStyle, setDefaultImageStyle] = useState('')
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [assets, setAssets] = useState<UploadedAsset[]>([])
 
@@ -73,6 +75,7 @@ export default function EditBrandPage() {
     setCompetitors(brand.competitors || [])
     setSelectedPlatforms(brand.selected_platforms || [])
     setPlatformMode(brand.platform_mode || 'ai')
+    setDefaultImageStyle(brand.default_image_style || '')
     setLogoUrl(brand.logo_url || null)
     setAssets(brand.uploaded_assets || [])
   }, [brand])
@@ -98,6 +101,7 @@ export default function EditBrandPage() {
         competitors,
         selected_platforms: selectedPlatforms,
         platform_mode: platformMode,
+        default_image_style: defaultImageStyle || null,
       })
       setSaveMsg('Saved successfully')
       setTimeout(() => setSaveMsg(''), 3000)
@@ -316,6 +320,25 @@ export default function EditBrandPage() {
             </div>
             <FormField label="Visual Style" value={visualStyle} onChange={setVisualStyle}
               placeholder="e.g. clean-minimal, bold-vibrant" />
+          </div>
+          <div>
+            <Label>Default Image Style</Label>
+            <select
+              value={defaultImageStyle}
+              onChange={e => setDefaultImageStyle(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 12px', borderRadius: 8,
+                border: `1px solid ${A.border}`, fontSize: 13, color: A.text,
+                background: A.surface, outline: 'none',
+              }}
+            >
+              <option value="">Auto (AI chooses)</option>
+              {IMAGE_STYLE_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </optgroup>
+              ))}
+            </select>
           </div>
           <FormField label="Image Style Directive" value={imageStyleDirective}
             onChange={setImageStyleDirective} textarea rows={2} />

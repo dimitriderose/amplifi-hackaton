@@ -36,6 +36,7 @@ interface BrandProfile {
   social_voice_analyses?: Record<string, SocialVoiceAnalysis>
   social_voice_analysis?: SocialVoiceAnalysis
   social_voice_platform?: string
+  default_image_style?: string
   // Integrations (Notion, Buffer, etc.)
   integrations?: {
     notion?: {

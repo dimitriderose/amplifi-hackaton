@@ -34,8 +34,16 @@ def _get_model_and_aspect(
     return model, aspect_ratio
 
 
+_DEFAULT_VIDEO_STYLE = (
+    "STYLE: Cinematic single continuous shot. Smooth dolly or slow pan movement. "
+    "Professional lighting with depth. Shallow depth of field. Rich natural color grading. "
+    "One scene, one mood, one camera motion."
+)
+
+
 def _build_prompt(caption: str, brand_profile: dict, platform: str,
                    has_brand_refs: bool = False, edit_prompt: str | None = None) -> str:
+    _spec = get_platform(platform)
     brand_name = brand_profile.get("business_name", "")
     tone = brand_profile.get("tone", "professional and engaging")
     niche = brand_profile.get("industry", "")
@@ -43,14 +51,20 @@ def _build_prompt(caption: str, brand_profile: dict, platform: str,
     visual_style = brand_profile.get("visual_style", "")
     image_style_directive = brand_profile.get("image_style_directive", "")
 
+    # Platform-specific video style (from PlatformSpec) or default
+    video_style = _spec.video_style or _DEFAULT_VIDEO_STYLE
+
     if edit_prompt:
         parts = [
             f"Re-create this {platform}-optimized social media video clip with the following change: {edit_prompt}.",
         ]
     else:
         parts = [
-            f"Create a dynamic, eye-catching {platform}-optimized social media video clip.",
+            f"Create a {platform}-optimized social media video clip.",
         ]
+    # Platform-specific video direction
+    parts.append(video_style)
+
     if brand_name:
         parts.append(f"Brand: {brand_name}.")
     if niche:
@@ -64,25 +78,43 @@ def _build_prompt(caption: str, brand_profile: dict, platform: str,
     if image_style_directive:
         short_directive = image_style_directive[:200]
         parts.append(f"Style guide: {short_directive}.")
+
+    # Platform visual profile
+    if _spec.composition:
+        parts.append(f"COMPOSITION: {_spec.composition}")
+    if _spec.lighting:
+        parts.append(f"LIGHTING: {_spec.lighting}")
+    if _spec.mood:
+        parts.append(f"MOOD: {_spec.mood}")
+
     if caption:
         short_caption = caption[:200] + "..." if len(caption) > 200 else caption
         parts.append(f"Post context: {short_caption}")
 
+    # Prohibitions
+    parts.append(
+        "CRITICAL RULES: "
+        "NO watermarks, logos, or brand marks. "
+        "NO UI elements, buttons, or overlays. "
+        "NO stock-footage look — original authentic cinematography. "
+        "Consistent lighting throughout. "
+        "NO distorted faces or anatomy."
+    )
+
     if has_brand_refs:
         parts.append(
-            "The video should be visually compelling, smooth, and brand-consistent. "
             "Use the provided brand reference assets (logo, product images) faithfully — "
             f"the brand name is exactly \"{brand_name}\". "
             "Do NOT add any other text, watermarks, or made-up logos beyond what is in "
-            "the reference assets. Cinematic quality with smooth motion."
+            "the reference assets."
         )
-    else:
+    elif not _spec.text_overlay:
+        # Platforms that don't use text overlays get stricter no-text rule
         parts.append(
-            "The video should be visually compelling, smooth, and brand-consistent. "
             "CRITICAL: Do NOT include any text, words, brand names, logos, watermarks, "
-            "or written content in the video. Pure visual content only — no typography. "
-            "Cinematic quality with smooth motion."
+            "or written content in the video. Pure visual content only — no typography."
         )
+
     return " ".join(parts)
 
 
@@ -183,7 +215,7 @@ async def generate_video_clip(
         await asyncio.sleep(10)
         operation = await loop.run_in_executor(
             None,
-            lambda: client.operations.get(operation),
+            lambda op=operation: client.operations.get(op),
         )
         logger.info("Veo operation status: done=%s", operation.done)
 

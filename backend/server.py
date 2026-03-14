@@ -773,6 +773,7 @@ async def stream_generate(
     day_index: int,
     brand_id: str = Query(...),
     instructions: str | None = Query(None),
+    image_style: str | None = Query(None),
 ):
     """SSE endpoint: streams interleaved caption + image generation events."""
 
@@ -875,6 +876,7 @@ async def stream_generate(
                     custom_photo_mime=custom_photo_mime,
                     instructions=instructions,
                     prior_hooks=prior_hooks,
+                    image_style_key=image_style,
                 ):
                     _last_event_time = asyncio.get_event_loop().time()
                     event_name = event["event"]

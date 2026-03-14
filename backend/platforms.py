@@ -39,6 +39,17 @@ class PlatformSpec:
     # Voice/tone directive — how content should *sound* on this platform
     voice: str = ""
 
+    # Visual profile — how images/videos should *look* on this platform
+    composition: str = ""
+    lighting: str = ""
+    mood: str = ""
+    carousel_notes: str = ""
+    text_overlay: bool = False
+    video_style: str = ""
+    people: str = ""
+    image_optional: bool = False
+    alt_text_required: bool = False
+
 
 # ── Content prompts (named constants for readability) ─────────────────────────
 
@@ -201,6 +212,11 @@ REGISTRY: dict[str, PlatformSpec] = {
             "friend sharing a tip, not a brand broadcasting. End with a question "
             "or soft CTA, never 'Follow for more'."
         ),
+        composition="Clean composition with clear focal point. Rule of thirds. Subject fills 60-70% of frame.",
+        lighting="Warm, natural lighting. Golden hour feel preferred. Soft shadows.",
+        mood="Aspirational, polished but not corporate. Lifestyle-forward.",
+        carousel_notes="Cover: bold focal point in top 60%, space for text bottom 40%. Slides: match cover's color grading exactly. Visual progression (problem → insight → action).",
+        people="People drive engagement. Diverse, authentic expressions. Eye contact with camera.",
     ),
     "linkedin": PlatformSpec(
         key="linkedin",
@@ -222,6 +238,11 @@ REGISTRY: dict[str, PlatformSpec] = {
             "Share a real lesson, mistake, or counterintuitive finding. End with a "
             "question that invites professional discussion."
         ),
+        composition="Professional editorial framing. People in work context preferred. Shallow DOF.",
+        lighting="Even, professional lighting. Clean backgrounds. Neutral to warm tones.",
+        mood="Authoritative, trustworthy. Professional but human.",
+        carousel_notes="B2B: framework/methodology visuals. Each slide = one clear concept. Cover = problem statement visual.",
+        people="People in professional settings strongly outperform product-only. Headshots, candids at work.",
     ),
     "x": PlatformSpec(
         key="x",
@@ -241,6 +262,11 @@ REGISTRY: dict[str, PlatformSpec] = {
             "Contrarian takes perform well. Use threads for depth, single tweets "
             "for hot takes."
         ),
+        composition="High-contrast, minimalist. Readable at small thumbnail size (X crops aggressively at 16:9).",
+        lighting="Clean, even. White/light backgrounds work well for graphics and memes.",
+        mood="Punchy, thought-provoking. Data-driven, informative over beautiful. Copy is 70% of the hook.",
+        carousel_notes="X supports image threads (up to 4 images). Thread progression: each image adds to the argument/story. Simple > complex.",
+        people="Headshots for thought leadership. Screenshots, memes, data viz outperform lifestyle. Screenshot-as-image is huge on X.",
     ),
     "tiktok": PlatformSpec(
         key="tiktok",
@@ -261,6 +287,17 @@ REGISTRY: dict[str, PlatformSpec] = {
             "— keep it ultra-short. Use hooks that create curiosity about the "
             "video content."
         ),
+        composition="Center-frame subject. Safe zone: avoid top 20% and bottom 20% (text overlay area). High contrast, bold.",
+        lighting="Bright, punchy. High contrast. Ring light or natural feel.",
+        mood="Energetic, trend-aware, authentic over polished. Fast-paced.",
+        carousel_notes="Each slide should imply motion. Transitions between slides. Search-optimized copy.",
+        text_overlay=True,
+        video_style=(
+            "Single continuous shot with high-energy camera movement (fast push-in, dynamic tracking). "
+            "NOT multi-cut — Veo generates one shot. Authentic UGC handheld feel. "
+            "Plan for on-screen text zones. Subject-reactive camera movement."
+        ),
+        people="Faces and reactions dominate. UGC feel > studio feel. Duet/stitch-friendly framing (leave response space).",
     ),
     "facebook": PlatformSpec(
         key="facebook",
@@ -280,6 +317,11 @@ REGISTRY: dict[str, PlatformSpec] = {
             "Ask genuine questions. Reference local events or shared experiences. "
             "End with an invitation to comment or share a story."
         ),
+        composition="Community-oriented framing. Group shots, behind-the-scenes, authentic moments.",
+        lighting="Natural, warm. Not over-produced.",
+        mood="Relatable, shareable, emotionally resonant. Community > corporate.",
+        carousel_notes="Storytelling sequence: transformation, steps, customer journey. Visual progression.",
+        people="Real people, diverse, authentic. Behind-the-scenes moments. Community gatherings.",
     ),
     "threads": PlatformSpec(
         key="threads",
@@ -300,6 +342,11 @@ REGISTRY: dict[str, PlatformSpec] = {
             "broadcast. Hot takes and genuine questions perform best. "
             "Anti-promotional — add value or don't post."
         ),
+        composition="Image is supplementary to text discussion. Keep simple, contextual.",
+        lighting="Natural, authentic.",
+        mood="Anti-corporate, conversational. Image as visual citation, not hero.",
+        people="Optional. Authentic over styled.",
+        image_optional=True,
     ),
     "pinterest": PlatformSpec(
         key="pinterest",
@@ -320,6 +367,12 @@ REGISTRY: dict[str, PlatformSpec] = {
             "benefit-driven. Description uses natural language with target "
             "keywords woven in. No emoji, no hashtags."
         ),
+        composition="Vertical 2:3. Subject fills frame. Semi-transparent gradient overlay across FULL image for text readability.",
+        lighting="Bright, warm, natural. Lifestyle context. Real hands, real materials.",
+        mood="Aspirational, warm, inspirational. Cozy, DIY-friendly. Search-intent-aware.",
+        carousel_notes="Standard pins: single image. Idea Pins: multi-page (4:5 or 1:1), step-by-step tutorials.",
+        text_overlay=True,
+        people="Hands in action (cooking, crafting, styling). Full faces less common than Instagram.",
     ),
     "youtube_shorts": PlatformSpec(
         key="youtube_shorts",
@@ -340,6 +393,15 @@ REGISTRY: dict[str, PlatformSpec] = {
             "video, doesn't replace it. Searchable keywords for evergreen "
             "discovery. Direct and concise."
         ),
+        composition="9:16 vertical. First frame = auto-thumbnail. High contrast, recognizable subject centered.",
+        lighting="Bright, high-energy. Professional but accessible.",
+        mood="Hook-driven. First 0.5s must capture attention.",
+        text_overlay=True,
+        video_style=(
+            "Hook in first 0.5s. Retention-focused pacing. Smooth transitions > hard cuts. "
+            "Search-keyword optimized."
+        ),
+        people="Speaker/presenter in frame. Authentic setting.",
     ),
     "mastodon": PlatformSpec(
         key="mastodon",
@@ -359,6 +421,12 @@ REGISTRY: dict[str, PlatformSpec] = {
             "by being useful. No aggressive promotion, no engagement bait. "
             "CamelCase hashtags for accessibility."
         ),
+        composition="Informational, accessible. Diagrams, screenshots preferred over marketing visuals.",
+        lighting="Clean, functional.",
+        mood="Community-first, grassroots. Accessibility matters most.",
+        people="Optional. Practical imagery > aspirational.",
+        image_optional=True,
+        alt_text_required=True,
     ),
     "bluesky": PlatformSpec(
         key="bluesky",
@@ -378,6 +446,12 @@ REGISTRY: dict[str, PlatformSpec] = {
             "Write for custom feeds — niche topics over generic platitudes. "
             "Spark replies with specific questions."
         ),
+        composition="Niche-specific. High contrast, minimalist. Readable at tiny thumbnail size.",
+        lighting="Clean, functional.",
+        mood="Niche-community, intellectual. Technical diagrams > lifestyle photos.",
+        people="Rarely needed. Infographics and diagrams dominate.",
+        image_optional=True,
+        alt_text_required=True,
     ),
 }
 

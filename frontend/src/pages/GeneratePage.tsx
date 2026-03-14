@@ -13,6 +13,7 @@ export default function GeneratePage() {
   const navigate = useNavigate()
   const brandId = searchParams.get('brand_id') || ''
   const viewPostId = searchParams.get('post_id') || ''
+  const imageStyle = searchParams.get('image_style') || ''
 
   const { state, generate, reset, loadExisting } = usePostGeneration()
 
@@ -73,15 +74,15 @@ export default function GeneratePage() {
         .catch(() => {})
     } else if (planId && dayIndex !== undefined && brandId) {
       // Auto-start generation; return cleanup so EventSource closes on unmount
-      return generate(planId, parseInt(dayIndex, 10), brandId)
+      return generate(planId, parseInt(dayIndex, 10), brandId, undefined, imageStyle || undefined)
     }
-  }, [planId, dayIndex, brandId, generate, viewPostId, loadExisting])
+  }, [planId, dayIndex, brandId, imageStyle, generate, viewPostId, loadExisting])
 
   const handleRegenerate = (instructions?: string) => {
     if (planId && dayIndex !== undefined && brandId) {
       hasRegenerated.current = true
       reset()
-      generate(planId, parseInt(dayIndex, 10), brandId, instructions)
+      generate(planId, parseInt(dayIndex, 10), brandId, instructions, imageStyle || undefined)
     }
   }
 

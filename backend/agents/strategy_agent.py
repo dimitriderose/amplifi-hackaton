@@ -301,8 +301,13 @@ async def _research_visual_trends(platform: str, industry: str) -> dict | None:
             "- Single image vs carousel vs infographic — which gets more reach right now?\n"
             "- Trending composition patterns (close-ups, split screen, before/after, etc.)\n"
             "- Color trends or aesthetic shifts specific to this industry on this platform\n\n"
+            f"Also provide 5 specific scene descriptions for {industry} content on {platform}.\n"
+            "Each scene: subject, setting, lighting, camera angle, mood.\n"
+            "Example: 'Close-up of hands holding a product with warm side-lighting, "
+            "blurred workspace background, confident and focused mood'\n"
+            "NOT generic like 'professional image about the industry'.\n\n"
             "Return ONLY a valid JSON object with these keys:\n"
-            '{"trending_styles": [...], "format_performance": "...", "composition_tips": [...], "color_trends": "..."}'
+            '{"trending_styles": [...], "format_performance": "...", "composition_tips": [...], "color_trends": "...", "scene_suggestions": [...]}'
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
@@ -586,12 +591,14 @@ async def run_strategy(
         styles = ", ".join(str(s) for s in visual_trends.get("trending_styles", [])[:4])
         fmt = str(visual_trends.get("format_performance", ""))[:200]
         tips = "; ".join(str(t) for t in visual_trends.get("composition_tips", [])[:3])
+        scenes = "\n  ".join(str(s) for s in visual_trends.get("scene_suggestions", [])[:5])
         visual_research_block = (
             f"\nVISUAL RESEARCH ({primary_platform.upper()}, {industry}):\n"
             f"- Trending styles: {styles}\n"
             f"- Format performance: {fmt}\n"
             f"- Composition tips: {tips}\n"
-            "Use these findings to write specific image_prompt values — not generic 'professional image about X.'\n"
+            + (f"- Scene suggestions:\n  {scenes}\n" if scenes else "")
+            + "Use these findings to write specific image_prompt values — not generic 'professional image about X.'\n"
         )
 
     video_research_block = ""
@@ -847,6 +854,7 @@ Each day brief MUST have these exact fields:
 
 Make the content_theme and caption_hook specific to the brand's industry, tone, and audience.
 The image_prompt should reference the brand's visual style and colors if provided.
+When writing image_prompt values, describe a SPECIFIC scene — subject, setting, lighting, camera angle, mood. Never write generic descriptions like 'professional photo of happy people'.
 
 EVENT-AWARE PLANNING:
 - If BUSINESS_EVENTS_THIS_WEEK is provided, identify 1-2 impactful events and make them content pillars
@@ -945,7 +953,7 @@ def _normalize_day(
         "content_theme": str(day.get("content_theme", f"Day {index + 1} content")),
         "caption_hook": str(day.get("caption_hook", "Something worth stopping for.")),
         "key_message": str(day.get("key_message", "Share your brand story.")),
-        "image_prompt": str(day.get("image_prompt", "Professional brand photo with clean composition.")),
+        "image_prompt": str(day.get("image_prompt", f"Scene depicting {brand_profile.get('industry', 'business')} professional context for {brand_profile.get('business_name', 'your brand')}. Clean composition with clear focal point. Natural, professional lighting.")),
         "hashtags": hashtags[:8],
         "derivative_type": derivative_type,
         "event_anchor": day.get("event_anchor", None),
@@ -1011,9 +1019,10 @@ def _fallback_day(
         "caption_hook": hooks_by_pillar[pillar],
         "key_message": f"Showcase the value and authenticity of {business_name}.",
         "image_prompt": (
-            f"Professional photo representing {business_name} in the {industry} space. "
-            "Clean, modern composition with natural lighting. Brand colors visible. "
-            "High quality, authentic feel with generous whitespace."
+            f"Scene depicting {industry} professional context for {business_name}. "
+            "Clean composition with clear focal point, rule of thirds. "
+            "Natural, professional lighting with soft shadows. "
+            f"Brand visual style: {brand_profile.get('visual_style', 'modern and clean')}."
         ),
         "hashtags": [
             industry.lower().replace(" ", ""),

@@ -15,10 +15,72 @@ GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
 from backend.services import budget_tracker as bt
 from backend.services.storage_client import upload_image_to_gcs
 from backend.services.brand_assets import get_brand_reference_images
+from backend.services.image_postprocess import (
+    resize_to_aspect, create_carousel_cover, create_carousel_slide,
+    create_pinterest_pin, create_tiktok_cover,
+)
 from backend.agents.review_agent import review_post
 
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GOOGLE_API_KEY)
+
+# ── Adaptive Image Style System (35 styles, 6 categories) ────────────────────
+
+_IMAGE_STYLE_MAP: dict[str, dict[str, str]] = {
+    # ── Photography Styles ──
+    "photorealistic":   {"keyword": "professional photograph",     "directives": "Shot on 50mm f/1.8 lens, sharp focus, natural lighting at 5500K, realistic textures, authentic composition. Professional but not stock-photo sterile"},
+    "editorial":        {"keyword": "editorial photograph",         "directives": "Magazine-quality framing, soft diffused light, muted earthy tones, shallow DOF at f/2.8, aspirational but understated. Focus: fashion, beauty, lifestyle"},
+    "documentary":      {"keyword": "documentary photograph",      "directives": "35mm lens, available light only, candid moments, honest and raw, photojournalism feel, slight grain ISO 800+"},
+    "cinematic":        {"keyword": "cinematic still photograph",  "directives": "Dramatic chiaroscuro lighting, anamorphic lens feel (wide 2.39:1 crop energy), film grain, teal-orange color grading, deep shadows, narrative tension. Focus: storytelling, drama, atmosphere"},
+    "food-photo":       {"keyword": "food photograph",             "directives": "Shot at 45° or overhead, 85mm macro lens, natural window light at 4000K warm, styled props, appetizing colors, restaurant-quality plating, shallow DOF f/2.8"},
+    "product":          {"keyword": "product photograph",          "directives": "100mm macro lens, clean seamless background, 3-point studio lighting (key + fill + rim), sharp detail at f/8, hero-shot composition, material textures visible"},
+    "lifestyle":        {"keyword": "lifestyle photograph",        "directives": "35mm f/1.4 lens, people in natural settings, warm golden-hour light at 3200K, candid feel, authentic moments, bokeh background, relatable context"},
+    "lo-fi":            {"keyword": "lo-fi aesthetic photograph",   "directives": "Intentional grain, slightly desaturated, analog camera feel, imperfect framing, retro-tech warmth. Trending 2025-2026"},
+
+    # ── Illustration & Art Styles ──
+    "illustration":     {"keyword": "digital illustration",        "directives": "Clean vector-like art, bold colors, clear shapes, modern graphic feel"},
+    "hand-drawn":       {"keyword": "hand-drawn illustration",     "directives": "Visible brush/pen strokes, imperfect organic lines, warmth, personality, scrapbook-like accents. Anti-AI aesthetic trending 2026"},
+    "anime":            {"keyword": "anime-style illustration",    "directives": "Japanese animation aesthetic, vibrant colors, expressive characters, cel-shaded look, clean linework, dynamic poses"},
+    "cartoon":          {"keyword": "cartoon illustration",        "directives": "Exaggerated proportions, bold outlines, flat bright colors, playful expressions, comic-book energy, fun and accessible"},
+    "watercolor":       {"keyword": "watercolor painting",         "directives": "Soft color bleeds, organic edges, translucent layers, dreamy and artistic, gentle and warm palette"},
+    "pixel-art":        {"keyword": "pixel art",                   "directives": "Grid-based retro game aesthetic, limited color palette, nostalgic 8-bit/16-bit feel, clean pixel placement. Revival trend 2026"},
+    "risograph":        {"keyword": "risograph-style print",       "directives": "Limited vivid color palette (2-3 colors), halftone dots, charming imperfections, dust/grain, overprint color mixing. Trending 2026"},
+
+    # ── 3D & Futuristic ──
+    "3d-render":        {"keyword": "3D render",                   "directives": "Clean geometry, soft global illumination, glass/metal materials, subtle reflections, modern product-visualization feel"},
+    "futuristic":       {"keyword": "sci-fi concept art",          "directives": "Neon accents, holographic elements, dark backgrounds with glowing highlights, cyberpunk/utopian atmosphere, sleek surfaces"},
+    "retro-futurism":   {"keyword": "retro-futuristic design",    "directives": "Chrome finishes, neon palette, 1980s sci-fi aesthetic, synthwave colors, speculative optimism. Trending 2026"},
+
+    # ── Graphic Design Styles ──
+    "bold-minimal":     {"keyword": "bold minimalist graphic",     "directives": "Strong single focal point, oversized typography, confident color choice, maximum whitespace, high impact. Trending 2026"},
+    "maximalist":       {"keyword": "maximalist collage",          "directives": "Layered typography, bold colors, dense imagery, mixed textures, eclectic energy, visual abundance. Anti-minimalism trend 2026"},
+    "neo-brutalist":    {"keyword": "neo-brutalist graphic",       "directives": "Raw layout, oversized type, black borders, intentional roughness, high contrast, prioritize clarity over refinement. Trending 2026"},
+    "mixed-media":      {"keyword": "mixed-media collage",         "directives": "Layered photography + illustration + typography + texture, dimensional richness, handmade cutout feel. Top trend 2026"},
+    "flat-design":      {"keyword": "flat design graphic",          "directives": "Solid colors, no gradients or shadows, geometric shapes, clean sans-serif type, modern UI-inspired aesthetic, accessible and clean"},
+    "glitch":           {"keyword": "glitch art",                  "directives": "Controlled digital distortion, RGB shift, scan lines, data corruption aesthetic, cyberpunk energy"},
+
+    # ── Mood/Aesthetic Styles ──
+    "cozy":             {"keyword": "cozy aesthetic photograph",   "directives": "Warm tones, soft textures (knit, wood, candles), comfort-focused, hygge mood, gentle natural light. Trending 2025-2026"},
+    "nature":           {"keyword": "nature-inspired photograph",  "directives": "Organic shapes, earth tones, botanical elements, natural textures, atmospheric outdoor lighting, eco-conscious feel"},
+    "luxury":           {"keyword": "luxury editorial",            "directives": "Empty premium spaces, premium materials close-up, minimal people, muted palette, aspirational restraint"},
+    "energetic":        {"keyword": "dynamic action photograph",   "directives": "Motion blur accents, vibrant saturated colors, high energy, human movement, sports/fitness feel"},
+    "nostalgic":        {"keyword": "vintage nostalgic photograph", "directives": "Retro color grading (70s/80s/90s), warm grain, analog textures, faded tones, throwback composition. Nostalgia remix trend"},
+    "dreamy":           {"keyword": "dreamy soft-focus image",     "directives": "Blur effects, atmospheric haze, soft pastel colors, ethereal mood, gentle light leaks, romantic feel"},
+
+    # ── Industry-Specific ──
+    "corporate":        {"keyword": "corporate professional photograph", "directives": "Even studio lighting, clean backgrounds, neutral tones, sharp focus, trustworthy and polished"},
+    "craftsmanship":    {"keyword": "detail close-up photograph",  "directives": "Hands at work, material textures in focus, warm side-lighting, shallow DOF, artisan pride"},
+    "data-viz":         {"keyword": "data visualization graphic",  "directives": "Clean chart/diagram layout, high contrast, sans-serif typography, infographic aesthetic, clear hierarchy"},
+    "ugc":              {"keyword": "authentic user-generated content style photograph", "directives": "Phone-camera feel, natural imperfections, real settings, no studio lighting, relatable and genuine. Micro-authenticity trend 2026"},
+}
+
+
+def _get_image_style(style_key: str | None) -> dict[str, str]:
+    """Look up image style by key, fallback to photorealistic."""
+    if style_key and style_key in _IMAGE_STYLE_MAP:
+        return _IMAGE_STYLE_MAP[style_key]
+    return _IMAGE_STYLE_MAP["photorealistic"]
+
 
 # Common English stopwords that should never be hashtags
 _HASHTAG_STOPWORDS = frozenset({
@@ -574,6 +636,100 @@ def _wrap_caption_style_directive(raw: str) -> str:
     )
 
 
+def _build_image_prompt(
+    platform: str,
+    style: dict[str, str],
+    enhanced_image_prompt: str,
+    image_style_directive: str,
+    color_hint: str,
+    style_ref_block: str,
+    aspect: str,
+    derivative_type: str | None = None,
+) -> str:
+    """Build a platform-aware image generation prompt."""
+    _spec = get_platform(platform)
+
+    prompt = (
+        f"Create a high-quality {aspect} {style['keyword']} for {platform}.\n"
+        f"Subject: {enhanced_image_prompt}\n"
+        f"Visual direction: {style['directives']}. {image_style_directive}\n"
+        f"{color_hint}\n"
+    )
+    if _spec.composition:
+        prompt += f"COMPOSITION: {_spec.composition}\n"
+    if _spec.lighting:
+        prompt += f"LIGHTING: {_spec.lighting}\n"
+    if _spec.mood:
+        prompt += f"MOOD: {_spec.mood}\n"
+    prompt += (
+        "TECHNICAL: Professional quality, proper white balance, no motion blur unless "
+        "intentional, correct perspective geometry, clean edges.\n"
+    )
+    if _spec.people:
+        prompt += f"PEOPLE: {_spec.people}\n"
+
+    # Text overlay platforms get different instructions
+    if _spec.text_overlay:
+        prompt += (
+            "TEXT ZONES: Leave clear areas for text overlay (top 20% and bottom 30%).\n"
+            "Background should be slightly muted/gradient in text zones for readability.\n"
+        )
+    else:
+        prompt += "Leave center/lower third slightly uncluttered (text may be added separately).\n"
+
+    prompt += (
+        "ABSOLUTE PROHIBITIONS:\n"
+        "- No AI-generated text, letters, numbers, words, labels, or typography\n"
+        "- No watermarks, logos, brand marks, or signatures\n"
+        "- No UI elements, buttons, frames, borders, or overlays\n"
+        "- No fake screenshots, browser windows, or device mockups\n"
+        "- No floating/disconnected elements\n"
+        "- No distorted anatomy, extra limbs, or wrong finger counts\n"
+        "- No transparent ghosting or overlapping objects\n"
+        "- No blurry pseudo-text shadows\n"
+        "- No fake social media UI (Instagram badges, like buttons)\n"
+        "- No lens artifacts (unwanted vignetting, chromatic aberration)\n"
+        f"{style_ref_block}"
+    )
+    return prompt
+
+
+def _build_carousel_slide_prompt(
+    platform: str,
+    style: dict[str, str],
+    slide_num: int,
+    slide_visual_hint: str,
+    color_hint: str,
+    style_ref_block: str,
+) -> str:
+    """Build prompt for a carousel slide image — visual hint only, no text content."""
+    _spec = get_platform(platform)
+    carousel_notes = _spec.carousel_notes or ""
+
+    prompt = (
+        f"Create carousel slide {slide_num} image as a {style['keyword']}.\n"
+        f"Visual direction: {style['directives']}.\n"
+        f"Scene: {slide_visual_hint}\n"
+        f"{color_hint}\n"
+    )
+    if _spec.composition:
+        prompt += f"COMPOSITION: {_spec.composition}\n"
+    if _spec.lighting:
+        prompt += f"LIGHTING: {_spec.lighting}\n"
+    if carousel_notes:
+        prompt += f"CAROUSEL: {carousel_notes}\n"
+    prompt += (
+        "Match the cover image's color grading and visual style exactly.\n"
+        "ABSOLUTE PROHIBITIONS:\n"
+        "- No AI-generated text, letters, numbers, words, labels, or typography\n"
+        "- No watermarks, logos, brand marks, or signatures\n"
+        "- No UI elements, buttons, frames, borders, or overlays\n"
+        "- No distorted anatomy, extra limbs, or wrong finger counts\n"
+        f"{style_ref_block}"
+    )
+    return prompt
+
+
 async def _generate_carousel_images(
     slide_descriptions: list[str],
     business_name: str,
@@ -584,6 +740,7 @@ async def _generate_carousel_images(
     platform: str,
     post_id: str,
     cover_image_bytes: bytes | None,
+    image_style: dict[str, str] | None = None,
 ) -> list[tuple[bytes, str]]:
     """Generate images for carousel slides 2+ in parallel.
 
@@ -595,16 +752,16 @@ async def _generate_carousel_images(
     if not slides_to_generate:
         return []
 
+    style = image_style or _get_image_style(None)
+
     async def _gen_one(slide_text: str, slide_num: int) -> tuple[bytes, str] | None:
-        prompt = (
-            f"Generate a social media carousel slide image (slide {slide_num}).\n"
-            f"Brand: {business_name}. Visual style: {visual_style}.\n"
-            f"{color_hint}\n"
-            f"Slide content: {slide_text[:300]}\n"
-            f"{image_style_directive}\n"
-            f"{style_ref_block}"
-            "Create a clean, visually striking image that illustrates this slide's message.\n"
-            "Do NOT include any text, watermarks, or captions in the image."
+        prompt = _build_carousel_slide_prompt(
+            platform=platform,
+            style=style,
+            slide_num=slide_num,
+            slide_visual_hint=slide_text[:200],
+            color_hint=color_hint,
+            style_ref_block=style_ref_block,
         )
         try:
             resp = await asyncio.to_thread(
@@ -613,7 +770,7 @@ async def _generate_carousel_images(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
-                    temperature=0.9,
+                    temperature=0.7,
                 ),
             )
             for part in resp.candidates[0].content.parts:
@@ -629,6 +786,69 @@ async def _generate_carousel_images(
     return [r for r in results if r is not None]
 
 
+async def _generate_image_with_retry(
+    img_contents: list,
+    max_retries: int = 2,
+) -> tuple[bytes | None, str]:
+    """Generate image with retry on failure. Returns (image_bytes, mime_type)."""
+    for attempt in range(max_retries + 1):
+        try:
+            resp = await asyncio.to_thread(
+                client.models.generate_content,
+                model=GEMINI_IMAGE_MODEL,
+                contents=img_contents,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    temperature=0.7,
+                ),
+            )
+            for part in resp.candidates[0].content.parts:
+                if part.inline_data:
+                    data = part.inline_data.data
+                    mime = part.inline_data.mime_type or "image/png"
+                    if len(data) > 5000:  # Minimum viable image (~5KB)
+                        return data, mime
+                    logger.warning("Image too small (%dB), retry %d/%d", len(data), attempt + 1, max_retries)
+        except Exception as e:
+            logger.warning("Image generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
+        if attempt < max_retries:
+            await asyncio.sleep(1)
+    return None, "image/png"
+
+
+async def _generate_alt_text(
+    image_bytes: bytes,
+    content_theme: str,
+    platform: str,
+) -> str | None:
+    """Generate descriptive alt-text for accessibility using vision model.
+
+    Only generated for platforms where alt-text is community-expected (Mastodon, Bluesky).
+    """
+    _spec = get_platform(platform)
+    if not _spec.alt_text_required:
+        return None
+
+    try:
+        result = await asyncio.to_thread(
+            client.models.generate_content,
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                (
+                    f"Write alt-text for this image (for screen readers). Context: {content_theme[:150]}.\n"
+                    "Be factual and descriptive: what's in the image, colors, composition.\n"
+                    "Do NOT say 'AI-generated' or 'stock photo'. Max 300 characters."
+                ),
+            ],
+        )
+        alt = result.text.strip()[:500]
+        return alt
+    except Exception as e:
+        logger.warning("Alt-text generation failed (non-fatal): %s", e)
+        return None
+
+
 async def generate_post(
     plan_id: str,
     day_brief: dict,
@@ -638,6 +858,7 @@ async def generate_post(
     custom_photo_mime: str = "image/jpeg",
     instructions: str | None = None,
     prior_hooks: list[str] | None = None,
+    image_style_key: str | None = None,
 ) -> AsyncIterator[dict]:
     """
     Generate a social media post using Gemini 2.5 Flash.
@@ -1218,7 +1439,25 @@ async def generate_post(
         "pin": "2:3",
         "blog_snippet": "1.91:1",
     }
-    _aspect = _DERIVATIVE_ASPECTS.get(derivative_type, _spec.image_aspect)
+    # Platform-specific carousel aspect ratios
+    _CAROUSEL_ASPECTS: dict[str, str] = {
+        "instagram": "4:5",
+        "linkedin": "1:1",
+        "tiktok": "9:16",
+        "facebook": "1:1",
+        "x": "1:1",
+    }
+    # Platform-specific standard post aspect overrides
+    _STANDARD_POST_ASPECTS: dict[str, str] = {
+        "instagram": "4:5",
+        "x": "16:9",
+    }
+    if derivative_type == "carousel":
+        _aspect = _CAROUSEL_ASPECTS.get(platform, _spec.image_aspect)
+    elif derivative_type in _DERIVATIVE_ASPECTS:
+        _aspect = _DERIVATIVE_ASPECTS[derivative_type]
+    else:
+        _aspect = _STANDARD_POST_ASPECTS.get(platform, _spec.image_aspect)
     aspect_hint = f"Generate a {_aspect} aspect ratio image." if _aspect != "1:1" else ""
 
     # Live platform trend intelligence (from strategy Phase 0)
@@ -1766,41 +2005,55 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
         except Exception as e:
             logger.warning("Failed to load brand reference images: %s", e)
 
-        img_prompt = (
-            f"Generate a stunning {platform}-optimized social media image.\n"
-            f"{aspect_hint + chr(10) if aspect_hint else ''}"
-            f"Brand: {business_name}. Visual style: {visual_style}.\n"
-            f"{color_hint}\n"
-            f"Image visual: {image_prompt}\n"
-            f"{image_style_directive}\n"
-            f"{style_ref_block}"
-            "Do NOT include any text, watermarks, or captions in the image."
+        # Resolve image style: per-post override > brand default > photorealistic
+        _image_style = _get_image_style(
+            image_style_key or brand_profile.get("default_image_style")
+        )
+        img_prompt = _build_image_prompt(
+            platform=platform,
+            style=_image_style,
+            enhanced_image_prompt=image_prompt,
+            image_style_directive=image_style_directive,
+            color_hint=color_hint,
+            style_ref_block=style_ref_block,
+            aspect=_aspect,
+            derivative_type=derivative_type,
         )
         img_contents.insert(0, img_prompt)
 
         try:
-            img_response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=GEMINI_IMAGE_MODEL,
-                contents=img_contents,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    temperature=0.9,
-                ),
-            )
-            for img_part in img_response.candidates[0].content.parts:
-                if img_part.inline_data:
-                    image_bytes = img_part.inline_data.data
-                    image_mime = img_part.inline_data.mime_type or "image/png"
-                    break
+            image_bytes, image_mime = await _generate_image_with_retry(img_contents)
 
             if image_bytes:
+                # Post-processing: resize + platform-specific text overlay
+                try:
+                    image_bytes = resize_to_aspect(image_bytes, _aspect)
+                    if derivative_type == "carousel":
+                        image_bytes = create_carousel_cover(
+                            image_bytes, content_theme or caption_hook, colors, _aspect)
+                    elif platform == "pinterest":
+                        image_bytes = create_pinterest_pin(
+                            image_bytes, content_theme, key_message[:80], colors)
+                    elif platform in ("tiktok", "youtube_shorts"):
+                        image_bytes = create_tiktok_cover(
+                            image_bytes, caption_hook or content_theme, colors)
+                    # Standard posts (IG, LI, FB, X, Threads, Mastodon, Bluesky): no text overlay
+                    image_mime = "image/png"
+                except Exception as pp_err:
+                    logger.warning("Image post-processing failed (non-fatal): %s", pp_err)
+
+                # Generate alt-text for accessibility-first platforms
+                alt_text = await _generate_alt_text(image_bytes, content_theme, platform)
+
                 try:
                     image_url, image_gcs_uri = await upload_image_to_gcs(image_bytes, image_mime, post_id)
                     bt.budget_tracker.record_image()
+                    _img_event_data = {"url": image_url, "mime_type": image_mime, "gcs_uri": image_gcs_uri}
+                    if alt_text:
+                        _img_event_data["alt_text"] = alt_text
                     yield {
                         "event": "image",
-                        "data": {"url": image_url, "mime_type": image_mime, "gcs_uri": image_gcs_uri}
+                        "data": _img_event_data,
                     }
                 except Exception as upload_err:
                     logger.error("Image upload failed: %s", upload_err)
@@ -1841,8 +2094,18 @@ CRITICAL: Only output real hashtags. Never convert sentence fragments into hasht
                     platform=platform,
                     post_id=post_id,
                     cover_image_bytes=image_bytes,
+                    image_style=_image_style,
                 )
-                for slide_bytes, slide_mime in extra_slides:
+                for slide_idx, (slide_bytes, slide_mime) in enumerate(extra_slides):
+                    # Post-process each slide: resize + number badge + title
+                    try:
+                        slide_bytes = resize_to_aspect(slide_bytes, _aspect)
+                        _slide_title = slide_descriptions[slide_idx + 1][:60] if slide_idx + 1 < len(slide_descriptions) else ""
+                        slide_bytes = create_carousel_slide(
+                            slide_bytes, slide_idx + 2, _slide_title, colors, _aspect)
+                        slide_mime = "image/png"
+                    except Exception as pp_err:
+                        logger.warning("Carousel slide post-processing failed: %s", pp_err)
                     try:
                         slide_url, slide_gcs = await upload_image_to_gcs(slide_bytes, slide_mime, post_id)
                         bt.budget_tracker.record_image()
